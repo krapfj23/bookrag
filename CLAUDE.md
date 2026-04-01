@@ -27,6 +27,14 @@ python main.py
 
 No linter or formatter is configured. No pyproject.toml or Makefile exists. Package management uses uv (`uv pip install`).
 
+## Current Status (as of 2026-03-31)
+
+**744 tests passing, 1 failing, 1 collection error.**
+
+Known issues:
+- `tests/test_quality_control.py` — collection error: imports `Token` from `pipeline.booknlp_runner` but that name is not exported. Either the dataclass was renamed/removed or the test needs updating.
+- `tests/test_orchestrator.py::TestStageRunBooknlp::test_stub_when_booknlp_not_installed` — 1 failure.
+
 ## Architecture
 
 ### Two-Phase Pipeline
@@ -66,7 +74,8 @@ BookNLP does NOT produce resolved text. We reconstruct it from `.entities` + `.t
 
 ## Testing
 
-- **1 test file per pipeline module**, all in `tests/`.
+- **16 test files** in `tests/`, roughly 1 per pipeline module.
+- **784 tests total** (744 passing, 1 failing, 1 file with collection error — see Current Status).
 - **Cognee mock** in `tests/conftest.py` — installs a fake `cognee` module before any imports (required because cognee is not always installed locally). The mock provides a minimal `DataPoint` as a Pydantic BaseModel.
 - **Shared fixtures** in `conftest.py`: Christmas Carol BookNLP output (book JSON, entities TSV, sample text with parenthetical coref).
 - Every test class has a docstring explaining what it covers and which plan doc it aligns with.
