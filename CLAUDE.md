@@ -29,11 +29,7 @@ No linter or formatter is configured. No pyproject.toml or Makefile exists. Pack
 
 ## Current Status (as of 2026-03-31)
 
-**744 tests passing, 1 failing, 1 collection error.**
-
-Known issues:
-- `tests/test_quality_control.py` — collection error: imports `Token` from `pipeline.booknlp_runner` but that name is not exported. Either the dataclass was renamed/removed or the test needs updating.
-- `tests/test_orchestrator.py::TestStageRunBooknlp::test_stub_when_booknlp_not_installed` — 1 failure.
+**805 tests passing, 0 failures, 0 collection errors.**
 
 ## Architecture
 
