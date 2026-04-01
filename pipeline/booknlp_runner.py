@@ -1,469 +1,448 @@
-"""BookNLP runner: executes BookNLP on a text file and parses all outputs
-into structured Python dataclasses.
+"""BookNLP runner — execute BookNLP and parse its output files.
 
-Handles .tokens, .entities, .quotes TSV files and the .book JSON file,
-producing a unified BookNLPOutput for downstream pipeline consumption.
+Wraps BookNLP execution and provides structured parsing of all output
+files (.tokens, .entities, .quotes, .supersense, .book) into Python
+dataclasses for downstream pipeline consumption.
+
+BookNLP output format reference (from deep research doc):
+  - .tokens  — TSV, every token: POS, dependency, coref ID, event triggers
+  - .entities — TSV, entity mentions: COREF cluster ID, token span, type, prop
+  - .quotes  — TSV, quotation text + attributed speaker (coref ID)
+  - .supersense — TSV, WordNet semantic categories
+  - .book    — JSON, character profiles: names, actions, modifiers, gender
 """
 from __future__ import annotations
 
-import csv
+import asyncio
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
+from pipeline.tsv_utils import read_tsv, safe_int
+
 
 # ---------------------------------------------------------------------------
-# Dataclasses
+# Parsed data models
 # ---------------------------------------------------------------------------
-
-@dataclass
-class Token:
-    """A single token from the BookNLP .tokens file."""
-
-    token_id: int
-    sentence_id: int
-    token_offset_begin: int
-    token_offset_end: int
-    word: str
-    lemma: str
-    pos: str
-    dep_rel: str
-    dep_head: int
-    coref_id: int  # -1 if none
-    supersense: str = ""
-    event: str = ""
-
-    @classmethod
-    def from_row(cls, row: dict[str, str]) -> Token:
-        """Parse a single row from the .tokens TSV."""
-        return cls(
-            token_id=_int(row, "token_ID_within_document", fallback_keys=["token_id"]),
-            sentence_id=_int(row, "sentence_ID", fallback_keys=["sentence_id"]),
-            token_offset_begin=_int(row, "token_offset_begin", fallback_keys=["byte_onset", "start_offset"]),
-            token_offset_end=_int(row, "token_offset_end", fallback_keys=["byte_offset", "end_offset"]),
-            word=_str(row, "word", fallback_keys=["token"]),
-            lemma=_str(row, "lemma"),
-            pos=_str(row, "POS_tag", fallback_keys=["pos", "fine_POS_tag"]),
-            dep_rel=_str(row, "dependency_relation", fallback_keys=["dep_rel"]),
-            dep_head=_int(row, "dependency_head_ID", fallback_keys=["dep_head"]),
-            coref_id=_int(row, "coref_id", fallback_keys=["COREF", "coref"], default=-1),
-            supersense=_str(row, "supersense_category", fallback_keys=["supersense"], default=""),
-            event=_str(row, "event", fallback_keys=["event_category"], default=""),
-        )
-
 
 @dataclass
 class EntityMention:
-    """A named-entity mention from the BookNLP .entities file."""
+    """A single entity mention from BookNLP's .entities file."""
 
     coref_id: int
     start_token: int
     end_token: int
-    prop: str  # PROP, NOM, PRON
-    cat: str   # PER, LOC, FAC, GPE, VEH, ORG
+    prop: str           # PROP | NOM | PRON
+    cat: str            # PER | LOC | FAC | GPE | VEH | ORG
     text: str
-
-    @classmethod
-    def from_row(cls, row: dict[str, str]) -> EntityMention:
-        """Parse a single row from the .entities TSV."""
-        return cls(
-            coref_id=_int(row, "COREF", fallback_keys=["coref_id", "coref"]),
-            start_token=_int(row, "start_token", fallback_keys=["token_ID_start"]),
-            end_token=_int(row, "end_token", fallback_keys=["token_ID_end"]),
-            prop=_str(row, "prop", fallback_keys=["PROP"]),
-            cat=_str(row, "cat", fallback_keys=["CAT", "ner", "NER"]),
-            text=_str(row, "text", fallback_keys=["Text", "mention"]),
-        )
+    start_char: int = 0
+    end_char: int = 0
 
 
 @dataclass
-class Quote:
-    """A detected quote with attributed speaker."""
+class QuoteAttribution:
+    """A quotation with speaker attribution from BookNLP's .quotes file."""
 
-    quote_start: int
-    quote_end: int
-    quote_text: str
-    speaker_coref_id: int
-    speaker_name: str = ""
-
-    @classmethod
-    def from_row(cls, row: dict[str, str], coref_to_name: dict[int, str] | None = None) -> Quote:
-        """Parse a single row from the .quotes TSV."""
-        coref_id = _int(row, "char_id", fallback_keys=["speaker_coref_id", "coref_id", "COREF"])
-        speaker_name = ""
-        if coref_to_name and coref_id in coref_to_name:
-            speaker_name = coref_to_name[coref_id]
-
-        return cls(
-            quote_start=_int(row, "quote_start", fallback_keys=["start_token"]),
-            quote_end=_int(row, "quote_end", fallback_keys=["end_token"]),
-            quote_text=_str(row, "quote", fallback_keys=["quote_text", "text"]),
-            speaker_coref_id=coref_id,
-            speaker_name=speaker_name,
-        )
+    text: str
+    speaker_coref_id: int | None
+    start_token: int
+    end_token: int
+    start_char: int = 0
+    end_char: int = 0
 
 
 @dataclass
 class CharacterProfile:
-    """A character profile extracted from the BookNLP .book JSON."""
+    """A character profile from BookNLP's .book JSON."""
 
     coref_id: int
-    name: str
-    aliases: list[str] = field(default_factory=list)
-    gender: str = ""
-    agent_actions: list[str] = field(default_factory=list)
-    patient_actions: list[str] = field(default_factory=list)
-    possessions: list[str] = field(default_factory=list)
-    modifiers: list[str] = field(default_factory=list)
-    mention_count: int = 0
+    canonical_name: str
+    aliases: dict[str, int]    # name → mention count
+    agent_actions: list[dict[str, Any]]
+    patient_actions: list[dict[str, Any]]
+    modifiers: list[str]
+    possessions: list[str]
+    gender: str
+
+    @property
+    def name(self) -> str:
+        return self.canonical_name
+
+    @property
+    def mention_count(self) -> int:
+        return sum(self.aliases.values())
+
+
+@dataclass
+class TokenAnnotation:
+    """A single token annotation from BookNLP's .tokens file."""
+
+    token_id: int
+    text: str
+    lemma: str
+    pos: str               # POS tag
+    dep: str               # dependency relation
+    coref_id: int | None
+    start_char: int
+    end_char: int
 
 
 @dataclass
 class BookNLPOutput:
-    """Complete structured output from a BookNLP run."""
+    """Complete parsed output from a BookNLP run.
+
+    This is the primary data structure passed to downstream stages
+    (coref resolver, ontology discovery, cognee pipeline).
+    """
 
     book_id: str
-    tokens: list[Token] = field(default_factory=list)
-    entities: list[EntityMention] = field(default_factory=list)
-    quotes: list[Quote] = field(default_factory=list)
-    characters: list[CharacterProfile] = field(default_factory=list)
+    characters: list[CharacterProfile]
+    entities: list[EntityMention]
+    quotes: list[QuoteAttribution]
+    tokens: list[TokenAnnotation]
+    coref_id_to_name: dict[int, str] = field(default_factory=dict)
+
+    @property
+    def character_count(self) -> int:
+        return len(self.characters)
+
+    @property
+    def entity_count(self) -> int:
+        return len(self.entities)
+
+    @property
+    def quote_count(self) -> int:
+        return len(self.quotes)
+
+    def to_pipeline_dict(self) -> dict[str, Any]:
+        """Convert to the dict format expected by the cognee pipeline.
+
+        Returns dict with 'entities' and 'quotes' lists containing dicts
+        with start_char/end_char for range-based filtering.
+        """
+        entities = [
+            {
+                "coref_id": e.coref_id,
+                "start_char": e.start_char,
+                "end_char": e.end_char,
+                "text": e.text,
+                "cat": e.cat,
+                "prop": e.prop,
+                "canonical_name": self.coref_id_to_name.get(e.coref_id, e.text),
+            }
+            for e in self.entities
+        ]
+        quotes = [
+            {
+                "text": q.text,
+                "speaker_coref_id": q.speaker_coref_id,
+                "speaker_name": (
+                    self.coref_id_to_name.get(q.speaker_coref_id, "Unknown")
+                    if q.speaker_coref_id is not None
+                    else "Unknown"
+                ),
+                "start_char": q.start_char,
+                "end_char": q.end_char,
+            }
+            for q in self.quotes
+        ]
+        return {
+            "entities": entities,
+            "quotes": quotes,
+            "characters": [
+                {
+                    "coref_id": c.coref_id,
+                    "canonical_name": c.canonical_name,
+                    "aliases": c.aliases,
+                    "gender": c.gender,
+                    "modifiers": c.modifiers,
+                }
+                for c in self.characters
+            ],
+        }
 
 
 # ---------------------------------------------------------------------------
-# TSV / JSON helper parsers
+# BookNLP execution
 # ---------------------------------------------------------------------------
 
-def _int(row: dict[str, str], key: str, *, fallback_keys: list[str] | None = None, default: int = 0) -> int:
-    """Safely extract an integer from a TSV row, trying fallback column names."""
-    keys = [key] + (fallback_keys or [])
-    for k in keys:
-        if k in row:
-            val = row[k].strip()
-            if val == "" or val == "NA" or val == "-1":
-                return default if val in ("", "NA") else -1
-            try:
-                return int(val)
-            except ValueError:
-                try:
-                    return int(float(val))
-                except ValueError:
-                    continue
-    return default
-
-
-def _str(row: dict[str, str], key: str, *, fallback_keys: list[str] | None = None, default: str = "") -> str:
-    """Safely extract a string from a TSV row, trying fallback column names."""
-    keys = [key] + (fallback_keys or [])
-    for k in keys:
-        if k in row:
-            return row[k].strip()
-    return default
-
-
-def _read_tsv(path: Path) -> list[dict[str, str]]:
-    """Read a TSV file into a list of dicts (one per row)."""
-    if not path.exists():
-        logger.warning("TSV file not found: {}", path)
-        return []
-
-    rows: list[dict[str, str]] = []
-    with open(path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f, delimiter="\t")
-        for line_num, row in enumerate(reader, start=2):
-            try:
-                rows.append(dict(row))
-            except Exception as exc:
-                logger.warning("Malformed row at line {} in {}: {}", line_num, path.name, exc)
-    logger.info("Read {} rows from {}", len(rows), path.name)
-    return rows
-
-
-def _parse_tokens(path: Path) -> list[Token]:
-    """Parse the .tokens TSV file."""
-    rows = _read_tsv(path)
-    tokens: list[Token] = []
-    for i, row in enumerate(rows):
-        try:
-            tokens.append(Token.from_row(row))
-        except Exception as exc:
-            logger.warning("Failed to parse token row {}: {}", i, exc)
-    return tokens
-
-
-def _parse_entities(path: Path) -> list[EntityMention]:
-    """Parse the .entities TSV file."""
-    rows = _read_tsv(path)
-    entities: list[EntityMention] = []
-    for i, row in enumerate(rows):
-        try:
-            entities.append(EntityMention.from_row(row))
-        except Exception as exc:
-            logger.warning("Failed to parse entity row {}: {}", i, exc)
-    return entities
-
-
-def _parse_quotes(path: Path, coref_to_name: dict[int, str]) -> list[Quote]:
-    """Parse the .quotes TSV file, resolving speaker names from coref map."""
-    rows = _read_tsv(path)
-    quotes: list[Quote] = []
-    for i, row in enumerate(rows):
-        try:
-            quotes.append(Quote.from_row(row, coref_to_name))
-        except Exception as exc:
-            logger.warning("Failed to parse quote row {}: {}", i, exc)
-    return quotes
-
-
-def _parse_book_json(path: Path) -> tuple[list[CharacterProfile], dict[int, str]]:
-    """Parse the .book JSON file for character profiles.
-
-    Returns:
-        Tuple of (character profiles list, coref_id -> canonical name mapping).
-    """
-    if not path.exists():
-        logger.warning("Book JSON not found: {}", path)
-        return [], {}
-
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    characters: list[CharacterProfile] = []
-    coref_to_name: dict[int, str] = {}
-
-    char_list = data if isinstance(data, list) else data.get("characters", [])
-
-    for char_data in char_list:
-        coref_id = char_data.get("id", char_data.get("coref_id", -1))
-
-        # Extract canonical name and aliases from "names" or "mentions"
-        names_data = char_data.get("names", char_data.get("mentions", {}))
-        all_names: list[str] = []
-        if isinstance(names_data, dict):
-            # BookNLP format: {"proper": [...], "common": [...]}
-            for category in ("proper", "common", "pronoun"):
-                for entry in names_data.get(category, []):
-                    name = entry if isinstance(entry, str) else entry.get("n", entry.get("name", ""))
-                    if name:
-                        all_names.append(name)
-        elif isinstance(names_data, list):
-            all_names = [str(n) for n in names_data]
-
-        canonical_name = all_names[0] if all_names else f"CHARACTER_{coref_id}"
-        aliases = all_names[1:] if len(all_names) > 1 else []
-
-        gender = char_data.get("g", char_data.get("gender", ""))
-        if isinstance(gender, dict):
-            # BookNLP sometimes has {"male": 0.1, "female": 0.9}
-            gender = max(gender, key=gender.get) if gender else ""
-
-        # Extract actions and attributes
-        agent_list = char_data.get("agent", [])
-        patient_list = char_data.get("patient", [])
-        poss_list = char_data.get("poss", char_data.get("possessions", []))
-        mod_list = char_data.get("mod", char_data.get("modifiers", []))
-
-        def _extract_words(items: list[Any]) -> list[str]:
-            words: list[str] = []
-            for item in items:
-                if isinstance(item, str):
-                    words.append(item)
-                elif isinstance(item, dict):
-                    w = item.get("w", item.get("word", item.get("text", "")))
-                    if w:
-                        words.append(w)
-            return words
-
-        mention_count = char_data.get("count", char_data.get("mention_count", 0))
-        if mention_count == 0 and isinstance(names_data, dict):
-            for category in names_data.values():
-                if isinstance(category, list):
-                    for entry in category:
-                        if isinstance(entry, dict):
-                            mention_count += entry.get("c", entry.get("count", 0))
-
-        profile = CharacterProfile(
-            coref_id=coref_id,
-            name=canonical_name,
-            aliases=aliases,
-            gender=gender,
-            agent_actions=_extract_words(agent_list),
-            patient_actions=_extract_words(patient_list),
-            possessions=_extract_words(poss_list),
-            modifiers=_extract_words(mod_list),
-            mention_count=mention_count,
-        )
-        characters.append(profile)
-        coref_to_name[coref_id] = canonical_name
-
-    logger.info("Parsed {} character profiles from {}", len(characters), path.name)
-    return characters, coref_to_name
-
-
-# ---------------------------------------------------------------------------
-# Main runner
-# ---------------------------------------------------------------------------
-
-def run_booknlp(
-    full_text_path: Path,
+async def run_booknlp(
+    full_text: str,
     output_dir: Path,
     book_id: str,
     model_size: str = "small",
 ) -> BookNLPOutput:
-    """Run BookNLP on a text file and parse all outputs into structured objects.
+    """Run BookNLP on the full text and parse all output files.
 
     Args:
-        full_text_path: Path to the plain-text input file.
-        output_dir: Directory where BookNLP will write its output files.
-        book_id: Identifier for the book (used as BookNLP's ``book_id``).
-        model_size: BookNLP model size — ``"small"`` or ``"big"``.
+        full_text: The complete book text.
+        output_dir: Directory to write BookNLP output files into.
+        book_id: Identifier used for output filenames.
+        model_size: BookNLP model size ("small" or "big").
 
     Returns:
-        A ``BookNLPOutput`` with all parsed data.
+        Parsed BookNLPOutput with all structured annotations.
+
+    Raises:
+        ImportError: If booknlp package is not installed.
     """
-    full_text_path = Path(full_text_path)
+    from booknlp.booknlp import BookNLP
+
     output_dir = Path(output_dir)
-
-    if not full_text_path.exists():
-        raise FileNotFoundError(f"Input text file not found: {full_text_path}")
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Run BookNLP ---
-    logger.info("Running BookNLP (model={}) on {} -> {}", model_size, full_text_path, output_dir)
-    try:
-        from booknlp.booknlp import BookNLP
+    # Write input text for BookNLP
+    input_path = output_dir / "input.txt"
+    input_path.write_text(full_text, encoding="utf-8")
 
-        pipeline_config = "entity,quote,supersense,event,coref"
-        model = BookNLP("en", {"pipeline": pipeline_config})
-        model.pipeline(
-            str(full_text_path),
-            str(output_dir),
-            book_id,
-        )
-        logger.info("BookNLP pipeline completed successfully")
-    except ImportError:
-        logger.error(
-            "booknlp is not installed. Install it with: pip install booknlp"
-        )
-        raise
-    except Exception as exc:
-        logger.error("BookNLP pipeline failed: {}", exc)
-        raise
-
-    # --- Locate output files ---
-    tokens_path = output_dir / f"{book_id}.tokens"
-    entities_path = output_dir / f"{book_id}.entities"
-    quotes_path = output_dir / f"{book_id}.quotes"
-    book_path = output_dir / f"{book_id}.book"
-
-    for p in [tokens_path, entities_path, quotes_path, book_path]:
-        if not p.exists():
-            logger.warning("Expected output file not found: {}", p)
-
-    # --- Parse outputs ---
-    characters, coref_to_name = _parse_book_json(book_path)
-    tokens = _parse_tokens(tokens_path)
-    entities = _parse_entities(entities_path)
-    quotes = _parse_quotes(quotes_path, coref_to_name)
-
-    result = BookNLPOutput(
-        book_id=book_id,
-        tokens=tokens,
-        entities=entities,
-        quotes=quotes,
-        characters=characters,
-    )
-
-    # --- Log summary ---
     logger.info(
-        "BookNLP output: {} tokens, {} entities, {} quotes, {} characters",
-        len(tokens),
-        len(entities),
-        len(quotes),
-        len(characters),
+        "Running BookNLP (model={}) on {} chars, output_dir={}",
+        model_size, len(full_text), output_dir,
     )
 
-    # --- Save parsed output as JSON ---
-    parsed_output_dir = Path("data/processed") / book_id / "booknlp"
-    parsed_output_dir.mkdir(parents=True, exist_ok=True)
-    parsed_json_path = parsed_output_dir / "parsed_output.json"
+    model = BookNLP("en", {"pipeline": "entity,quote,coref"})
 
-    serializable = asdict(result)
-    with open(parsed_json_path, "w", encoding="utf-8") as f:
-        json.dump(serializable, f, indent=2, ensure_ascii=False)
-    logger.info("Saved parsed output to {}", parsed_json_path)
+    # BookNLP is CPU-bound; run in a thread to avoid blocking the event loop
+    await asyncio.to_thread(
+        model.process,
+        str(input_path),
+        str(output_dir),
+        book_id,
+    )
 
-    return result
+    logger.info("BookNLP execution complete for {}", book_id)
+
+    return parse_booknlp_output(output_dir, book_id)
 
 
-def parse_booknlp_outputs(output_dir: Path, book_id: str) -> BookNLPOutput:
-    """Parse existing BookNLP output files without re-running the pipeline.
+def parse_booknlp_output(output_dir: Path, book_id: str) -> BookNLPOutput:
+    """Parse all BookNLP output files from a completed run.
 
-    Useful when BookNLP has already been run and you just need the parsed data.
+    Can be called independently to re-parse outputs without re-running
+    BookNLP (supports pipeline resume).
 
     Args:
         output_dir: Directory containing BookNLP output files.
-        book_id: Identifier for the book.
+        book_id: The book ID used during BookNLP processing.
 
     Returns:
-        A ``BookNLPOutput`` with all parsed data.
+        Parsed BookNLPOutput.
     """
     output_dir = Path(output_dir)
-    logger.info("Parsing existing BookNLP outputs from {} (book_id={})", output_dir, book_id)
 
-    tokens_path = output_dir / f"{book_id}.tokens"
-    entities_path = output_dir / f"{book_id}.entities"
-    quotes_path = output_dir / f"{book_id}.quotes"
-    book_path = output_dir / f"{book_id}.book"
+    characters = _parse_book_json(output_dir / f"{book_id}.book")
+    entities = _parse_entities_tsv(output_dir / f"{book_id}.entities")
+    quotes = _parse_quotes_tsv(output_dir / f"{book_id}.quotes")
+    tokens = _parse_tokens_tsv(output_dir / f"{book_id}.tokens")
 
-    characters, coref_to_name = _parse_book_json(book_path)
-    tokens = _parse_tokens(tokens_path)
-    entities = _parse_entities(entities_path)
-    quotes = _parse_quotes(quotes_path, coref_to_name)
+    # Build coref_id → canonical name mapping from character profiles
+    coref_id_to_name = _build_coref_name_map(characters)
+
+    # Back-fill char offsets on entities and quotes from tokens
+    token_char_map = {t.token_id: (t.start_char, t.end_char) for t in tokens}
+    _fill_char_offsets_entities(entities, token_char_map)
+    _fill_char_offsets_quotes(quotes, token_char_map)
 
     result = BookNLPOutput(
         book_id=book_id,
-        tokens=tokens,
+        characters=characters,
         entities=entities,
         quotes=quotes,
-        characters=characters,
+        tokens=tokens,
+        coref_id_to_name=coref_id_to_name,
     )
 
     logger.info(
-        "Parsed: {} tokens, {} entities, {} quotes, {} characters",
+        "Parsed BookNLP output: {} characters, {} entities, {} quotes, {} tokens",
+        result.character_count,
+        result.entity_count,
+        result.quote_count,
         len(tokens),
-        len(entities),
-        len(quotes),
-        len(characters),
     )
+
     return result
 
 
-if __name__ == "__main__":
-    import sys
+# ---------------------------------------------------------------------------
+# Individual file parsers
+# ---------------------------------------------------------------------------
 
-    logger.remove()
-    logger.add(sys.stderr, level="DEBUG")
+def _parse_book_json(path: Path) -> list[CharacterProfile]:
+    """Parse BookNLP's .book JSON file into CharacterProfile objects."""
+    if not path.exists():
+        logger.warning("BookNLP .book file not found: {}", path)
+        return []
 
-    if len(sys.argv) < 2:
-        logger.error("Usage: python -m pipeline.booknlp_runner <full_text.txt> [book_id] [output_dir]")
-        logger.info("  Or to parse existing outputs: python -m pipeline.booknlp_runner --parse-only <output_dir> <book_id>")
-        sys.exit(1)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    characters: list[CharacterProfile] = []
 
-    if sys.argv[1] == "--parse-only":
-        if len(sys.argv) < 4:
-            logger.error("Usage: python -m pipeline.booknlp_runner --parse-only <output_dir> <book_id>")
-            sys.exit(1)
-        out_dir = Path(sys.argv[2])
-        bid = sys.argv[3]
-        result = parse_booknlp_outputs(out_dir, bid)
-    else:
-        text_path = Path(sys.argv[1])
-        bid = sys.argv[2] if len(sys.argv) > 2 else text_path.stem
-        out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("data/processed") / bid / "booknlp" / "raw"
-        result = run_booknlp(text_path, out_dir, bid)
+    for char_data in data.get("characters", []):
+        # names is a dict of {name: count}
+        names = char_data.get("names", {})
+        if isinstance(names, list):
+            # Handle alternative format where names is a list of strings
+            names = {n: 1 for n in names}
 
-    logger.info("Done. {} tokens, {} characters, {} quotes", len(result.tokens), len(result.characters), len(result.quotes))
+        # Canonical name: highest mention count
+        canonical = max(names, key=names.get) if names else f"CHARACTER_{char_data.get('id', '?')}"
+
+        characters.append(CharacterProfile(
+            coref_id=char_data.get("id", -1),
+            canonical_name=canonical,
+            aliases=names,
+            agent_actions=char_data.get("agent", []),
+            patient_actions=char_data.get("patient", []),
+            modifiers=char_data.get("mod", []),
+            possessions=char_data.get("poss", []),
+            gender=char_data.get("g", "unknown"),
+        ))
+
+    logger.debug("Parsed {} characters from {}", len(characters), path.name)
+    return characters
+
+
+def _parse_entities_tsv(path: Path) -> list[EntityMention]:
+    """Parse BookNLP's .entities TSV file."""
+    if not path.exists():
+        logger.warning("BookNLP .entities file not found: {}", path)
+        return []
+
+    rows = read_tsv(path)
+    entities: list[EntityMention] = []
+
+    for row in rows:
+        try:
+            entities.append(EntityMention(
+                coref_id=safe_int(row.get("COREF", "-1")),
+                start_token=safe_int(row.get("start_token", "0")),
+                end_token=safe_int(row.get("end_token", "0")),
+                prop=row.get("prop", ""),
+                cat=row.get("cat", ""),
+                text=row.get("text", ""),
+            ))
+        except (ValueError, KeyError) as exc:
+            logger.debug("Skipping malformed entity row: {} ({})", row, exc)
+
+    logger.debug("Parsed {} entity mentions from {}", len(entities), path.name)
+    return entities
+
+
+def _parse_quotes_tsv(path: Path) -> list[QuoteAttribution]:
+    """Parse BookNLP's .quotes TSV file."""
+    if not path.exists():
+        logger.warning("BookNLP .quotes file not found: {}", path)
+        return []
+
+    rows = read_tsv(path)
+    quotes: list[QuoteAttribution] = []
+
+    for row in rows:
+        try:
+            speaker_raw = row.get("char_id", row.get("speaker", ""))
+            speaker_id = safe_int(speaker_raw) if speaker_raw not in ("", "-1") else None
+
+            quotes.append(QuoteAttribution(
+                text=row.get("quote", row.get("text", "")),
+                speaker_coref_id=speaker_id,
+                start_token=safe_int(row.get("quote_start", row.get("start_token", "0"))),
+                end_token=safe_int(row.get("quote_end", row.get("end_token", "0"))),
+            ))
+        except (ValueError, KeyError) as exc:
+            logger.debug("Skipping malformed quote row: {} ({})", row, exc)
+
+    logger.debug("Parsed {} quotes from {}", len(quotes), path.name)
+    return quotes
+
+
+def _parse_tokens_tsv(path: Path) -> list[TokenAnnotation]:
+    """Parse BookNLP's .tokens TSV file.
+
+    The .tokens file can be large (one row per token in the book).
+    We parse it to build a token_id → char_offset mapping needed
+    by entities and quotes.
+    """
+    if not path.exists():
+        logger.warning("BookNLP .tokens file not found: {}", path)
+        return []
+
+    rows = read_tsv(path)
+    tokens: list[TokenAnnotation] = []
+
+    for row in rows:
+        try:
+            coref_raw = row.get("COREF", row.get("coref", ""))
+            coref_id = safe_int(coref_raw) if coref_raw not in ("", "-1", "-") else None
+
+            tokens.append(TokenAnnotation(
+                token_id=safe_int(row.get("token_ID_within_document", row.get("token_id", "0"))),
+                text=row.get("word", row.get("text", "")),
+                lemma=row.get("lemma", ""),
+                pos=row.get("POS_tag", row.get("pos", "")),
+                dep=row.get("dependency_relation", row.get("dep", "")),
+                coref_id=coref_id,
+                start_char=safe_int(row.get("byte_onset", row.get("start_char", "0"))),
+                end_char=safe_int(row.get("byte_offset", row.get("end_char", "0"))),
+            ))
+        except (ValueError, KeyError) as exc:
+            logger.debug("Skipping malformed token row: {} ({})", row, exc)
+
+    logger.debug("Parsed {} tokens from {}", len(tokens), path.name)
+    return tokens
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_coref_name_map(characters: list[CharacterProfile]) -> dict[int, str]:
+    """Build a mapping from coref cluster ID to canonical character name."""
+    return {c.coref_id: c.canonical_name for c in characters}
+
+
+def _fill_char_offsets_entities(
+    entities: list[EntityMention],
+    token_char_map: dict[int, tuple[int, int]],
+) -> None:
+    """Fill start_char/end_char on entities from the token offset map."""
+    for entity in entities:
+        start = token_char_map.get(entity.start_token)
+        end = token_char_map.get(entity.end_token)
+        if start is not None:
+            entity.start_char = start[0]
+        if end is not None:
+            entity.end_char = end[1]
+
+
+def _fill_char_offsets_quotes(
+    quotes: list[QuoteAttribution],
+    token_char_map: dict[int, tuple[int, int]],
+) -> None:
+    """Fill start_char/end_char on quotes from the token offset map."""
+    for quote in quotes:
+        start = token_char_map.get(quote.start_token)
+        end = token_char_map.get(quote.end_token)
+        if start is not None:
+            quote.start_char = start[0]
+        if end is not None:
+            quote.end_char = end[1]
+
+
+def create_stub_output(book_id: str) -> BookNLPOutput:
+    """Create an empty BookNLPOutput stub when BookNLP is not installed.
+
+    This allows the pipeline to proceed with degraded quality (no NLP
+    annotations) for testing or when BookNLP can't be installed.
+    """
+    logger.warning("Creating stub BookNLP output for {} (no annotations)", book_id)
+    return BookNLPOutput(
+        book_id=book_id,
+        characters=[],
+        entities=[],
+        quotes=[],
+        tokens=[],
+        coref_id_to_name={},
+    )

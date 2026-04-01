@@ -13,8 +13,6 @@ Covers:
   review_ontology (skip when auto_review=False),
   run_cognee_batches (batch-level progress, retry logic, halt on failure),
   validate (writes results JSON)
-- _PipelineConfig carrier
-- _parse_tsv helper
 - State persistence after every transition
 - Resume support (skip completed stages)
 - Progress tracking: stage + batch-level (per plan)
@@ -65,12 +63,7 @@ for _name, _mod in _mock_modules.items():
     sys.modules.setdefault(_name, _mod)
 
 from models.pipeline_state import PipelineState, StageStatus, save_state, load_state
-from pipeline.orchestrator import (
-    STAGES,
-    PipelineOrchestrator,
-    _PipelineConfig,
-    _parse_tsv,
-)
+from pipeline.orchestrator import STAGES, PipelineOrchestrator
 
 
 # ---------------------------------------------------------------------------
@@ -116,43 +109,6 @@ class TestStages:
 
     def test_stages_count(self):
         assert len(STAGES) == 7
-
-
-# ---------------------------------------------------------------------------
-# _PipelineConfig
-# ---------------------------------------------------------------------------
-
-class TestPipelineConfig:
-    def test_fields(self):
-        cfg = _PipelineConfig(book_id="test", chunk_size=1500, max_retries=3)
-        assert cfg.book_id == "test"
-        assert cfg.chunk_size == 1500
-        assert cfg.max_retries == 3
-
-
-# ---------------------------------------------------------------------------
-# _parse_tsv
-# ---------------------------------------------------------------------------
-
-class TestParseTsv:
-    def test_parse_valid_tsv(self, tmp_path):
-        """BookNLP outputs are TSV files. We need to parse them."""
-        tsv = tmp_path / "test.tsv"
-        tsv.write_text("COREF\ttext\tcat\n0\tScrooge\tPER\n1\tLondon\tLOC\n")
-        rows = _parse_tsv(tsv)
-        assert len(rows) == 2
-        assert rows[0] == {"COREF": "0", "text": "Scrooge", "cat": "PER"}
-        assert rows[1] == {"COREF": "1", "text": "London", "cat": "LOC"}
-
-    def test_parse_empty_tsv(self, tmp_path):
-        tsv = tmp_path / "empty.tsv"
-        tsv.write_text("")
-        assert _parse_tsv(tsv) == []
-
-    def test_parse_headers_only(self, tmp_path):
-        tsv = tmp_path / "headers.tsv"
-        tsv.write_text("COREF\ttext\n")
-        assert _parse_tsv(tsv) == []
 
 
 # ---------------------------------------------------------------------------
@@ -247,8 +203,8 @@ class TestReviewOntologySkip:
 
 
 class TestStageDiscoverOntology:
-    def test_creates_default_ontology(self, orchestrator, tmp_config):
-        """Plan: default literary ontology with Character, Location, etc."""
+    def test_runs_discovery(self, orchestrator, tmp_config):
+        """Plan: ontology discovery produces entities, themes, relations."""
         state = PipelineState.new("testbook", STAGES)
         ctx: dict[str, Any] = {}
 
@@ -258,40 +214,42 @@ class TestStageDiscoverOntology:
 
         assert "ontology" in ctx
         ontology = ctx["ontology"]
-        assert "Character" in ontology["entity_classes"]
-        assert "Location" in ontology["entity_classes"]
-        assert "ALLIES_WITH" in ontology["relation_types"]
-        assert "OPPOSES" in ontology["relation_types"]
+        # discover_ontology returns discovered_entities, discovered_themes, discovered_relations
+        assert "discovered_entities" in ontology
+        assert "discovered_relations" in ontology
 
-        # Should be saved to disk
-        ontology_path = Path(tmp_config.processed_dir) / "testbook" / "ontology.json"
-        assert ontology_path.exists()
-
-    def test_loads_existing_ontology(self, orchestrator, tmp_config):
+    def test_loads_existing_discovery(self, orchestrator, tmp_config):
+        """Resume: if discovered_entities.json exists, skip re-running discovery."""
         state = PipelineState.new("existbook", STAGES)
         ctx: dict[str, Any] = {}
 
-        ontology_dir = Path(tmp_config.processed_dir) / "existbook"
+        ontology_dir = Path(tmp_config.processed_dir) / "existbook" / "ontology"
         ontology_dir.mkdir(parents=True, exist_ok=True)
-        custom_ontology = {"entity_classes": ["Custom"], "relation_types": ["CUSTOM_REL"]}
-        (ontology_dir / "ontology.json").write_text(json.dumps(custom_ontology))
+        custom = {
+            "discovered_entities": {"Character": [{"name": "Scrooge", "count": 10}]},
+            "discovered_themes": [],
+            "discovered_relations": [{"name": "employs"}],
+        }
+        (ontology_dir / "discovered_entities.json").write_text(json.dumps(custom))
 
         asyncio.get_event_loop().run_until_complete(
             orchestrator._stage_discover_ontology(state, ctx, MagicMock())
         )
-        assert ctx["ontology"]["entity_classes"] == ["Custom"]
+        assert ctx["ontology"]["discovered_entities"]["Character"][0]["name"] == "Scrooge"
+        assert ctx["ontology"]["discovered_relations"][0]["name"] == "employs"
 
 
 class TestStageResolveCoref:
-    def test_passthrough(self, orchestrator, tmp_config):
-        """Coref resolution currently passes through (placeholder)."""
+    def test_passthrough_without_booknlp_result(self, orchestrator, tmp_config):
+        """Without structured BookNLP result, coref passes through raw output."""
         state = PipelineState.new("test", STAGES)
-        booknlp = {"entities": [{"name": "Scrooge"}], "quotes": []}
+        booknlp = {"entities": [{"name": "Scrooge"}], "quotes": [], "characters": []}
         ctx: dict[str, Any] = {"booknlp_output": booknlp}
 
         asyncio.get_event_loop().run_until_complete(
             orchestrator._stage_resolve_coref(state, ctx, MagicMock())
         )
+        # With no booknlp_result, should passthrough
         assert ctx["coref_output"] == booknlp
 
 
@@ -330,7 +288,7 @@ class TestStageRunBooknlp:
                 orchestrator._stage_run_booknlp(state, ctx, MagicMock())
             )
 
-        assert ctx["booknlp_output"] == {"entities": [], "quotes": []}
+        assert ctx["booknlp_output"] == {"entities": [], "quotes": [], "characters": []}
 
 
 class TestRunPipeline:

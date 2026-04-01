@@ -20,6 +20,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from pipeline.booknlp_runner import EntityMention
+
 # ---------------------------------------------------------------------------
 # Data classes — inputs
 # ---------------------------------------------------------------------------
@@ -33,16 +35,6 @@ class Token:
     word: str
     pos: str
     coref_id: int  # -1 if none
-
-
-@dataclass
-class EntityMention:
-    coref_id: int
-    start_token: int
-    end_token: int
-    prop: str   # PROP | NOM | PRON
-    cat: str    # PER | LOC | FAC | GPE | VEH | ORG
-    text: str
 
 
 @dataclass

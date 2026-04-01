@@ -6,6 +6,7 @@ and exposes progress at both stage and batch granularity.
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 import traceback
@@ -16,8 +17,23 @@ from loguru import logger
 
 from models.pipeline_state import PipelineState, StageStatus, save_state, load_state
 from pipeline.batcher import get_batcher, Batch
+from pipeline.booknlp_runner import (
+    run_booknlp,
+    parse_booknlp_output,
+    create_stub_output,
+    BookNLPOutput,
+)
 from pipeline.cognee_pipeline import run_bookrag_pipeline
+from pipeline.coref_resolver import (
+    Token as CorefToken,
+    EntityMention as CorefEntityMention,
+    CharacterProfile as CorefCharacterProfile,
+    CorefConfig,
+    resolve_coreferences,
+    save_coref_outputs,
+)
 from pipeline.epub_parser import parse_epub
+from pipeline.ontology_discovery import discover_ontology
 
 
 # Ordered list of pipeline stages
@@ -198,7 +214,8 @@ class PipelineOrchestrator:
         """Run BookNLP on the full text to extract entities and quotes.
 
         NOTE: Requires booknlp package. This stage produces annotations used
-        by the graph extraction step.
+        by the graph extraction step. Falls back to stub output if booknlp
+        is not installed.
         """
         parsed = ctx["parsed_book"]
         if parsed is None:
@@ -213,100 +230,253 @@ class PipelineOrchestrator:
 
         booknlp_dir = self._book_dir(state.book_id) / "booknlp"
         booknlp_dir.mkdir(parents=True, exist_ok=True)
-
         model_size = getattr(self.config, "booknlp_model", "small")
-        log.info("Running BookNLP (model={}) on {} chars", model_size, len(full_text))
 
-        try:
-            from booknlp.booknlp import BookNLP
-        except ImportError:
-            log.warning("booknlp not installed — writing stub annotations")
-            ctx["booknlp_output"] = {"entities": [], "quotes": []}
-            return
+        # Check if BookNLP outputs already exist (resume support)
+        book_file = booknlp_dir / f"{state.book_id}.book"
+        if book_file.exists():
+            log.info("BookNLP outputs already exist — re-parsing from disk")
+            booknlp_result = parse_booknlp_output(booknlp_dir, state.book_id)
+        else:
+            try:
+                booknlp_result = await run_booknlp(
+                    full_text, booknlp_dir, state.book_id, model_size
+                )
+            except ImportError:
+                log.warning("booknlp not installed — using stub annotations")
+                booknlp_result = create_stub_output(state.book_id)
 
-        model = BookNLP("en", {"pipeline": "entity,quote,coref"})
-
-        input_path = booknlp_dir / "input.txt"
-        input_path.write_text(full_text, encoding="utf-8")
-
-        await asyncio.to_thread(
-            model.process,
-            str(input_path),
-            str(booknlp_dir),
-            state.book_id,
-        )
-
-        # Load BookNLP outputs
-        entities_path = booknlp_dir / f"{state.book_id}.entities"
-        quotes_path = booknlp_dir / f"{state.book_id}.quotes"
-
-        booknlp_output: dict[str, Any] = {"entities": [], "quotes": []}
-
-        if entities_path.exists():
-            booknlp_output["entities"] = _parse_tsv(entities_path)
-        if quotes_path.exists():
-            booknlp_output["quotes"] = _parse_tsv(quotes_path)
-
-        ctx["booknlp_output"] = booknlp_output
+        ctx["booknlp_output"] = booknlp_result.to_pipeline_dict()
+        ctx["booknlp_result"] = booknlp_result  # full structured output for coref
         log.info(
-            "BookNLP complete: {} entities, {} quotes",
-            len(booknlp_output["entities"]),
-            len(booknlp_output["quotes"]),
+            "BookNLP complete: {} characters, {} entities, {} quotes",
+            booknlp_result.character_count,
+            booknlp_result.entity_count,
+            booknlp_result.quote_count,
         )
 
     async def _stage_resolve_coref(
         self, state: PipelineState, ctx: dict[str, Any], log: Any
     ) -> None:
-        """Resolve coreferences in the BookNLP output.
+        """Resolve coreferences via parenthetical insertion.
 
-        Merges entity mentions that refer to the same character/entity using
-        BookNLP's coref clusters with configurable distance thresholds.
+        Reads BookNLP structured output, applies distance + ambiguity rules,
+        and produces resolved chapter text like:
+            "he [Scrooge] muttered to his [Scrooge] clerk [Bob Cratchit]"
+
+        Outputs:
+            coref/clusters.json, coref/resolution_log.json,
+            resolved/chapters/*.txt, resolved/full_text_resolved.txt
         """
-        booknlp_output = ctx.get("booknlp_output", {"entities": [], "quotes": []})
-        distance_threshold = getattr(self.config, "distance_threshold", 3)
-        log.info("Resolving coreferences (distance_threshold={})", distance_threshold)
+        booknlp_result: BookNLPOutput | None = ctx.get("booknlp_result")
+        parsed = ctx.get("parsed_book")
 
-        # Coreference resolution is applied in-place on the booknlp output.
-        # The actual resolution logic depends on the BookNLP coref clusters.
-        # For now we pass through — a dedicated coref module can plug in here.
-        ctx["coref_output"] = booknlp_output
-        log.info("Coreference resolution complete")
+        distance_threshold = getattr(self.config, "distance_threshold", 3)
+        annotate_ambiguous = getattr(self.config, "annotate_ambiguous", True)
+        coref_config = CorefConfig(
+            distance_threshold=distance_threshold,
+            annotate_ambiguous=annotate_ambiguous,
+        )
+
+        # If no structured BookNLP result, check for outputs on disk (resume)
+        if booknlp_result is None or booknlp_result.entity_count == 0:
+            resolved_dir = self._book_dir(state.book_id) / "resolved"
+            if resolved_dir.exists():
+                log.info("Resolved text already on disk — loading")
+                chapter_files = sorted(
+                    (resolved_dir / "chapters").glob("chapter_*.txt")
+                )
+                resolved_chapters = [f.read_text(encoding="utf-8") for f in chapter_files]
+                ctx["coref_output"] = ctx.get("booknlp_output", {})
+                ctx["resolved_chapters"] = resolved_chapters
+                log.info("Loaded {} resolved chapters from disk", len(resolved_chapters))
+                return
+
+            # No BookNLP data and no resolved text — passthrough raw chapters
+            log.warning("No BookNLP annotations available — skipping coref resolution")
+            ctx["coref_output"] = ctx.get("booknlp_output", {})
+            if parsed:
+                ctx["resolved_chapters"] = parsed.chapter_texts
+            return
+
+        # Convert booknlp_runner dataclasses → coref_resolver dataclasses
+        coref_tokens = [
+            CorefToken(
+                token_id=t.token_id,
+                sentence_id=0,  # will be filled below
+                token_offset_begin=t.start_char,
+                token_offset_end=t.end_char,
+                word=t.text,
+                pos=t.pos,
+                coref_id=t.coref_id if t.coref_id is not None else -1,
+            )
+            for t in booknlp_result.tokens
+        ]
+
+        # Assign sentence IDs: BookNLP tokens don't always carry sentence_id
+        # in our parsed format. We approximate by splitting on sentence-ending POS.
+        _assign_sentence_ids(coref_tokens)
+
+        coref_entities = [
+            CorefEntityMention(
+                coref_id=e.coref_id,
+                start_token=e.start_token,
+                end_token=e.end_token,
+                prop=e.prop,
+                cat=e.cat,
+                text=e.text,
+            )
+            for e in booknlp_result.entities
+        ]
+
+        coref_characters = [
+            CorefCharacterProfile(
+                coref_id=c.coref_id,
+                name=c.canonical_name,
+                aliases=list(c.aliases.keys()),
+            )
+            for c in booknlp_result.characters
+        ]
+
+        # Chapter boundaries as token ranges
+        chapter_texts = parsed.chapter_texts if parsed else []
+        chapter_boundaries = _compute_chapter_token_boundaries(
+            coref_tokens, chapter_texts
+        )
+
+        log.info(
+            "Running coref resolution: {} tokens, {} entities, {} characters "
+            "(distance_threshold={}, annotate_ambiguous={})",
+            len(coref_tokens), len(coref_entities), len(coref_characters),
+            distance_threshold, annotate_ambiguous,
+        )
+
+        coref_result = await asyncio.to_thread(
+            resolve_coreferences,
+            tokens=coref_tokens,
+            entities=coref_entities,
+            characters=coref_characters,
+            chapter_texts=chapter_texts,
+            chapter_boundaries=chapter_boundaries,
+            config=coref_config,
+        )
+
+        # Save outputs to disk
+        base_dir = getattr(self.config, "processed_dir", Path("data/processed"))
+        save_coref_outputs(coref_result, state.book_id, base_dir=base_dir)
+
+        # Pass resolved text downstream
+        ctx["coref_output"] = ctx.get("booknlp_output", {})
+        ctx["resolved_chapters"] = coref_result.resolved_chapters
+
+        log.info(
+            "Coref resolution complete: {} insertions across {} chapters",
+            len(coref_result.resolution_log),
+            len(coref_result.resolved_chapters),
+        )
 
     async def _stage_discover_ontology(
         self, state: PipelineState, ctx: dict[str, Any], log: Any
     ) -> None:
-        """Discover or load the ontology for graph extraction.
+        """Discover ontology from BookNLP output via BERTopic + TF-IDF.
 
-        Reads entity classes and relation types from config or generates them
-        from the BookNLP output using frequency-based heuristics.
+        Uses ontology_discovery.discover_ontology() to extract entity types,
+        themes, and relation types, then generates an OWL file. If the
+        ontology already exists on disk (resume), it is loaded instead.
+
+        Outputs:
+            ontology/discovered_entities.json, ontology/book_ontology.owl
         """
-        ontology_path = self._book_dir(state.book_id) / "ontology.json"
+        ontology_dir = self._book_dir(state.book_id) / "ontology"
+        owl_path = ontology_dir / "book_ontology.owl"
+        discovery_path = ontology_dir / "discovered_entities.json"
 
-        if ontology_path.exists():
-            import json
-            ontology = json.loads(ontology_path.read_text(encoding="utf-8"))
-            log.info("Loaded existing ontology from {}", ontology_path)
-        else:
-            # Default literary ontology
-            ontology = {
-                "entity_classes": [
-                    "Character", "Location", "Organization", "Object",
-                    "Event", "Concept", "Time",
-                ],
-                "relation_types": [
-                    "ALLIES_WITH", "OPPOSES", "LOCATED_IN", "MEMBER_OF",
-                    "POSSESSES", "PARTICIPATES_IN", "CAUSES", "PRECEDES",
-                    "RELATED_TO", "SPEAKS_TO", "KNOWS",
-                ],
+        # Resume: if discovery output already exists, load it
+        if discovery_path.exists():
+            discovery_data = json.loads(discovery_path.read_text(encoding="utf-8"))
+            log.info("Loaded existing ontology discovery from {}", discovery_path)
+            ctx["ontology"] = discovery_data
+            return
+
+        # Build the booknlp_output dict that discover_ontology expects:
+        #   {"book_json": {...}, "entities_tsv": [...]}
+        booknlp_result: BookNLPOutput | None = ctx.get("booknlp_result")
+        if booknlp_result is not None:
+            # Convert structured output to the dict format ontology_discovery expects
+            book_json = {
+                "characters": [
+                    {
+                        "id": c.coref_id,
+                        "names": c.aliases,
+                        "agent": c.agent_actions,
+                        "patient": c.patient_actions,
+                        "mod": c.modifiers,
+                        "poss": c.possessions,
+                        "g": c.gender,
+                    }
+                    for c in booknlp_result.characters
+                ]
             }
-            ontology_path.parent.mkdir(parents=True, exist_ok=True)
-            import json
-            ontology_path.write_text(
-                json.dumps(ontology, indent=2), encoding="utf-8"
-            )
-            log.info("Generated default literary ontology")
+            entities_tsv = [
+                {
+                    "COREF": str(e.coref_id),
+                    "start_token": str(e.start_token),
+                    "end_token": str(e.end_token),
+                    "prop": e.prop,
+                    "cat": e.cat,
+                    "text": e.text,
+                }
+                for e in booknlp_result.entities
+            ]
+            booknlp_for_ontology = {
+                "book_json": book_json,
+                "entities_tsv": entities_tsv,
+            }
+        else:
+            booknlp_for_ontology = {"book_json": {}, "entities_tsv": []}
 
-        ctx["ontology"] = ontology
+        # Get the full text (prefer resolved, fall back to raw)
+        resolved_chapters = ctx.get("resolved_chapters")
+        parsed = ctx.get("parsed_book")
+        if resolved_chapters:
+            full_text = "\n\n".join(resolved_chapters)
+        elif parsed:
+            full_text = parsed.full_text
+        else:
+            raw_path = self._book_dir(state.book_id) / "raw" / "full_text.txt"
+            if raw_path.exists():
+                full_text = raw_path.read_text(encoding="utf-8")
+            else:
+                full_text = ""
+
+        ontology_config = {
+            "min_entity_frequency": getattr(self.config, "min_entity_frequency", 2),
+        }
+
+        log.info("Running ontology discovery for book_id={}", state.book_id)
+
+        ontology_result = await asyncio.to_thread(
+            discover_ontology,
+            booknlp_output=booknlp_for_ontology,
+            full_text=full_text,
+            book_id=state.book_id,
+            config=ontology_config,
+        )
+
+        # Store result for downstream stages
+        ctx["ontology"] = {
+            "discovered_entities": ontology_result.discovered_entities,
+            "discovered_themes": ontology_result.discovered_themes,
+            "discovered_relations": ontology_result.discovered_relations,
+            "owl_path": str(ontology_result.owl_path),
+        }
+
+        log.info(
+            "Ontology discovery complete: {} entity types, {} themes, {} relations",
+            len(ontology_result.discovered_entities),
+            len(ontology_result.discovered_themes),
+            len(ontology_result.discovered_relations),
+        )
 
     async def _stage_review_ontology(
         self, state: PipelineState, ctx: dict[str, Any], log: Any
@@ -321,17 +491,35 @@ class PipelineOrchestrator:
     async def _stage_run_cognee_batches(
         self, state: PipelineState, ctx: dict[str, Any], log: Any
     ) -> None:
-        """Batch chapters and run the Cognee extraction pipeline."""
-        parsed = ctx.get("parsed_book")
-        if parsed is None:
-            # Reload chapters from disk
-            chapters_dir = self._book_dir(state.book_id) / "raw" / "chapters"
-            if not chapters_dir.exists():
-                raise FileNotFoundError(f"Cannot resume: {chapters_dir} missing")
-            chapter_files = sorted(chapters_dir.glob("chapter_*.txt"))
-            chapter_texts = [f.read_text(encoding="utf-8") for f in chapter_files]
+        """Batch chapters and run the Cognee extraction pipeline.
+
+        Prefers resolved (coref-annotated) chapters over raw chapters.
+        """
+        # Prefer resolved chapters (coref output), fall back to raw
+        resolved_chapters = ctx.get("resolved_chapters")
+        if resolved_chapters:
+            chapter_texts = resolved_chapters
+            log.info("Using {} coref-resolved chapters for batching", len(chapter_texts))
         else:
-            chapter_texts = parsed.chapter_texts
+            parsed = ctx.get("parsed_book")
+            if parsed is None:
+                # Try resolved chapters on disk first, then raw
+                resolved_dir = self._book_dir(state.book_id) / "resolved" / "chapters"
+                raw_dir = self._book_dir(state.book_id) / "raw" / "chapters"
+                if resolved_dir.exists():
+                    chapter_files = sorted(resolved_dir.glob("chapter_*.txt"))
+                    chapter_texts = [f.read_text(encoding="utf-8") for f in chapter_files]
+                    log.info("Loaded {} resolved chapters from disk", len(chapter_texts))
+                elif raw_dir.exists():
+                    chapter_files = sorted(raw_dir.glob("chapter_*.txt"))
+                    chapter_texts = [f.read_text(encoding="utf-8") for f in chapter_files]
+                    log.info("Loaded {} raw chapters from disk (no resolved text)", len(chapter_texts))
+                else:
+                    raise FileNotFoundError(
+                        f"Cannot resume: neither {resolved_dir} nor {raw_dir} exist"
+                    )
+            else:
+                chapter_texts = parsed.chapter_texts
 
         batcher = get_batcher(self.config)
         batches = batcher.batch(chapter_texts)
@@ -343,13 +531,7 @@ class PipelineOrchestrator:
         booknlp_output = ctx.get("coref_output") or ctx.get("booknlp_output", {})
         ontology = ctx.get("ontology", {})
         max_retries = getattr(self.config, "max_retries", 3)
-
-        # Attach book_id to config for pipeline use
-        pipeline_config = _PipelineConfig(
-            book_id=state.book_id,
-            chunk_size=getattr(self.config, "chunk_size", 1500),
-            max_retries=max_retries,
-        )
+        chunk_size = getattr(self.config, "chunk_size", 1500)
 
         for idx, batch in enumerate(batches):
             state.current_batch = idx + 1
@@ -364,13 +546,14 @@ class PipelineOrchestrator:
             success = False
             for attempt in range(1, max_retries + 1):
                 try:
-                    async for status in run_bookrag_pipeline(
+                    await run_bookrag_pipeline(
                         batch=batch,
                         booknlp_output=booknlp_output,
                         ontology=ontology,
-                        config=pipeline_config,
-                    ):
-                        log.debug("Pipeline status: {}", status)
+                        book_id=state.book_id,
+                        chunk_size=chunk_size,
+                        max_retries=max_retries,
+                    )
                     success = True
                     break
                 except Exception as exc:
@@ -410,7 +593,6 @@ class PipelineOrchestrator:
             "notes": "Validation placeholder — implement graph queries for production.",
         }
 
-        import json
         results_path = validation_dir / "validation_results.json"
         results_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
         log.info("Validation results saved to {}", results_path)
@@ -452,24 +634,58 @@ class PipelineOrchestrator:
         save_state(state, state_path)
 
 
-class _PipelineConfig:
-    """Lightweight config carrier for the Cognee pipeline tasks."""
 
-    def __init__(self, book_id: str, chunk_size: int, max_retries: int) -> None:
-        self.book_id = book_id
-        self.chunk_size = chunk_size
-        self.max_retries = max_retries
+def _assign_sentence_ids(tokens: list[CorefToken]) -> None:
+    """Assign sentence_id to tokens by detecting sentence boundaries.
+
+    Uses a simple heuristic: a sentence ends at a period, exclamation mark,
+    or question mark POS tag (`.`). This is approximate but sufficient for
+    the distance rule in coref resolution.
+    """
+    sentence_id = 0
+    sentence_ending_pos = {".", "!", "?"}
+    for tok in tokens:
+        tok.sentence_id = sentence_id
+        if tok.pos in sentence_ending_pos or tok.word in (".", "!", "?"):
+            sentence_id += 1
 
 
-def _parse_tsv(path: Path) -> list[dict[str, str]]:
-    """Parse a BookNLP TSV file into a list of dicts."""
-    lines = path.read_text(encoding="utf-8").strip().split("\n")
-    if not lines:
+def _compute_chapter_token_boundaries(
+    tokens: list[CorefToken],
+    chapter_texts: list[str],
+) -> list[tuple[int, int]]:
+    """Compute (start_token_id, end_token_id) boundaries per chapter.
+
+    Uses character offsets: each chapter's char range maps to a token range.
+    Falls back to a single boundary spanning all tokens if chapter_texts is empty.
+    """
+    if not chapter_texts or not tokens:
+        if tokens:
+            return [(tokens[0].token_id, tokens[-1].token_id + 1)]
         return []
-    headers = lines[0].split("\t")
-    rows: list[dict[str, str]] = []
-    for line in lines[1:]:
-        values = line.split("\t")
-        row = dict(zip(headers, values))
-        rows.append(row)
-    return rows
+
+    # Build chapter char boundaries
+    boundaries: list[tuple[int, int]] = []
+    cursor = 0
+    for ch_text in chapter_texts:
+        start = cursor
+        end = cursor + len(ch_text)
+        boundaries.append((start, end))
+        cursor = end + 2  # account for "\n\n" join separator
+
+    # Map each chapter's char range to token ID range
+    token_boundaries: list[tuple[int, int]] = []
+    for char_start, char_end in boundaries:
+        chapter_tokens = [
+            t for t in tokens
+            if t.token_offset_begin >= char_start and t.token_offset_begin < char_end
+        ]
+        if chapter_tokens:
+            token_boundaries.append(
+                (chapter_tokens[0].token_id, chapter_tokens[-1].token_id + 1)
+            )
+        else:
+            # Empty chapter — use dummy range
+            token_boundaries.append((0, 0))
+
+    return token_boundaries

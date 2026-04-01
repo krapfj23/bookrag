@@ -2,24 +2,22 @@
 
 Covers:
 - ChapterChunk dataclass (token_estimate, fields)
-- EntityNode, RelationEdge, ExtractionResult Pydantic models
+- ExtractionResult and extraction models (CharacterExtraction, RelationshipExtraction, etc.)
 - chunk_with_chapter_awareness: paragraph boundaries, target size, chapter tagging,
   single paragraph, empty text, small chunk size, no mid-paragraph splits,
   start_char/end_char tracking
-- _ranges_overlap helper
-- _render_prompt: template rendering, BookNLP entity/quote filtering by char range,
-  ontology injection
+- render_prompt: template rendering, BookNLP entity/quote formatting, ontology injection
 - _load_extraction_prompt: file loading, caching, missing file error
-- _to_datapoints: entity conversion, relation conversion, chapter fallback
+- ExtractionResult.to_datapoints(): entity conversion, relation conversion, cross-references
 - extract_enriched_graph: LLM retries, all-fail graceful skip, success accumulation
 - run_bookrag_pipeline: pipeline assembly, datapoint persistence to disk
 
 Aligned with:
 - CLAUDE.md: "Custom Cognee pipeline (chapter-aware chunker + enriched graph extractor)"
-- Plan: "chunk_with_chapter_awareness — Split batch text into chunks, each tagged with chapter"
-- Plan: "extract_enriched_graph — Uses Cognee LLMGateway, calls Claude with resolved text + BookNLP + ontology"
+- Plan: "chunk_with_chapter_awareness -- Split batch text into chunks, each tagged with chapter"
+- Plan: "extract_enriched_graph -- Uses Cognee LLMGateway, calls Claude with resolved text + BookNLP + ontology"
 - Plan: "3 retries then halt pipeline"
-- Plan: "add_data_points — Cognee built-in"
+- Plan: "add_data_points -- Cognee built-in"
 - Deep research: "LLMGateway.acreate_structured_output"
 """
 from __future__ import annotations
@@ -69,16 +67,26 @@ for mod_name, mod in [
 
 from pipeline.cognee_pipeline import (
     ChapterChunk,
-    EntityNode,
-    RelationEdge,
-    ExtractionResult,
     chunk_with_chapter_awareness,
     extract_enriched_graph,
-    _ranges_overlap,
-    _render_prompt,
+    render_prompt,
     _load_extraction_prompt,
-    _to_datapoints,
     _PROMPT_CACHE,
+)
+from models.datapoints import (
+    ExtractionResult,
+    CharacterExtraction,
+    LocationExtraction,
+    RelationshipExtraction,
+    EventExtraction,
+    ThemeExtraction,
+    FactionExtraction,
+    Character,
+    Location,
+    Relationship,
+    PlotEvent,
+    Theme,
+    Faction,
 )
 from pipeline.batcher import Batch
 
@@ -105,54 +113,68 @@ class TestChapterChunk:
 
 
 # ---------------------------------------------------------------------------
-# Pydantic models
+# Pydantic extraction models
 # ---------------------------------------------------------------------------
 
 class TestExtractionModels:
-    def test_entity_node_defaults(self):
-        e = EntityNode(name="Scrooge", entity_type="Character")
-        assert e.description == ""
-        assert e.chapter_numbers == []
-        assert e.aliases == []
+    """Tests for the LLM extraction Pydantic models from models/datapoints.py."""
 
-    def test_entity_node_full(self):
-        e = EntityNode(
+    def test_character_extraction_defaults(self):
+        c = CharacterExtraction(name="Scrooge", first_chapter=1)
+        assert c.description is None
+        assert c.chapters_present == []
+        assert c.aliases == []
+
+    def test_character_extraction_full(self):
+        c = CharacterExtraction(
             name="Scrooge",
-            entity_type="Character",
             description="A miser",
-            chapter_numbers=[1, 2],
+            first_chapter=1,
+            chapters_present=[1, 2],
             aliases=["Ebenezer", "Mr. Scrooge"],
         )
-        assert e.aliases == ["Ebenezer", "Mr. Scrooge"]
+        assert c.aliases == ["Ebenezer", "Mr. Scrooge"]
 
-    def test_relation_edge_defaults(self):
-        r = RelationEdge(source="Scrooge", target="Bob Cratchit", relation_type="EMPLOYS")
-        assert r.description == ""
-        assert r.evidence == ""
-
-    def test_relation_edge_full(self):
-        r = RelationEdge(
-            source="Scrooge",
-            target="Marley",
-            relation_type="ALLIES_WITH",
-            description="Business partners",
-            chapter_numbers=[1],
-            evidence="were partners for many years",
+    def test_relationship_extraction_fields(self):
+        r = RelationshipExtraction(
+            source_name="Scrooge",
+            target_name="Bob Cratchit",
+            relation_type="employs",
+            first_chapter=1,
         )
-        assert r.chapter_numbers == [1]
+        assert r.description is None
+        assert r.source_name == "Scrooge"
+        assert r.target_name == "Bob Cratchit"
+
+    def test_relationship_extraction_full(self):
+        r = RelationshipExtraction(
+            source_name="Scrooge",
+            target_name="Marley",
+            relation_type="allies_with",
+            description="Business partners",
+            first_chapter=1,
+        )
+        assert r.first_chapter == 1
 
     def test_extraction_result_defaults(self):
         er = ExtractionResult()
-        assert er.entities == []
-        assert er.relations == []
+        assert er.characters == []
+        assert er.locations == []
+        assert er.events == []
+        assert er.relationships == []
+        assert er.themes == []
+        assert er.factions == []
 
     def test_extraction_result_populated(self):
         er = ExtractionResult(
-            entities=[EntityNode(name="Scrooge", entity_type="Character")],
-            relations=[RelationEdge(source="Scrooge", target="Marley", relation_type="KNOWS")],
+            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
+            relationships=[RelationshipExtraction(
+                source_name="Scrooge", target_name="Marley",
+                relation_type="knows", first_chapter=1,
+            )],
         )
-        assert len(er.entities) == 1
-        assert len(er.relations) == 1
+        assert len(er.characters) == 1
+        assert len(er.relationships) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +194,7 @@ class TestChunkWithChapterAwareness:
         para2 = "B" * 3000  # ~750 tokens
         text = f"{para1}\n\n{para2}"
         chunks = chunk_with_chapter_awareness(text, chunk_size=800)
-        # Each paragraph is ~750 tokens, target is 800 → each gets its own chunk
+        # Each paragraph is ~750 tokens, target is 800 -> each gets its own chunk
         assert len(chunks) == 2
         assert "A" * 100 in chunks[0].text
         assert "B" * 100 in chunks[1].text
@@ -185,7 +207,7 @@ class TestChunkWithChapterAwareness:
         paras = ["Short paragraph." for _ in range(10)]
         text = "\n\n".join(paras)
         chunks = chunk_with_chapter_awareness(text, chunk_size=1500)
-        # All paragraphs combined ~160 chars → ~40 tokens, fits in one chunk
+        # All paragraphs combined ~160 chars -> ~40 tokens, fits in one chunk
         assert len(chunks) == 1
 
     def test_chapter_numbers_tagged(self):
@@ -215,51 +237,22 @@ class TestChunkWithChapterAwareness:
 
     def test_many_paragraphs_split(self):
         """Realistic: many paragraphs should create multiple chunks."""
-        paras = ["Word " * 500 for _ in range(10)]  # ~2500 chars each → ~625 tokens
+        paras = ["Word " * 500 for _ in range(10)]  # ~2500 chars each -> ~625 tokens
         text = "\n\n".join(paras)
         chunks = chunk_with_chapter_awareness(text, chunk_size=1500)
-        # 10 paragraphs × 625 tokens ≈ 6250 total, target 1500 → ~4-5 chunks
+        # 10 paragraphs x 625 tokens ~ 6250 total, target 1500 -> ~4-5 chunks
         assert len(chunks) >= 3
 
     def test_target_1500_tokens_default(self):
         """Plan: 'Target chunk size: ~1500 tokens (configurable)'."""
-        para = "word " * 1500  # ~7500 chars → ~1875 tokens
+        para = "word " * 1500  # ~7500 chars -> ~1875 tokens
         text = f"{para}\n\n{para}"
         chunks = chunk_with_chapter_awareness(text)  # default chunk_size=1500
         assert len(chunks) == 2
 
 
 # ---------------------------------------------------------------------------
-# _ranges_overlap
-# ---------------------------------------------------------------------------
-
-class TestRangesOverlap:
-    def test_overlap(self):
-        assert _ranges_overlap(0, 10, 5, 15) is True
-
-    def test_no_overlap(self):
-        assert _ranges_overlap(0, 5, 10, 15) is False
-
-    def test_adjacent_no_overlap(self):
-        assert _ranges_overlap(0, 5, 5, 10) is False
-
-    def test_contained(self):
-        assert _ranges_overlap(2, 8, 0, 10) is True
-
-    def test_same_range(self):
-        assert _ranges_overlap(5, 10, 5, 10) is True
-
-    def test_zero_width_range(self):
-        # A zero-width range (5,5) technically satisfies s1 < e2 and s2 < e1
-        # so it overlaps with (0,10). This is correct: point 5 is within [0,10).
-        assert _ranges_overlap(5, 5, 0, 10) is True
-
-    def test_zero_width_outside(self):
-        assert _ranges_overlap(15, 15, 0, 10) is False
-
-
-# ---------------------------------------------------------------------------
-# _load_extraction_prompt and _render_prompt
+# _load_extraction_prompt and render_prompt
 # ---------------------------------------------------------------------------
 
 class TestPromptRendering:
@@ -271,9 +264,9 @@ class TestPromptRendering:
 
     def test_load_extraction_prompt(self, tmp_path):
         prompt_file = tmp_path / "test_prompt.txt"
-        prompt_file.write_text("Hello {chunk_text}")
+        prompt_file.write_text("Hello {{ text }}")
         result = _load_extraction_prompt(str(prompt_file))
-        assert result == "Hello {chunk_text}"
+        assert result == "Hello {{ text }}"
 
     def test_load_extraction_prompt_caches(self, tmp_path):
         prompt_file = tmp_path / "test_prompt.txt"
@@ -287,133 +280,168 @@ class TestPromptRendering:
         with pytest.raises(FileNotFoundError, match="Extraction prompt template not found"):
             _load_extraction_prompt("/nonexistent/prompt.txt")
 
-    def test_render_prompt_injects_all_fields(self, tmp_path):
-        """Plan: prompt includes chunk_text, chapter_numbers, booknlp entities/quotes, ontology."""
-        # Uses string.Template $-syntax after vuln fix
-        _PROMPT_CACHE["prompts/extraction_prompt.txt"] = (
-            "Text: $chunk_text\n"
-            "Chapters: $chapter_numbers\n"
-            "Entities: $booknlp_entities\n"
-            "Quotes: $booknlp_quotes\n"
-            "Classes: $ontology_classes\n"
-            "Relations: $ontology_relations"
+    def test_render_prompt_returns_tuple(self, tmp_path):
+        """render_prompt returns (system_prompt, text_input) tuple."""
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text(
+            "Chapters: {{ chapter_numbers }}\n"
+            "Entities: {{ booknlp_entities }}\n"
+            "Quotes: {{ booknlp_quotes }}\n"
+            "Classes: {{ ontology_classes }}\n"
+            "Relations: {{ ontology_relations }}\n"
+            "Text: {{ text }}"
         )
         chunk = ChapterChunk(text="Scrooge walked.", chapter_numbers=[1, 2], start_char=0, end_char=100)
         booknlp = {
-            "entities": [{"start_char": 0, "end_char": 50, "name": "Scrooge"}],
-            "quotes": [{"start_char": 0, "end_char": 80, "text": "Bah humbug"}],
+            "entities": [{"prop": "PROP", "text": "Scrooge", "cat": "PER"}],
+            "quotes": [{"speaker": "Scrooge", "text": "Bah humbug"}],
         }
         ontology = {
-            "entity_classes": ["Character", "Location"],
-            "relation_types": ["EMPLOYS", "KNOWS"],
+            "discovered_entities": {"Character": [], "Location": []},
+            "discovered_relations": [{"name": "employs"}, {"name": "knows"}],
         }
-        rendered = _render_prompt(chunk, booknlp, ontology)
-        assert "Scrooge walked." in rendered
-        assert "1, 2" in rendered
-        assert "Scrooge" in rendered
-        assert "Bah humbug" in rendered
-        assert "Character" in rendered
-        assert "EMPLOYS" in rendered
+        system_prompt, text_input = render_prompt(
+            chunk, booknlp, ontology, prompt_path=str(prompt_file),
+        )
+        # text_input is the raw chunk text
+        assert text_input == "Scrooge walked."
+        # system_prompt has the rendered template
+        assert "1, 2" in system_prompt
+        assert "Scrooge" in system_prompt
+        assert "Bah humbug" in system_prompt
+        assert "Character" in system_prompt
+        assert "employs" in system_prompt
 
-    def test_render_prompt_safe_against_format_injection(self):
-        """Vuln fix: book text with {__class__} must not cause injection."""
-        _PROMPT_CACHE["prompts/extraction_prompt.txt"] = "Text: $chunk_text"
+    def test_render_prompt_safe_against_format_injection(self, tmp_path):
+        """Book text with {__class__} must not cause injection."""
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("Text: {{ text }}")
         chunk = ChapterChunk(
             text="He said {__class__.__init__.__globals__} loudly",
             chapter_numbers=[1], start_char=0, end_char=50,
         )
-        rendered = _render_prompt(chunk, {"entities": [], "quotes": []}, {})
-        # The curly-brace text should pass through literally, not execute
-        assert "{__class__" in rendered
-
-    def test_render_prompt_filters_entities_by_range(self, tmp_path):
-        """Only BookNLP entities overlapping the chunk's char range should be included."""
-        _PROMPT_CACHE["prompts/extraction_prompt.txt"] = (
-            "$chunk_text|$booknlp_entities|$booknlp_quotes|"
-            "$chapter_numbers|$ontology_classes|$ontology_relations"
+        system_prompt, text_input = render_prompt(
+            chunk, {"entities": [], "quotes": []}, {},
+            prompt_path=str(prompt_file),
         )
-        chunk = ChapterChunk(text="text", chapter_numbers=[1], start_char=100, end_char=200)
+        # The curly-brace text is in text_input (raw), not interpreted
+        assert "{__class__" in text_input
+
+    def test_render_prompt_formats_entities(self, tmp_path):
+        """BookNLP entities with prop=PROP/NOM and non-empty text should be formatted."""
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text(
+            "{{ booknlp_entities }}\n{{ text }}\n"
+            "{{ chapter_numbers }}\n{{ booknlp_quotes }}\n"
+            "{{ ontology_classes }}\n{{ ontology_relations }}"
+        )
+        chunk = ChapterChunk(text="text", chapter_numbers=[1], start_char=0, end_char=100)
         booknlp = {
             "entities": [
-                {"start_char": 50, "end_char": 60, "name": "OutOfRange"},
-                {"start_char": 150, "end_char": 160, "name": "InRange"},
+                {"prop": "PROP", "cat": "PER", "text": "Scrooge"},
+                {"prop": "PRON", "cat": "PER", "text": "he"},  # PRON excluded
             ],
-            "quotes": [
-                {"start_char": 0, "end_char": 10, "text": "OutOfRange"},
-                {"start_char": 110, "end_char": 190, "text": "InRange"},
-            ],
+            "quotes": [],
         }
-        rendered = _render_prompt(chunk, booknlp, {"entity_classes": [], "relation_types": []})
-        assert "InRange" in rendered
-        assert "OutOfRange" not in rendered
+        system_prompt, _ = render_prompt(
+            chunk, booknlp, {}, prompt_path=str(prompt_file),
+        )
+        assert "Scrooge" in system_prompt
 
 
 # ---------------------------------------------------------------------------
-# _to_datapoints
+# ExtractionResult.to_datapoints()
 # ---------------------------------------------------------------------------
 
 class TestToDatapoints:
-    def test_entity_conversion(self):
-        """Entities become dicts with type='entity' and chapter metadata."""
-        result = ExtractionResult(
-            entities=[EntityNode(name="Scrooge", entity_type="Character", chapter_numbers=[1])],
-            relations=[],
-        )
-        chunk = ChapterChunk(text="t", chapter_numbers=[1, 2], start_char=0, end_char=10)
-        dps = _to_datapoints(result, chunk)
-        assert len(dps) == 1
-        assert dps[0]["type"] == "entity"
-        assert dps[0]["name"] == "Scrooge"
-        assert dps[0]["entity_type"] == "Character"
-        assert dps[0]["chapter_numbers"] == [1]
-        assert dps[0]["source_start_char"] == 0
-        assert dps[0]["source_end_char"] == 10
+    """Tests for ExtractionResult.to_datapoints() which converts extraction models to DataPoints."""
 
-    def test_relation_conversion(self):
+    def test_character_conversion(self):
+        """Characters become Character DataPoints."""
         result = ExtractionResult(
-            entities=[],
-            relations=[RelationEdge(
-                source="Scrooge",
-                target="Bob Cratchit",
-                relation_type="EMPLOYS",
-                evidence="employs as clerk",
-                chapter_numbers=[1],
+            characters=[CharacterExtraction(
+                name="Scrooge", first_chapter=1, chapters_present=[1],
             )],
         )
-        chunk = ChapterChunk(text="t", chapter_numbers=[1], start_char=5, end_char=15)
-        dps = _to_datapoints(result, chunk)
+        dps = result.to_datapoints()
         assert len(dps) == 1
-        assert dps[0]["type"] == "relation"
-        assert dps[0]["source"] == "Scrooge"
-        assert dps[0]["target"] == "Bob Cratchit"
-        assert dps[0]["relation_type"] == "EMPLOYS"
-        assert dps[0]["source_start_char"] == 5
+        assert isinstance(dps[0], Character)
+        assert dps[0].name == "Scrooge"
+        assert dps[0].first_chapter == 1
 
-    def test_chapter_fallback_to_chunk(self):
-        """If entity has no chapter_numbers, inherit from chunk."""
+    def test_relationship_conversion(self):
+        """Relationships resolve source/target by name to Character DataPoints."""
         result = ExtractionResult(
-            entities=[EntityNode(name="X", entity_type="T", chapter_numbers=[])],
-            relations=[],
+            characters=[
+                CharacterExtraction(name="Scrooge", first_chapter=1),
+                CharacterExtraction(name="Bob Cratchit", first_chapter=1),
+            ],
+            relationships=[RelationshipExtraction(
+                source_name="Scrooge",
+                target_name="Bob Cratchit",
+                relation_type="employs",
+                description="employs as clerk",
+                first_chapter=1,
+            )],
         )
-        chunk = ChapterChunk(text="t", chapter_numbers=[3, 4], start_char=0, end_char=1)
-        dps = _to_datapoints(result, chunk)
-        assert dps[0]["chapter_numbers"] == [3, 4]
+        dps = result.to_datapoints()
+        # 2 characters + 1 relationship = 3 DataPoints
+        relationships = [dp for dp in dps if isinstance(dp, Relationship)]
+        assert len(relationships) == 1
+        assert relationships[0].source.name == "Scrooge"
+        assert relationships[0].target.name == "Bob Cratchit"
+        assert relationships[0].relation_type == "employs"
 
-    def test_mixed_entities_and_relations(self):
+    def test_unresolved_relationship_skipped(self):
+        """Relationships referencing unknown characters are skipped."""
         result = ExtractionResult(
-            entities=[EntityNode(name="A", entity_type="T")],
-            relations=[RelationEdge(source="A", target="B", relation_type="R")],
+            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
+            relationships=[RelationshipExtraction(
+                source_name="Scrooge",
+                target_name="Unknown",
+                relation_type="knows",
+                first_chapter=1,
+            )],
         )
-        chunk = ChapterChunk(text="t", chapter_numbers=[1], start_char=0, end_char=1)
-        dps = _to_datapoints(result, chunk)
-        assert len(dps) == 2
-        types = {dp["type"] for dp in dps}
-        assert types == {"entity", "relation"}
+        dps = result.to_datapoints()
+        relationships = [dp for dp in dps if isinstance(dp, Relationship)]
+        assert len(relationships) == 0
+
+    def test_event_with_participants(self):
+        """Events link to Character DataPoints by participant_names."""
+        result = ExtractionResult(
+            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
+            events=[EventExtraction(
+                description="Scrooge sees a ghost",
+                chapter=1,
+                participant_names=["Scrooge"],
+            )],
+        )
+        dps = result.to_datapoints()
+        events = [dp for dp in dps if isinstance(dp, PlotEvent)]
+        assert len(events) == 1
+        assert len(events[0].participants) == 1
+        assert events[0].participants[0].name == "Scrooge"
+
+    def test_mixed_types(self):
+        """Multiple extraction types produce the right DataPoint types."""
+        result = ExtractionResult(
+            characters=[CharacterExtraction(name="A", first_chapter=1)],
+            locations=[LocationExtraction(name="London", first_chapter=1)],
+            relationships=[RelationshipExtraction(
+                source_name="A", target_name="A",
+                relation_type="self_ref", first_chapter=1,
+            )],
+        )
+        dps = result.to_datapoints()
+        type_names = {type(dp).__name__ for dp in dps}
+        assert "Character" in type_names
+        assert "Location" in type_names
+        assert "Relationship" in type_names
 
     def test_empty_result(self):
         result = ExtractionResult()
-        chunk = ChapterChunk(text="t", chapter_numbers=[1], start_char=0, end_char=1)
-        assert _to_datapoints(result, chunk) == []
+        assert result.to_datapoints() == []
 
 
 # ---------------------------------------------------------------------------
@@ -424,17 +452,16 @@ class TestExtractEnrichedGraph:
     @pytest.fixture(autouse=True)
     def setup_prompt_cache(self):
         _PROMPT_CACHE["prompts/extraction_prompt.txt"] = (
-            "$chunk_text|$booknlp_entities|$booknlp_quotes|"
-            "$chapter_numbers|$ontology_classes|$ontology_relations"
+            "{{ text }}\n{{ booknlp_entities }}\n{{ booknlp_quotes }}\n"
+            "{{ chapter_numbers }}\n{{ ontology_classes }}\n{{ ontology_relations }}"
         )
         yield
         _PROMPT_CACHE.clear()
 
     def test_successful_extraction(self):
-        """LLMGateway returns structured output → datapoints produced."""
+        """LLMGateway returns structured output -> DataPoints produced."""
         mock_result = ExtractionResult(
-            entities=[EntityNode(name="Scrooge", entity_type="Character")],
-            relations=[],
+            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
         )
         _mock_llm_gateway.acreate_structured_output = AsyncMock(return_value=mock_result)
 
@@ -443,7 +470,8 @@ class TestExtractEnrichedGraph:
             extract_enriched_graph(chunks, max_retries=1)
         )
         assert len(result) == 1
-        assert result[0]["name"] == "Scrooge"
+        assert isinstance(result[0], Character)
+        assert result[0].name == "Scrooge"
 
     def test_retry_on_failure(self):
         """Plan: '3 retries then halt pipeline'. Test that retries happen."""
@@ -455,7 +483,7 @@ class TestExtractEnrichedGraph:
             if call_count < 3:
                 raise ConnectionError("LLM timeout")
             return ExtractionResult(
-                entities=[EntityNode(name="Recovered", entity_type="T")]
+                characters=[CharacterExtraction(name="Recovered", first_chapter=1)]
             )
 
         _mock_llm_gateway.acreate_structured_output = AsyncMock(side_effect=fail_then_succeed)
@@ -466,7 +494,8 @@ class TestExtractEnrichedGraph:
         )
         assert call_count == 3
         assert len(result) == 1
-        assert result[0]["name"] == "Recovered"
+        assert isinstance(result[0], Character)
+        assert result[0].name == "Recovered"
 
     def test_all_retries_fail_graceful_skip(self):
         """If all retries fail, chunk is skipped (not crash)."""
@@ -482,8 +511,8 @@ class TestExtractEnrichedGraph:
     def test_multiple_chunks(self):
         """Multiple chunks should produce combined datapoints."""
         mock_result = ExtractionResult(
-            entities=[EntityNode(name="E", entity_type="T")],
-            relations=[RelationEdge(source="A", target="B", relation_type="R")],
+            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
+            locations=[LocationExtraction(name="London", first_chapter=1)],
         )
         _mock_llm_gateway.acreate_structured_output = AsyncMock(return_value=mock_result)
 
@@ -494,7 +523,7 @@ class TestExtractEnrichedGraph:
         result = asyncio.get_event_loop().run_until_complete(
             extract_enriched_graph(chunks, max_retries=1)
         )
-        # 2 datapoints per chunk (1 entity + 1 relation) × 2 chunks
+        # 2 datapoints per chunk (1 character + 1 location) x 2 chunks = 4
         assert len(result) == 4
 
     def test_defaults_for_none_booknlp_ontology(self):
