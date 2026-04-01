@@ -20,6 +20,8 @@ from typing import Any, AsyncIterator
 from jinja2 import BaseLoader, Environment
 from loguru import logger
 
+import os
+
 from cognee.infrastructure.engine import DataPoint
 from cognee.infrastructure.llm.LLMGateway import LLMGateway
 from cognee.modules.pipelines import run_pipeline
@@ -28,6 +30,41 @@ from cognee.tasks.storage import add_data_points
 
 from models.datapoints import ExtractionResult
 from pipeline.batcher import Batch
+
+
+def configure_cognee(config: Any) -> None:
+    """Configure Cognee's LLM and embedding settings from BookRAGConfig.
+
+    Reads llm_provider, llm_model from our config and the API key from
+    the corresponding environment variable (OPENAI_API_KEY or ANTHROPIC_API_KEY).
+    Must be called before any Cognee LLM operations.
+    """
+    import cognee
+
+    provider = getattr(config, "llm_provider", "openai")
+    model = getattr(config, "llm_model", "gpt-4o")
+
+    # Resolve API key from environment based on provider
+    key_env_map = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }
+    env_var = key_env_map.get(provider, f"{provider.upper()}_API_KEY")
+    api_key = os.environ.get(env_var, "")
+
+    if not api_key:
+        logger.warning(
+            "No API key found in ${} for provider '{}' — Cognee LLM calls will fail",
+            env_var, provider,
+        )
+
+    cognee.config.set_llm_config({
+        "llm_provider": provider,
+        "llm_model": f"{provider}/{model}" if "/" not in model else model,
+        "llm_api_key": api_key,
+    })
+
+    logger.info("Cognee LLM configured: provider={}, model={}", provider, model)
 
 
 # ---------------------------------------------------------------------------

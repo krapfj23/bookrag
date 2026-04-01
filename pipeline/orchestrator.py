@@ -23,7 +23,7 @@ from pipeline.booknlp_runner import (
     create_stub_output,
     BookNLPOutput,
 )
-from pipeline.cognee_pipeline import run_bookrag_pipeline
+from pipeline.cognee_pipeline import run_bookrag_pipeline, configure_cognee
 from pipeline.coref_resolver import (
     Token as CorefToken,
     EntityMention as CorefEntityMention,
@@ -495,6 +495,9 @@ class PipelineOrchestrator:
 
         Prefers resolved (coref-annotated) chapters over raw chapters.
         """
+        # Configure Cognee's LLM provider/model/key from our config
+        configure_cognee(self.config)
+
         # Prefer resolved chapters (coref output), fall back to raw
         resolved_chapters = ctx.get("resolved_chapters")
         if resolved_chapters:
@@ -578,24 +581,30 @@ class PipelineOrchestrator:
     async def _stage_validate(
         self, state: PipelineState, ctx: dict[str, Any], log: Any
     ) -> None:
-        """Run validation checks on the constructed knowledge graph.
+        """Run known-answer validation checks on the constructed knowledge graph.
 
-        Checks that the graph has expected nodes/edges, no orphan entities,
-        and chapter coverage is complete.
+        Uses validation/test_suite.py with fixture files from
+        validation/fixtures/{book_id}.json. Books without a fixture
+        file are skipped with a note.
         """
+        from validation.test_suite import run_validation, save_validation_report
+
+        processed_dir = Path(getattr(self.config, "processed_dir", "data/processed"))
         validation_dir = self._book_dir(state.book_id) / "validation"
-        validation_dir.mkdir(parents=True, exist_ok=True)
 
-        results = {
-            "graph_populated": True,
-            "orphan_check": "pass",
-            "chapter_coverage": "complete",
-            "notes": "Validation placeholder — implement graph queries for production.",
-        }
+        report = run_validation(state.book_id, processed_dir)
+        save_validation_report(report, validation_dir)
 
-        results_path = validation_dir / "validation_results.json"
-        results_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
-        log.info("Validation results saved to {}", results_path)
+        if report.all_passed:
+            log.info(
+                "Validation passed: {}/{} checks OK for '{}'",
+                report.passed, report.total, state.book_id,
+            )
+        else:
+            log.warning(
+                "Validation: {}/{} passed, {} failed for '{}'",
+                report.passed, report.total, report.failed, state.book_id,
+            )
 
     # ------------------------------------------------------------------
     # Helpers

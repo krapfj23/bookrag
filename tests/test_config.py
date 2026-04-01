@@ -13,8 +13,8 @@ Covers:
 Aligned with:
 - CLAUDE.md: ".env for secrets + YAML for settings"
 - Plan config.yaml spec: batch_size=3, max_retries=3, booknlp_model="small",
-  distance_threshold=3, annotate_ambiguous=true, llm_provider="anthropic",
-  llm_model="claude-sonnet-4-20250514", graph_db="kuzu", vector_db="lancedb",
+  distance_threshold=3, annotate_ambiguous=true, llm_provider="openai",
+  llm_model="gpt-4o", graph_db="kuzu", vector_db="lancedb",
   auto_review=false, min_entity_frequency=2, strip_html=true, remove_toc=true,
   remove_copyright=true, keep_epigraphs=true, keep_section_breaks=true
 """
@@ -59,12 +59,10 @@ class TestBookRAGConfigDefaults:
         assert BookRAGConfig().annotate_ambiguous is True
 
     def test_llm_provider(self):
-        """Plan: 'llm_provider: anthropic'. CLAUDE.md: 'Claude (Anthropic)'."""
-        assert BookRAGConfig().llm_provider == "anthropic"
+        assert BookRAGConfig().llm_provider == "openai"
 
     def test_llm_model(self):
-        """Plan: 'llm_model: claude-sonnet-4-20250514'."""
-        assert BookRAGConfig().llm_model == "claude-sonnet-4-20250514"
+        assert BookRAGConfig().llm_model == "gpt-4o"
 
     def test_graph_db(self):
         """Plan: 'graph_db: kuzu'. CLAUDE.md: 'Cognee defaults: Kuzu + LanceDB + SQLite'."""
@@ -144,12 +142,12 @@ class TestLoadConfigYAML:
         cfg = load_config(config_file)
         assert cfg.batch_size == 7
         assert cfg.max_retries == 3  # default
-        assert cfg.llm_provider == "anthropic"  # default
+        assert cfg.llm_provider == "openai"  # default
 
     def test_missing_yaml_uses_defaults(self, tmp_path):
         cfg = load_config(tmp_path / "nonexistent.yaml")
         assert cfg.batch_size == 3
-        assert cfg.llm_provider == "anthropic"
+        assert cfg.llm_provider == "openai"
 
     def test_invalid_yaml_uses_defaults(self, tmp_path):
         config_file = tmp_path / "bad.yaml"

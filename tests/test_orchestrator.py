@@ -266,8 +266,9 @@ class TestStageValidate:
         results_path = Path(tmp_config.processed_dir) / "valbook" / "validation" / "validation_results.json"
         assert results_path.exists()
         results = json.loads(results_path.read_text())
-        assert results["graph_populated"] is True
-        assert results["orphan_check"] == "pass"
+        assert results["book_id"] == "valbook"
+        assert "summary" in results
+        assert "checks" in results
 
 
 class TestStageRunBooknlp:

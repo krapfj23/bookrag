@@ -32,8 +32,8 @@ class BookRAGConfig(BaseSettings):
     annotate_ambiguous: bool = True
 
     # Cognee / LLM
-    llm_provider: str = "anthropic"
-    llm_model: str = "claude-sonnet-4-20250514"
+    llm_provider: str = "openai"
+    llm_model: str = "gpt-4o"
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 
