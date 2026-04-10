@@ -54,7 +54,7 @@ def _install_cognee_mock():
         # Storage mock
         cognee_tasks = types.ModuleType("cognee.tasks")
         cognee_storage = types.ModuleType("cognee.tasks.storage")
-        cognee_storage.add_data_points = MagicMock()
+        cognee_storage.add_data_points = AsyncMock(return_value=None)
 
         # Search mocks — used by validation/test_suite.py
         cognee_search = types.ModuleType("cognee.modules.search")

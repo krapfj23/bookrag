@@ -178,9 +178,13 @@ class TestChunkWithChapterAwareness:
         """Chunks should never split mid-paragraph."""
         text = "Para one.\n\nPara two.\n\nPara three."
         chunks = chunk_with_chapter_awareness(text, chunk_size=2)  # tiny budget forces splits
+        source_paragraphs = set(text.split("\n\n"))
         for c in chunks:
-            # Each chunk should be complete paragraphs
-            assert c.text.strip() == c.text.strip()
+            # Every paragraph inside a chunk must be a complete paragraph from source
+            for para in c.text.split("\n\n"):
+                assert para in source_paragraphs, (
+                    f"Chunk contains a paragraph not present in source: {para!r}"
+                )
 
     def test_chapter_numbers_tagged(self):
         chunks = chunk_with_chapter_awareness("Text.", chapter_numbers=[4, 5, 6])
@@ -418,7 +422,7 @@ class TestExtractEnrichedGraph:
 
     def test_returns_datapoints(self, mock_llm, mock_render):
         chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_enriched_graph(chunks)
         )
         assert isinstance(result, list)
@@ -428,7 +432,7 @@ class TestExtractEnrichedGraph:
         """Must return DataPoint instances, NOT dicts."""
         from cognee.infrastructure.engine import DataPoint
         chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_enriched_graph(chunks)
         )
         for dp in result:
@@ -437,7 +441,7 @@ class TestExtractEnrichedGraph:
     def test_uses_extraction_result_model(self, mock_llm, mock_render):
         """LLMGateway must be called with ExtractionResult as response_model."""
         chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             extract_enriched_graph(chunks)
         )
         call_kwargs = mock_llm.acreate_structured_output.call_args
@@ -447,7 +451,7 @@ class TestExtractEnrichedGraph:
     def test_calls_to_datapoints(self, mock_llm, mock_render):
         """Should call ExtractionResult.to_datapoints() — produces Character, Location etc."""
         chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_enriched_graph(chunks)
         )
         types = {type(dp).__name__ for dp in result}
@@ -458,7 +462,7 @@ class TestExtractEnrichedGraph:
             ChapterChunk(text="chunk1", chapter_numbers=[1], start_char=0, end_char=6),
             ChapterChunk(text="chunk2", chapter_numbers=[2], start_char=6, end_char=12),
         ]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_enriched_graph(chunks)
         )
         assert mock_llm.acreate_structured_output.call_count == 2
@@ -470,7 +474,7 @@ class TestExtractEnrichedGraph:
                 side_effect=[Exception("fail"), sample_extraction_result]
             )
             chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 extract_enriched_graph(chunks, max_retries=3)
             )
             assert len(result) > 0
@@ -483,7 +487,7 @@ class TestExtractEnrichedGraph:
                 side_effect=Exception("permanent failure")
             )
             chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 extract_enriched_graph(chunks, max_retries=2)
             )
             assert result == []
@@ -495,14 +499,14 @@ class TestExtractEnrichedGraph:
         assert sig.parameters["max_retries"].default == 3
 
     def test_empty_chunks(self, mock_render):
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_enriched_graph([])
         )
         assert result == []
 
     def test_none_booknlp_handled(self, mock_llm, mock_render):
         chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_enriched_graph(chunks, booknlp=None, ontology=None)
         )
         assert isinstance(result, list)
@@ -512,7 +516,7 @@ class TestExtractEnrichedGraph:
         with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
             mock_llm.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
             chunks = [ChapterChunk(text="book text here", chapter_numbers=[1], start_char=0, end_char=14)]
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 extract_enriched_graph(chunks)
             )
             call_kwargs = mock_llm.acreate_structured_output.call_args.kwargs
@@ -591,7 +595,7 @@ class TestRunBookragPipeline:
             yield {"llm": mock_llm, "pipeline": mock_pipeline}
 
     def test_returns_datapoints(self, mock_everything, sample_batch, sample_booknlp, sample_ontology, tmp_path):
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             run_bookrag_pipeline(
                 batch=sample_batch, booknlp_output=sample_booknlp,
                 ontology=sample_ontology, book_id="christmas_carol",
@@ -602,7 +606,7 @@ class TestRunBookragPipeline:
         assert len(result) > 0
 
     def test_saves_batch_artifacts(self, mock_everything, sample_batch, sample_booknlp, sample_ontology, tmp_path):
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             run_bookrag_pipeline(
                 batch=sample_batch, booknlp_output=sample_booknlp,
                 ontology=sample_ontology, book_id="christmas_carol",
@@ -616,7 +620,7 @@ class TestRunBookragPipeline:
 
     def test_default_output_dir(self, mock_everything, sample_batch, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             run_bookrag_pipeline(
                 batch=sample_batch, booknlp_output={},
                 ontology={}, book_id="test_book",

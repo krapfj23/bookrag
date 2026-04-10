@@ -5,7 +5,7 @@ Covers every feature of the coreference text resolver:
 - Data classes: Token, EntityMention, CharacterProfile, CorefConfig, CorefResult,
   CorefCluster, ResolutionEvent
 - Alias selection: shortest unambiguous alias, collisions, no aliases, single char
-- Mention indexing: _build_mention_index, _build_mention_span_set
+- Mention indexing: _build_mention_index
 - Chapter assignment: _assign_token_chapters_fast, empty boundaries, multi-chapter
 - Distance rule: annotate when antecedent 3+ sentences away (configurable)
 - Ambiguity rule: annotate when 2+ characters in ambiguity window
@@ -56,7 +56,6 @@ from pipeline.coref_resolver import (
     save_coref_outputs,
     _build_shortest_alias_map,
     _build_mention_index,
-    _build_mention_span_set,
     _assign_token_chapters_fast,
 )
 
@@ -298,7 +297,7 @@ class TestShortestAliasMap:
 # ============================================================================
 
 class TestMentionIndex:
-    """Tests for _build_mention_index and _build_mention_span_set."""
+    """Tests for _build_mention_index."""
 
     def test_mention_index_maps_start_token(self):
         entities = [
@@ -317,34 +316,8 @@ class TestMentionIndex:
         assert 11 not in idx
         assert 12 not in idx
 
-    def test_span_set_single_token_mention(self):
-        """Single-token mention produces no continuation tokens."""
-        entities = [EntityMention(1, 5, 6, "PRON", "PER", "he")]
-        spans = _build_mention_span_set(entities)
-        assert len(spans) == 0
-
-    def test_span_set_multi_token_mention(self):
-        """Multi-token mention: tokens after start are in the continuation set."""
-        entities = [EntityMention(2, 10, 13, "PROP", "PER", "Bob Cratchit")]
-        spans = _build_mention_span_set(entities)
-        assert 11 in spans
-        assert 12 in spans
-        assert 10 not in spans  # start token not in continuation
-        assert 13 not in spans  # end is exclusive
-
-    def test_span_set_multiple_mentions(self):
-        entities = [
-            EntityMention(1, 0, 1, "PRON", "PER", "he"),
-            EntityMention(2, 5, 8, "PROP", "PER", "Bob the Builder"),
-        ]
-        spans = _build_mention_span_set(entities)
-        assert 6 in spans
-        assert 7 in spans
-        assert len(spans) == 2
-
     def test_empty_entities(self):
         assert _build_mention_index([]) == {}
-        assert _build_mention_span_set([]) == set()
 
 
 # ============================================================================

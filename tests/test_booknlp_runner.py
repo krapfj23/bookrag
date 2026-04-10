@@ -99,16 +99,17 @@ class TestCharacterProfile:
 class TestTokenAnnotation:
     def test_fields(self):
         t = TokenAnnotation(
-            token_id=42, text="Scrooge", lemma="scrooge",
+            token_id=42, sentence_id=1, text="Scrooge", lemma="scrooge",
             pos="NNP", dep="nsubj", coref_id=0,
             start_char=100, end_char=107,
         )
         assert t.token_id == 42
+        assert t.sentence_id == 1
         assert t.coref_id == 0
 
     def test_none_coref(self):
         t = TokenAnnotation(
-            token_id=0, text="the", lemma="the",
+            token_id=0, sentence_id=0, text="the", lemma="the",
             pos="DT", dep="det", coref_id=None,
             start_char=0, end_char=3,
         )

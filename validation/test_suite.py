@@ -60,7 +60,9 @@ class ValidationReport:
 
     @property
     def all_passed(self) -> bool:
-        return self.failed == 0
+        # True when there are no failures and the report is not entirely skips
+        # (all-skipped means nothing was actually validated).
+        return self.failed == 0 and (self.skipped == 0 or self.passed > 0)
 
     def add(self, check: CheckResult) -> None:
         self.checks.append(check)
@@ -70,7 +72,7 @@ class ValidationReport:
             self.failed += 1
 
     def skip(self, name: str, reason: str) -> None:
-        self.checks.append(CheckResult(name=name, passed=True, expected="", actual="", detail=f"SKIPPED: {reason}"))
+        self.checks.append(CheckResult(name=name, passed=False, expected="", actual="", detail=f"SKIPPED: {reason}"))
         self.skipped += 1
 
     def to_dict(self) -> dict[str, Any]:

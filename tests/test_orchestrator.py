@@ -191,7 +191,7 @@ class TestExecuteStage:
         state = PipelineState.new("test", STAGES)
         ctx = {}
         with pytest.raises(NotImplementedError, match="No handler for stage"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 orchestrator._execute_stage("nonexistent_stage", state, ctx, MagicMock())
             )
 
@@ -208,7 +208,7 @@ class TestStageDiscoverOntology:
         state = PipelineState.new("testbook", STAGES)
         ctx: dict[str, Any] = {}
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             orchestrator._stage_discover_ontology(state, ctx, MagicMock())
         )
 
@@ -232,7 +232,7 @@ class TestStageDiscoverOntology:
         }
         (ontology_dir / "discovered_entities.json").write_text(json.dumps(custom))
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             orchestrator._stage_discover_ontology(state, ctx, MagicMock())
         )
         assert ctx["ontology"]["discovered_entities"]["Character"][0]["name"] == "Scrooge"
@@ -246,7 +246,7 @@ class TestStageResolveCoref:
         booknlp = {"entities": [{"name": "Scrooge"}], "quotes": [], "characters": []}
         ctx: dict[str, Any] = {"booknlp_output": booknlp}
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             orchestrator._stage_resolve_coref(state, ctx, MagicMock())
         )
         # With no booknlp_result, should passthrough
@@ -259,7 +259,7 @@ class TestStageValidate:
         state = PipelineState.new("valbook", STAGES)
         ctx: dict[str, Any] = {}
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             orchestrator._stage_validate(state, ctx, MagicMock())
         )
 
@@ -285,7 +285,7 @@ class TestStageRunBooknlp:
 
         # Ensure booknlp is not importable
         with patch.dict(sys.modules, {"booknlp": None, "booknlp.booknlp": None}):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 orchestrator._stage_run_booknlp(state, ctx, MagicMock())
             )
 
@@ -311,7 +311,7 @@ class TestRunPipeline:
         state_dir.mkdir(parents=True, exist_ok=True)
         save_state(state, state_dir / "pipeline_state.json")
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             orchestrator._run_pipeline("seqbook", Path("/fake.epub"))
         )
 
@@ -339,7 +339,7 @@ class TestRunPipeline:
         state_dir.mkdir(parents=True, exist_ok=True)
         save_state(state, state_dir / "pipeline_state.json")
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             orchestrator._run_pipeline("failbook", Path("/fake.epub"))
         )
 
@@ -365,7 +365,7 @@ class TestRunPipeline:
             return handler
 
         for stage in STAGES:
-            handler = asyncio.get_event_loop().run_until_complete(tracking_handler(stage))
+            handler = asyncio.run(tracking_handler(stage))
             setattr(orchestrator, f"_stage_{stage}", handler)
 
         # Pre-set parse_epub and run_booknlp as complete
@@ -377,7 +377,7 @@ class TestRunPipeline:
         state_dir.mkdir(parents=True, exist_ok=True)
         save_state(state, state_dir / "pipeline_state.json")
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             orchestrator._run_pipeline("skipbook", Path("/fake.epub"))
         )
 

@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from models.config import BookRAGConfig, load_config
+from models.config import BookRAGConfig, load_config, ensure_directories
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +214,7 @@ class TestLoadConfigDirectories:
             "processed_dir": str(processed_dir),
         }))
         cfg = load_config(config_file)
+        ensure_directories(cfg)
         assert data_dir.exists()
         assert books_dir.exists()
         assert processed_dir.exists()
