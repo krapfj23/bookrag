@@ -1354,3 +1354,181 @@ class TestIntegration:
         # Shortest alias picked
         he_events = [e for e in result.resolution_log if e.original_text == "He"]
         assert he_events[0].inserted_annotation == "Darrow"
+
+
+# ============================================================================
+# Regression tests for pipeline bugs found on A Christmas Carol
+# ============================================================================
+
+class TestBug1DuplicateWordEmission:
+    """BookNLP's em.text can span MORE tokens than [start_token, end_token).
+    The resolver must emit each token's word exactly once, never duplicating
+    via em.text."""
+
+    def test_no_duplicate_when_em_text_exceeds_token_span(self):
+        """Entity text 'MARLEY 'S GHOST' covers tokens 3-4 but em.text
+        includes token 5. Token 5 must not be emitted twice."""
+        tokens = [
+            Token(0, 0, 0, 5, "STAVE", "NNP", -1),
+            Token(1, 0, 6, 9, "ONE", "CD", -1),
+            Token(2, 0, 9, 10, ".", ".", -1),
+            Token(3, 0, 12, 18, "MARLEY", "NNP", 22),
+            Token(4, 0, 18, 20, "'S", "POS", 22),
+            Token(5, 0, 21, 26, "GHOST", "NNP", 22),
+            Token(6, 0, 26, 27, ".", ".", -1),
+            Token(7, 1, 29, 35, "Marley", "NNP", 22),
+            Token(8, 1, 36, 39, "was", "VBD", -1),
+            Token(9, 1, 40, 44, "dead", "JJ", -1),
+            Token(10, 1, 44, 45, ".", ".", -1),
+        ]
+        entities = [
+            # em.text spans tokens 3,4,5 but end_token=5 only covers 3,4
+            EntityMention(22, 3, 5, "PROP", "PER", "MARLEY 'S GHOST"),
+            EntityMention(22, 7, 8, "PROP", "PER", "Marley"),
+        ]
+        characters = [
+            CharacterProfile(22, "Marley", ["Jacob Marley"]),
+        ]
+        config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
+        source = "STAVE ONE.\n\nMARLEY'S GHOST.\n\nMarley was dead."
+        result = resolve_coreferences(
+            tokens, entities, characters, [""], [(0, 11)], config,
+            source_text=source,
+        )
+        text = result.resolved_full_text
+        # "GHOST" should appear exactly once, not "GHOST GHOST"
+        assert "GHOST GHOST" not in text
+        assert text.count("GHOST") == 1
+
+    def test_single_token_mention_no_duplicate(self):
+        """A single-token mention like 'Scrooge' must not produce 'Scrooge Scrooge'."""
+        tokens = [
+            Token(0, 0, 0, 7, "Scrooge", "NNP", 1),
+            Token(1, 0, 8, 11, "sat", "VBD", -1),
+            Token(2, 0, 11, 12, ".", ".", -1),
+        ]
+        entities = [
+            EntityMention(1, 0, 1, "PROP", "PER", "Scrooge"),
+        ]
+        characters = [
+            CharacterProfile(1, "Scrooge", []),
+        ]
+        config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
+        result = resolve_coreferences(tokens, entities, characters, [""], [(0, 3)], config)
+        assert "Scrooge Scrooge" not in result.resolved_full_text
+        assert result.resolved_full_text.count("Scrooge") == 1
+
+    def test_multi_word_mention_no_duplicate(self):
+        """'Bob Cratchit' (2 tokens) should not produce 'Bob Cratchit Cratchit'."""
+        tokens = [
+            Token(0, 0, 0, 3, "Bob", "NNP", 2),
+            Token(1, 0, 4, 12, "Cratchit", "NNP", 2),
+            Token(2, 0, 13, 19, "worked", "VBD", -1),
+            Token(3, 0, 19, 20, ".", ".", -1),
+        ]
+        entities = [
+            EntityMention(2, 0, 2, "PROP", "PER", "Bob Cratchit"),
+        ]
+        characters = [
+            CharacterProfile(2, "Bob Cratchit", ["Bob"]),
+        ]
+        config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
+        result = resolve_coreferences(tokens, entities, characters, [""], [(0, 4)], config)
+        assert "Cratchit Cratchit" not in result.resolved_full_text
+        assert "Cratchit worked" in result.resolved_full_text
+
+
+class TestBug2CharacterPlaceholders:
+    """Unnamed entities (CHARACTER_xxx) should not produce bracket annotations."""
+
+    def test_placeholder_name_not_annotated(self):
+        """A pronoun referring to a CHARACTER_xxx placeholder should not be annotated."""
+        tokens = [
+            Token(0, 0, 0, 3, "The", "DT", -1),
+            Token(1, 0, 4, 9, "clerk", "NN", 128),
+            Token(2, 0, 10, 16, "worked", "VBD", -1),
+            Token(3, 0, 16, 17, ".", ".", -1),
+            Token(4, 1, 18, 20, "He", "PRP", 128),
+            Token(5, 1, 21, 28, "sighed", "VBD", -1),
+            Token(6, 1, 28, 29, ".", ".", -1),
+        ]
+        entities = [
+            EntityMention(128, 1, 2, "NOM", "PER", "clerk"),
+            EntityMention(128, 4, 5, "PRON", "PER", "He"),
+        ]
+        # CharacterProfile with placeholder name
+        characters = [
+            CharacterProfile(128, "CHARACTER_128", []),
+        ]
+        config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
+        result = resolve_coreferences(tokens, entities, characters, [""], [(0, 7)], config)
+        assert "CHARACTER_" not in result.resolved_full_text
+        assert "[" not in result.resolved_full_text
+
+    def test_pronoun_name_not_used_as_annotation(self):
+        """A character whose only name is a pronoun like 'he' should not be annotated."""
+        tokens = [
+            Token(0, 0, 0, 2, "He", "PRP", 99),
+            Token(1, 0, 3, 6, "ran", "VBD", -1),
+            Token(2, 0, 6, 7, ".", ".", -1),
+        ]
+        entities = [
+            EntityMention(99, 0, 1, "PRON", "PER", "He"),
+        ]
+        characters = [
+            CharacterProfile(99, "he", []),
+        ]
+        config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
+        result = resolve_coreferences(tokens, entities, characters, [""], [(0, 3)], config)
+        # Should NOT annotate "He [he]" — useless
+        assert "[he]" not in result.resolved_full_text
+
+
+class TestBug3HeadingAnnotation:
+    """Heading text like 'STAVE ONE' should not be annotated as a character reference."""
+
+    def test_allcaps_multiword_not_annotated(self):
+        """All-caps multi-word entity mentions should be skipped."""
+        tokens = [
+            Token(0, 0, 0, 5, "STAVE", "NNP", 21),
+            Token(1, 0, 6, 9, "ONE", "CD", 21),
+            Token(2, 0, 9, 10, ".", ".", -1),
+            Token(3, 1, 12, 14, "He", "PRP", 1),
+            Token(4, 1, 15, 18, "ran", "VBD", -1),
+            Token(5, 1, 18, 19, ".", ".", -1),
+        ]
+        entities = [
+            # BookNLP misclassifies heading as NOM PER
+            EntityMention(21, 0, 2, "NOM", "PER", "STAVE ONE"),
+            EntityMention(1, 3, 4, "PRON", "PER", "He"),
+        ]
+        characters = [
+            CharacterProfile(21, "Heading", []),
+            CharacterProfile(1, "Scrooge", ["Ebenezer"]),
+        ]
+        config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
+        result = resolve_coreferences(tokens, entities, characters, [""], [(0, 6)], config)
+        # Heading should not get an annotation
+        assert "STAVE" not in result.resolved_full_text.replace("STAVE ONE.", "").replace("STAVE", "")  \
+            or "[Heading]" not in result.resolved_full_text
+        # The pronoun should be annotated
+        assert "He [Scrooge]" in result.resolved_full_text
+
+    def test_normal_caps_still_annotated(self):
+        """Mixed-case entity text should still be annotated normally."""
+        tokens = [
+            Token(0, 0, 0, 3, "the", "DT", -1),
+            Token(1, 0, 4, 7, "old", "JJ", -1),
+            Token(2, 0, 8, 11, "man", "NN", 1),
+            Token(3, 0, 12, 15, "ran", "VBD", -1),
+            Token(4, 0, 15, 16, ".", ".", -1),
+        ]
+        entities = [
+            EntityMention(1, 2, 3, "NOM", "PER", "man"),
+        ]
+        characters = [
+            CharacterProfile(1, "Ebenezer Scrooge", ["Scrooge"]),
+        ]
+        config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
+        result = resolve_coreferences(tokens, entities, characters, [""], [(0, 5)], config)
+        assert "[Scrooge]" in result.resolved_full_text

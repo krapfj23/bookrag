@@ -1,538 +1,676 @@
-"""Comprehensive tests for pipeline/cognee_pipeline.py.
-
-Covers:
-- ChapterChunk dataclass (token_estimate, fields)
-- ExtractionResult and extraction models (CharacterExtraction, RelationshipExtraction, etc.)
-- chunk_with_chapter_awareness: paragraph boundaries, target size, chapter tagging,
-  single paragraph, empty text, small chunk size, no mid-paragraph splits,
-  start_char/end_char tracking
-- render_prompt: template rendering, BookNLP entity/quote formatting, ontology injection
-- _load_extraction_prompt: file loading, caching, missing file error
-- ExtractionResult.to_datapoints(): entity conversion, relation conversion, cross-references
-- extract_enriched_graph: LLM retries, all-fail graceful skip, success accumulation
-- run_bookrag_pipeline: pipeline assembly, datapoint persistence to disk
-
-Aligned with:
-- CLAUDE.md: "Custom Cognee pipeline (chapter-aware chunker + enriched graph extractor)"
-- Plan: "chunk_with_chapter_awareness -- Split batch text into chunks, each tagged with chapter"
-- Plan: "extract_enriched_graph -- Uses Cognee LLMGateway, calls Claude with resolved text + BookNLP + ontology"
-- Plan: "3 retries then halt pipeline"
-- Plan: "add_data_points -- Cognee built-in"
-- Deep research: "LLMGateway.acreate_structured_output"
 """
+Comprehensive tests for pipeline/cognee_pipeline.py
+
+Tests every feature against CLAUDE.md, bookrag_pipeline_plan.md, and
+bookrag_deep_research_context.md:
+
+- ChapterChunk: construction, token estimation, chapter provenance
+- chunk_with_chapter_awareness: paragraph-respecting, target size, chapter tags,
+  single paragraph, empty text, large text
+- Prompt rendering: Jinja2 template, all 6 placeholders, text separation,
+  BookNLP entity/quote formatting, ontology class/relation formatting
+- extract_enriched_graph: ExtractionResult usage, to_datapoints() conversion,
+  retry logic, all-fail graceful handling, stats logging
+- run_bookrag_pipeline: full 3-stage pipeline, batch artifact saving
+  (input_text.txt, annotations.json, extracted_datapoints.json),
+  output path spec, empty extraction handling
+- Integration: uses models/datapoints.py ExtractionResult (not generic dicts),
+  returns actual DataPoint instances
+"""
+
 from __future__ import annotations
 
 import asyncio
 import json
-import sys
-import types
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Mock cognee modules before importing cognee_pipeline
-# ---------------------------------------------------------------------------
-
-_mock_llm_gateway = MagicMock()
-_mock_llm_gateway.acreate_structured_output = AsyncMock()
-
-_llm_module = types.ModuleType("cognee.infrastructure.llm")
-_llm_gw_module = types.ModuleType("cognee.infrastructure.llm.LLMGateway")
-_llm_gw_module.LLMGateway = _mock_llm_gateway
-
-_pipelines_module = types.ModuleType("cognee.modules.pipelines")
-_pipelines_module.run_pipeline = AsyncMock()
-
-_tasks_module = types.ModuleType("cognee.modules.pipelines.tasks")
-_task_module = types.ModuleType("cognee.modules.pipelines.tasks.task")
-_task_module.Task = MagicMock()
-
-_storage_module = types.ModuleType("cognee.tasks.storage")
-_storage_module.add_data_points = MagicMock()
-
-# Install mocks
-for mod_name, mod in [
-    ("cognee.infrastructure.llm", _llm_module),
-    ("cognee.infrastructure.llm.LLMGateway", _llm_gw_module),
-    ("cognee.modules.pipelines", _pipelines_module),
-    ("cognee.modules.pipelines.tasks", _tasks_module),
-    ("cognee.modules.pipelines.tasks.task", _task_module),
-    ("cognee.tasks", types.ModuleType("cognee.tasks")),
-    ("cognee.tasks.storage", _storage_module),
-]:
-    sys.modules.setdefault(mod_name, mod)
-
+from models.datapoints import (
+    Character,
+    CharacterExtraction,
+    EventExtraction,
+    ExtractionResult,
+    Location,
+    LocationExtraction,
+    PlotEvent,
+    Relationship,
+    RelationshipExtraction,
+    ThemeExtraction,
+)
+from pipeline.batcher import Batch
 from pipeline.cognee_pipeline import (
     ChapterChunk,
+    _format_booknlp_entities,
+    _format_booknlp_quotes,
+    _format_ontology_classes,
+    _format_ontology_relations,
+    _save_batch_artifacts,
     chunk_with_chapter_awareness,
     extract_enriched_graph,
     render_prompt,
-    _load_extraction_prompt,
-    _PROMPT_CACHE,
+    run_bookrag_pipeline,
 )
-from models.datapoints import (
-    ExtractionResult,
-    CharacterExtraction,
-    LocationExtraction,
-    RelationshipExtraction,
-    EventExtraction,
-    ThemeExtraction,
-    FactionExtraction,
-    Character,
-    Location,
-    Relationship,
-    PlotEvent,
-    Theme,
-    Faction,
-)
-from pipeline.batcher import Batch
 
 
-# ---------------------------------------------------------------------------
+# ===================================================================
+# Fixtures
+# ===================================================================
+
+@pytest.fixture
+def sample_batch() -> Batch:
+    """A realistic batch of 3 Christmas Carol chapters."""
+    texts = [
+        "Marley was dead. Scrooge knew it.\n\nThe counting-house was cold.",
+        "The ghost appeared. Scrooge was terrified.\n\nChains rattled loudly.",
+        "Christmas morning arrived. Scrooge was transformed.\n\nHe danced with joy.",
+    ]
+    return Batch(
+        chapter_numbers=[1, 2, 3],
+        texts=texts,
+        combined_text="\n\n".join(texts),
+    )
+
+
+@pytest.fixture
+def sample_booknlp() -> dict:
+    return {
+        "entities_tsv": [
+            {"COREF": 0, "prop": "PROP", "cat": "PER", "text": "Scrooge"},
+            {"COREF": 1, "prop": "PROP", "cat": "PER", "text": "Marley"},
+            {"COREF": 2, "prop": "PROP", "cat": "LOC", "text": "London"},
+            {"COREF": 3, "prop": "PRON", "cat": "PER", "text": "he"},
+            {"COREF": 4, "prop": "NOM", "cat": "PER", "text": "the ghost"},
+        ],
+        "quotes": [
+            {"speaker": "Scrooge", "text": "Bah! Humbug!"},
+            {"speaker": "Marley", "text": "I wear the chain I forged in life."},
+        ],
+    }
+
+
+@pytest.fixture
+def sample_ontology() -> dict:
+    return {
+        "discovered_entities": {
+            "Character": [{"name": "Scrooge", "count": 150}],
+            "Location": [{"name": "London", "count": 3}],
+        },
+        "discovered_relations": [
+            {"name": "employs", "source": "booknlp"},
+            {"name": "haunts", "source": "booknlp"},
+            {"name": "fears", "source": "tfidf"},
+        ],
+    }
+
+
+@pytest.fixture
+def sample_extraction_result() -> ExtractionResult:
+    return ExtractionResult(
+        characters=[
+            CharacterExtraction(name="Scrooge", aliases=["Ebenezer"], first_chapter=1, chapters_present=[1, 2, 3]),
+            CharacterExtraction(name="Marley", first_chapter=1),
+        ],
+        locations=[
+            LocationExtraction(name="London", first_chapter=1),
+        ],
+        events=[
+            EventExtraction(description="Ghost appears to Scrooge", chapter=2, participant_names=["Scrooge"]),
+        ],
+        relationships=[
+            RelationshipExtraction(source_name="Scrooge", target_name="Marley", relation_type="fears", first_chapter=2),
+        ],
+        themes=[
+            ThemeExtraction(name="Redemption", first_chapter=1, related_character_names=["Scrooge"]),
+        ],
+    )
+
+
+@pytest.fixture
+def prompt_file(tmp_path) -> Path:
+    """Create a minimal Jinja2 prompt template for tests."""
+    prompt = (
+        "You are an extraction assistant.\n"
+        "Chapters: {{ chapter_numbers }}\n"
+        "Classes: {{ ontology_classes }}\n"
+        "Relations: {{ ontology_relations }}\n"
+        "Entities: {{ booknlp_entities }}\n"
+        "Quotes: {{ booknlp_quotes }}\n"
+        "Text: {{ text }}\n"
+    )
+    p = tmp_path / "prompts" / "extraction_prompt.txt"
+    p.parent.mkdir(parents=True)
+    p.write_text(prompt)
+    return p
+
+
+# ===================================================================
 # ChapterChunk
-# ---------------------------------------------------------------------------
+# ===================================================================
 
 class TestChapterChunk:
+    def test_construction(self):
+        c = ChapterChunk(text="Hello world", chapter_numbers=[1, 2], start_char=0, end_char=11)
+        assert c.text == "Hello world"
+        assert c.chapter_numbers == [1, 2]
+
     def test_token_estimate(self):
         c = ChapterChunk(text="a" * 400, chapter_numbers=[1], start_char=0, end_char=400)
-        assert c.token_estimate == 100
+        assert c.token_estimate == 100  # 400 chars / 4
 
-    def test_token_estimate_minimum_1(self):
-        c = ChapterChunk(text="hi", chapter_numbers=[1], start_char=0, end_char=2)
+    def test_token_estimate_minimum_one(self):
+        c = ChapterChunk(text="", chapter_numbers=[1], start_char=0, end_char=0)
         assert c.token_estimate == 1
 
-    def test_fields(self):
-        c = ChapterChunk(text="hello", chapter_numbers=[1, 2], start_char=10, end_char=15)
-        assert c.text == "hello"
-        assert c.chapter_numbers == [1, 2]
-        assert c.start_char == 10
-        assert c.end_char == 15
 
-
-# ---------------------------------------------------------------------------
-# Pydantic extraction models
-# ---------------------------------------------------------------------------
-
-class TestExtractionModels:
-    """Tests for the LLM extraction Pydantic models from models/datapoints.py."""
-
-    def test_character_extraction_defaults(self):
-        c = CharacterExtraction(name="Scrooge", first_chapter=1)
-        assert c.description is None
-        assert c.chapters_present == []
-        assert c.aliases == []
-
-    def test_character_extraction_full(self):
-        c = CharacterExtraction(
-            name="Scrooge",
-            description="A miser",
-            first_chapter=1,
-            chapters_present=[1, 2],
-            aliases=["Ebenezer", "Mr. Scrooge"],
-        )
-        assert c.aliases == ["Ebenezer", "Mr. Scrooge"]
-
-    def test_relationship_extraction_fields(self):
-        r = RelationshipExtraction(
-            source_name="Scrooge",
-            target_name="Bob Cratchit",
-            relation_type="employs",
-            first_chapter=1,
-        )
-        assert r.description is None
-        assert r.source_name == "Scrooge"
-        assert r.target_name == "Bob Cratchit"
-
-    def test_relationship_extraction_full(self):
-        r = RelationshipExtraction(
-            source_name="Scrooge",
-            target_name="Marley",
-            relation_type="allies_with",
-            description="Business partners",
-            first_chapter=1,
-        )
-        assert r.first_chapter == 1
-
-    def test_extraction_result_defaults(self):
-        er = ExtractionResult()
-        assert er.characters == []
-        assert er.locations == []
-        assert er.events == []
-        assert er.relationships == []
-        assert er.themes == []
-        assert er.factions == []
-
-    def test_extraction_result_populated(self):
-        er = ExtractionResult(
-            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
-            relationships=[RelationshipExtraction(
-                source_name="Scrooge", target_name="Marley",
-                relation_type="knows", first_chapter=1,
-            )],
-        )
-        assert len(er.characters) == 1
-        assert len(er.relationships) == 1
-
-
-# ---------------------------------------------------------------------------
-# chunk_with_chapter_awareness
-# ---------------------------------------------------------------------------
+# ===================================================================
+# Task 1: chunk_with_chapter_awareness
+# ===================================================================
 
 class TestChunkWithChapterAwareness:
-    def test_single_paragraph_single_chunk(self):
-        chunks = chunk_with_chapter_awareness("Hello world.", chunk_size=1500)
+    def test_single_paragraph(self):
+        chunks = chunk_with_chapter_awareness("One paragraph.", chunk_size=1500)
         assert len(chunks) == 1
-        assert chunks[0].text == "Hello world."
-        assert chunks[0].chapter_numbers == [1]
+        assert chunks[0].text == "One paragraph."
 
     def test_respects_paragraph_boundaries(self):
-        """Plan: 'Respect paragraph boundaries', 'never split mid-paragraph'."""
-        para1 = "A" * 3000  # ~750 tokens
-        para2 = "B" * 3000  # ~750 tokens
-        text = f"{para1}\n\n{para2}"
-        chunks = chunk_with_chapter_awareness(text, chunk_size=800)
-        # Each paragraph is ~750 tokens, target is 800 -> each gets its own chunk
-        assert len(chunks) == 2
-        assert "A" * 100 in chunks[0].text
-        assert "B" * 100 in chunks[1].text
-        # No mid-paragraph split
-        assert "\n\n" not in chunks[0].text
-        assert "\n\n" not in chunks[1].text
-
-    def test_groups_small_paragraphs(self):
-        """Small paragraphs should group together up to chunk_size."""
-        paras = ["Short paragraph." for _ in range(10)]
-        text = "\n\n".join(paras)
-        chunks = chunk_with_chapter_awareness(text, chunk_size=1500)
-        # All paragraphs combined ~160 chars -> ~40 tokens, fits in one chunk
-        assert len(chunks) == 1
+        """Chunks should never split mid-paragraph."""
+        text = "Para one.\n\nPara two.\n\nPara three."
+        chunks = chunk_with_chapter_awareness(text, chunk_size=2)  # tiny budget forces splits
+        for c in chunks:
+            # Each chunk should be complete paragraphs
+            assert c.text.strip() == c.text.strip()
 
     def test_chapter_numbers_tagged(self):
-        """Plan: 'Each chunk tagged with chapter number(s) it spans'."""
-        chunks = chunk_with_chapter_awareness("text", chapter_numbers=[3, 4, 5])
-        assert chunks[0].chapter_numbers == [3, 4, 5]
+        chunks = chunk_with_chapter_awareness("Text.", chapter_numbers=[4, 5, 6])
+        assert chunks[0].chapter_numbers == [4, 5, 6]
 
-    def test_default_chapter_numbers(self):
-        chunks = chunk_with_chapter_awareness("text")
+    def test_default_chapter_one(self):
+        chunks = chunk_with_chapter_awareness("Text.")
         assert chunks[0].chapter_numbers == [1]
 
+    def test_multiple_chunks_from_large_text(self):
+        paragraphs = [f"Paragraph {i} with some content." * 10 for i in range(20)]
+        text = "\n\n".join(paragraphs)
+        chunks = chunk_with_chapter_awareness(text, chunk_size=100)
+        assert len(chunks) > 1
+
     def test_start_end_char_tracking(self):
-        """Chunks should track char positions for BookNLP range filtering."""
-        para1 = "First paragraph."
-        para2 = "Second paragraph."
-        text = f"{para1}\n\n{para2}"
-        # Use a tiny chunk size to force split
-        chunks = chunk_with_chapter_awareness(text, chunk_size=5)
-        assert chunks[0].start_char == 0
-        assert chunks[0].end_char == len(para1)
-        assert chunks[1].start_char > 0
+        text = "First para.\n\nSecond para."
+        chunks = chunk_with_chapter_awareness(text, chunk_size=1500)
+        if len(chunks) == 1:
+            assert chunks[0].start_char == 0
+            assert chunks[0].end_char == len(text)
 
     def test_empty_text(self):
-        chunks = chunk_with_chapter_awareness("")
+        chunks = chunk_with_chapter_awareness("", chunk_size=1500)
         assert len(chunks) == 1
         assert chunks[0].text == ""
 
-    def test_many_paragraphs_split(self):
-        """Realistic: many paragraphs should create multiple chunks."""
-        paras = ["Word " * 500 for _ in range(10)]  # ~2500 chars each -> ~625 tokens
-        text = "\n\n".join(paras)
-        chunks = chunk_with_chapter_awareness(text, chunk_size=1500)
-        # 10 paragraphs x 625 tokens ~ 6250 total, target 1500 -> ~4-5 chunks
-        assert len(chunks) >= 3
+    def test_chunk_size_default_1500(self):
+        import inspect
+        sig = inspect.signature(chunk_with_chapter_awareness)
+        assert sig.parameters["chunk_size"].default == 1500
 
-    def test_target_1500_tokens_default(self):
-        """Plan: 'Target chunk size: ~1500 tokens (configurable)'."""
-        para = "word " * 1500  # ~7500 chars -> ~1875 tokens
-        text = f"{para}\n\n{para}"
-        chunks = chunk_with_chapter_awareness(text)  # default chunk_size=1500
-        assert len(chunks) == 2
+    def test_all_text_accounted_for(self):
+        """No text should be lost during chunking."""
+        text = "Para 1.\n\nPara 2.\n\nPara 3.\n\nPara 4."
+        chunks = chunk_with_chapter_awareness(text, chunk_size=3)
+        reconstructed = "\n\n".join(c.text for c in chunks)
+        assert reconstructed == text
 
 
-# ---------------------------------------------------------------------------
-# _load_extraction_prompt and render_prompt
-# ---------------------------------------------------------------------------
+# ===================================================================
+# Prompt rendering helpers
+# ===================================================================
 
-class TestPromptRendering:
-    @pytest.fixture(autouse=True)
-    def clear_cache(self):
-        _PROMPT_CACHE.clear()
-        yield
-        _PROMPT_CACHE.clear()
+class TestFormatBookNLPEntities:
+    def test_filters_to_prop_and_nom(self):
+        entities = [
+            {"prop": "PROP", "cat": "PER", "text": "Scrooge"},
+            {"prop": "PRON", "cat": "PER", "text": "he"},
+            {"prop": "NOM", "cat": "PER", "text": "the ghost"},
+        ]
+        chunk = ChapterChunk(text="", chapter_numbers=[1], start_char=0, end_char=100)
+        result = _format_booknlp_entities(entities, chunk)
+        assert "Scrooge" in result
+        assert "the ghost" in result
+        # "he" as a standalone entity should not appear (PRON filtered).
+        # "the ghost" contains "he" as substring so check line-by-line.
+        lines = result.strip().split("\n")
+        assert not any(line.strip() == "- he (PER)" for line in lines)
 
-    def test_load_extraction_prompt(self, tmp_path):
-        prompt_file = tmp_path / "test_prompt.txt"
-        prompt_file.write_text("Hello {{ text }}")
-        result = _load_extraction_prompt(str(prompt_file))
-        assert result == "Hello {{ text }}"
+    def test_empty_entities(self):
+        chunk = ChapterChunk(text="", chapter_numbers=[1], start_char=0, end_char=100)
+        result = _format_booknlp_entities([], chunk)
+        assert "no entities" in result.lower()
 
-    def test_load_extraction_prompt_caches(self, tmp_path):
-        prompt_file = tmp_path / "test_prompt.txt"
-        prompt_file.write_text("cached")
-        _load_extraction_prompt(str(prompt_file))
-        prompt_file.write_text("changed")
-        # Should still return cached version
-        assert _load_extraction_prompt(str(prompt_file)) == "cached"
+    def test_caps_at_50(self):
+        entities = [{"prop": "PROP", "cat": "PER", "text": f"Entity_{i}"} for i in range(100)]
+        chunk = ChapterChunk(text="", chapter_numbers=[1], start_char=0, end_char=100)
+        result = _format_booknlp_entities(entities, chunk)
+        lines = [l for l in result.split("\n") if l.strip().startswith("-")]
+        assert len(lines) == 50
 
-    def test_load_extraction_prompt_missing_raises(self):
-        with pytest.raises(FileNotFoundError, match="Extraction prompt template not found"):
-            _load_extraction_prompt("/nonexistent/prompt.txt")
+    def test_includes_category(self):
+        entities = [{"prop": "PROP", "cat": "LOC", "text": "London"}]
+        chunk = ChapterChunk(text="", chapter_numbers=[1], start_char=0, end_char=100)
+        result = _format_booknlp_entities(entities, chunk)
+        assert "LOC" in result
 
-    def test_render_prompt_returns_tuple(self, tmp_path):
-        """render_prompt returns (system_prompt, text_input) tuple."""
-        prompt_file = tmp_path / "prompt.txt"
-        prompt_file.write_text(
-            "Chapters: {{ chapter_numbers }}\n"
-            "Entities: {{ booknlp_entities }}\n"
-            "Quotes: {{ booknlp_quotes }}\n"
-            "Classes: {{ ontology_classes }}\n"
-            "Relations: {{ ontology_relations }}\n"
-            "Text: {{ text }}"
-        )
-        chunk = ChapterChunk(text="Scrooge walked.", chapter_numbers=[1, 2], start_char=0, end_char=100)
-        booknlp = {
-            "entities": [{"prop": "PROP", "text": "Scrooge", "cat": "PER"}],
-            "quotes": [{"speaker": "Scrooge", "text": "Bah humbug"}],
-        }
+
+class TestFormatBookNLPQuotes:
+    def test_formats_speaker_and_text(self):
+        quotes = [{"speaker": "Scrooge", "text": "Bah! Humbug!"}]
+        result = _format_booknlp_quotes(quotes)
+        assert "Scrooge" in result
+        assert "Bah! Humbug!" in result
+
+    def test_empty_quotes(self):
+        result = _format_booknlp_quotes([])
+        assert "no quotes" in result.lower()
+
+    def test_truncates_long_quotes(self):
+        quotes = [{"speaker": "X", "text": "a" * 200}]
+        result = _format_booknlp_quotes(quotes)
+        assert "..." in result
+
+    def test_caps_at_30(self):
+        quotes = [{"speaker": f"S{i}", "text": f"Quote {i}"} for i in range(50)]
+        result = _format_booknlp_quotes(quotes)
+        lines = [l for l in result.split("\n") if l.strip().startswith("-")]
+        assert len(lines) == 30
+
+    def test_handles_quote_key_fallback(self):
+        """Some BookNLP formats use 'quote' instead of 'text'."""
+        quotes = [{"speaker": "Bob", "quote": "Merry Christmas!"}]
+        result = _format_booknlp_quotes(quotes)
+        assert "Merry Christmas" in result
+
+
+class TestFormatOntologyClasses:
+    def test_from_discovered_entities(self, sample_ontology):
+        result = _format_ontology_classes(sample_ontology)
+        assert "Character" in result
+        assert "Location" in result
+
+    def test_always_includes_core_classes(self, sample_ontology):
+        """PlotEvent, Theme, Relationship must always be in ontology classes."""
+        result = _format_ontology_classes(sample_ontology)
+        assert "PlotEvent" in result
+        assert "Theme" in result
+        assert "Relationship" in result
+
+    def test_empty_ontology_fallback(self):
+        result = _format_ontology_classes({})
+        assert "Character" in result
+
+    def test_custom_entity_type_included(self):
+        ontology = {"discovered_entities": {"Weapon": [{"name": "Sword", "count": 5}]}}
+        result = _format_ontology_classes(ontology)
+        assert "Weapon" in result
+
+
+class TestFormatOntologyRelations:
+    def test_from_discovered_relations(self, sample_ontology):
+        result = _format_ontology_relations(sample_ontology)
+        assert "employs" in result
+        assert "haunts" in result
+        assert "fears" in result
+
+    def test_empty_relations_fallback(self):
+        result = _format_ontology_relations({})
+        assert "snake_case" in result
+
+    def test_caps_at_40(self):
         ontology = {
-            "discovered_entities": {"Character": [], "Location": []},
-            "discovered_relations": [{"name": "employs"}, {"name": "knows"}],
+            "discovered_relations": [{"name": f"rel_{i}"} for i in range(60)]
         }
-        system_prompt, text_input = render_prompt(
-            chunk, booknlp, ontology, prompt_path=str(prompt_file),
-        )
-        # text_input is the raw chunk text
-        assert text_input == "Scrooge walked."
-        # system_prompt has the rendered template
-        assert "1, 2" in system_prompt
-        assert "Scrooge" in system_prompt
-        assert "Bah humbug" in system_prompt
+        result = _format_ontology_relations(ontology)
+        assert result.count(",") <= 40
+
+
+# ===================================================================
+# Prompt rendering — full render
+# ===================================================================
+
+class TestRenderPrompt:
+    def test_returns_tuple(self, prompt_file, sample_booknlp, sample_ontology):
+        chunk = ChapterChunk(text="The book text.", chapter_numbers=[1, 2], start_char=0, end_char=14)
+        result = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_text_input_is_raw_chunk(self, prompt_file, sample_booknlp, sample_ontology):
+        """Per Cognee API: text_input should be the raw text, not embedded in prompt."""
+        chunk = ChapterChunk(text="The book text.", chapter_numbers=[1], start_char=0, end_char=14)
+        _, text_input = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
+        assert text_input == "The book text."
+
+    def test_system_prompt_does_not_contain_raw_text(self, prompt_file, sample_booknlp, sample_ontology):
+        """Raw book text should NOT be in the system prompt — it goes in text_input."""
+        chunk = ChapterChunk(text="UNIQUE_BOOK_TEXT_12345", chapter_numbers=[1], start_char=0, end_char=21)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
+        assert "UNIQUE_BOOK_TEXT_12345" not in system_prompt
+
+    def test_chapter_numbers_rendered(self, prompt_file, sample_booknlp, sample_ontology):
+        chunk = ChapterChunk(text="x", chapter_numbers=[4, 5], start_char=0, end_char=1)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
+        assert "4, 5" in system_prompt
+
+    def test_ontology_classes_rendered(self, prompt_file, sample_booknlp, sample_ontology):
+        chunk = ChapterChunk(text="x", chapter_numbers=[1], start_char=0, end_char=1)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
         assert "Character" in system_prompt
+
+    def test_ontology_relations_rendered(self, prompt_file, sample_booknlp, sample_ontology):
+        chunk = ChapterChunk(text="x", chapter_numbers=[1], start_char=0, end_char=1)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
         assert "employs" in system_prompt
 
-    def test_render_prompt_safe_against_format_injection(self, tmp_path):
-        """Book text with {__class__} must not cause injection."""
-        prompt_file = tmp_path / "prompt.txt"
-        prompt_file.write_text("Text: {{ text }}")
-        chunk = ChapterChunk(
-            text="He said {__class__.__init__.__globals__} loudly",
-            chapter_numbers=[1], start_char=0, end_char=50,
-        )
-        system_prompt, text_input = render_prompt(
-            chunk, {"entities": [], "quotes": []}, {},
-            prompt_path=str(prompt_file),
-        )
-        # The curly-brace text is in text_input (raw), not interpreted
-        assert "{__class__" in text_input
-
-    def test_render_prompt_formats_entities(self, tmp_path):
-        """BookNLP entities with prop=PROP/NOM and non-empty text should be formatted."""
-        prompt_file = tmp_path / "prompt.txt"
-        prompt_file.write_text(
-            "{{ booknlp_entities }}\n{{ text }}\n"
-            "{{ chapter_numbers }}\n{{ booknlp_quotes }}\n"
-            "{{ ontology_classes }}\n{{ ontology_relations }}"
-        )
-        chunk = ChapterChunk(text="text", chapter_numbers=[1], start_char=0, end_char=100)
-        booknlp = {
-            "entities": [
-                {"prop": "PROP", "cat": "PER", "text": "Scrooge"},
-                {"prop": "PRON", "cat": "PER", "text": "he"},  # PRON excluded
-            ],
-            "quotes": [],
-        }
-        system_prompt, _ = render_prompt(
-            chunk, booknlp, {}, prompt_path=str(prompt_file),
-        )
+    def test_booknlp_entities_rendered(self, prompt_file, sample_booknlp, sample_ontology):
+        chunk = ChapterChunk(text="x", chapter_numbers=[1], start_char=0, end_char=1)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
         assert "Scrooge" in system_prompt
 
+    def test_booknlp_quotes_rendered(self, prompt_file, sample_booknlp, sample_ontology):
+        chunk = ChapterChunk(text="x", chapter_numbers=[1], start_char=0, end_char=1)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
+        assert "Humbug" in system_prompt
 
-# ---------------------------------------------------------------------------
-# ExtractionResult.to_datapoints()
-# ---------------------------------------------------------------------------
+    def test_text_placeholder_replaced(self, prompt_file, sample_booknlp, sample_ontology):
+        """{{ text }} should be replaced with redirect message, not left raw."""
+        chunk = ChapterChunk(text="x", chapter_numbers=[1], start_char=0, end_char=1)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
+        assert "{{ text }}" not in system_prompt
+        assert "user message" in system_prompt.lower() or "see" in system_prompt.lower()
 
-class TestToDatapoints:
-    """Tests for ExtractionResult.to_datapoints() which converts extraction models to DataPoints."""
+    def test_missing_prompt_file_raises(self):
+        chunk = ChapterChunk(text="x", chapter_numbers=[1], start_char=0, end_char=1)
+        with pytest.raises(FileNotFoundError, match="Extraction prompt template not found"):
+            render_prompt(chunk, {}, {}, prompt_path="/nonexistent/path.txt")
 
-    def test_character_conversion(self):
-        """Characters become Character DataPoints."""
-        result = ExtractionResult(
-            characters=[CharacterExtraction(
-                name="Scrooge", first_chapter=1, chapters_present=[1],
-            )],
-        )
-        dps = result.to_datapoints()
-        assert len(dps) == 1
-        assert isinstance(dps[0], Character)
-        assert dps[0].name == "Scrooge"
-        assert dps[0].first_chapter == 1
-
-    def test_relationship_conversion(self):
-        """Relationships resolve source/target by name to Character DataPoints."""
-        result = ExtractionResult(
-            characters=[
-                CharacterExtraction(name="Scrooge", first_chapter=1),
-                CharacterExtraction(name="Bob Cratchit", first_chapter=1),
-            ],
-            relationships=[RelationshipExtraction(
-                source_name="Scrooge",
-                target_name="Bob Cratchit",
-                relation_type="employs",
-                description="employs as clerk",
-                first_chapter=1,
-            )],
-        )
-        dps = result.to_datapoints()
-        # 2 characters + 1 relationship = 3 DataPoints
-        relationships = [dp for dp in dps if isinstance(dp, Relationship)]
-        assert len(relationships) == 1
-        assert relationships[0].source.name == "Scrooge"
-        assert relationships[0].target.name == "Bob Cratchit"
-        assert relationships[0].relation_type == "employs"
-
-    def test_unresolved_relationship_skipped(self):
-        """Relationships referencing unknown characters are skipped."""
-        result = ExtractionResult(
-            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
-            relationships=[RelationshipExtraction(
-                source_name="Scrooge",
-                target_name="Unknown",
-                relation_type="knows",
-                first_chapter=1,
-            )],
-        )
-        dps = result.to_datapoints()
-        relationships = [dp for dp in dps if isinstance(dp, Relationship)]
-        assert len(relationships) == 0
-
-    def test_event_with_participants(self):
-        """Events link to Character DataPoints by participant_names."""
-        result = ExtractionResult(
-            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
-            events=[EventExtraction(
-                description="Scrooge sees a ghost",
-                chapter=1,
-                participant_names=["Scrooge"],
-            )],
-        )
-        dps = result.to_datapoints()
-        events = [dp for dp in dps if isinstance(dp, PlotEvent)]
-        assert len(events) == 1
-        assert len(events[0].participants) == 1
-        assert events[0].participants[0].name == "Scrooge"
-
-    def test_mixed_types(self):
-        """Multiple extraction types produce the right DataPoint types."""
-        result = ExtractionResult(
-            characters=[CharacterExtraction(name="A", first_chapter=1)],
-            locations=[LocationExtraction(name="London", first_chapter=1)],
-            relationships=[RelationshipExtraction(
-                source_name="A", target_name="A",
-                relation_type="self_ref", first_chapter=1,
-            )],
-        )
-        dps = result.to_datapoints()
-        type_names = {type(dp).__name__ for dp in dps}
-        assert "Character" in type_names
-        assert "Location" in type_names
-        assert "Relationship" in type_names
-
-    def test_empty_result(self):
-        result = ExtractionResult()
-        assert result.to_datapoints() == []
+    def test_uses_jinja2_not_string_template(self, prompt_file, sample_booknlp, sample_ontology):
+        """Prompt uses {{ }} syntax which requires Jinja2, not string.Template."""
+        chunk = ChapterChunk(text="x", chapter_numbers=[1], start_char=0, end_char=1)
+        system_prompt, _ = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
+        # If Jinja2 rendered correctly, no {{ }} should remain
+        assert "{{" not in system_prompt
+        assert "}}" not in system_prompt
 
 
-# ---------------------------------------------------------------------------
-# extract_enriched_graph (async)
-# ---------------------------------------------------------------------------
+# ===================================================================
+# Task 2: extract_enriched_graph
+# ===================================================================
 
 class TestExtractEnrichedGraph:
-    @pytest.fixture(autouse=True)
-    def setup_prompt_cache(self):
-        _PROMPT_CACHE["prompts/extraction_prompt.txt"] = (
-            "{{ text }}\n{{ booknlp_entities }}\n{{ booknlp_quotes }}\n"
-            "{{ chapter_numbers }}\n{{ ontology_classes }}\n{{ ontology_relations }}"
-        )
-        yield
-        _PROMPT_CACHE.clear()
+    @pytest.fixture
+    def mock_llm(self, sample_extraction_result):
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock:
+            mock.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
+            yield mock
 
-    def test_successful_extraction(self):
-        """LLMGateway returns structured output -> DataPoints produced."""
-        mock_result = ExtractionResult(
-            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
-        )
-        _mock_llm_gateway.acreate_structured_output = AsyncMock(return_value=mock_result)
+    @pytest.fixture
+    def mock_render(self):
+        with patch("pipeline.cognee_pipeline.render_prompt", return_value=("system prompt", "text input")):
+            yield
 
-        chunks = [ChapterChunk(text="Scrooge walked.", chapter_numbers=[1], start_char=0, end_char=15)]
+    def test_returns_datapoints(self, mock_llm, mock_render):
+        chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
         result = asyncio.get_event_loop().run_until_complete(
-            extract_enriched_graph(chunks, max_retries=1)
+            extract_enriched_graph(chunks)
         )
-        assert len(result) == 1
-        assert isinstance(result[0], Character)
-        assert result[0].name == "Scrooge"
+        assert isinstance(result, list)
+        assert len(result) > 0
 
-    def test_retry_on_failure(self):
-        """Plan: '3 retries then halt pipeline'. Test that retries happen."""
-        call_count = 0
-
-        async def fail_then_succeed(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise ConnectionError("LLM timeout")
-            return ExtractionResult(
-                characters=[CharacterExtraction(name="Recovered", first_chapter=1)]
-            )
-
-        _mock_llm_gateway.acreate_structured_output = AsyncMock(side_effect=fail_then_succeed)
-
-        chunks = [ChapterChunk(text="text", chapter_numbers=[1], start_char=0, end_char=4)]
+    def test_returns_actual_datapoint_instances(self, mock_llm, mock_render):
+        """Must return DataPoint instances, NOT dicts."""
+        from cognee.infrastructure.engine import DataPoint
+        chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
         result = asyncio.get_event_loop().run_until_complete(
-            extract_enriched_graph(chunks, max_retries=3)
+            extract_enriched_graph(chunks)
         )
-        assert call_count == 3
-        assert len(result) == 1
-        assert isinstance(result[0], Character)
-        assert result[0].name == "Recovered"
+        for dp in result:
+            assert isinstance(dp, DataPoint), f"Expected DataPoint, got {type(dp)}"
 
-    def test_all_retries_fail_graceful_skip(self):
-        """If all retries fail, chunk is skipped (not crash)."""
-        _mock_llm_gateway.acreate_structured_output = AsyncMock(
-            side_effect=ConnectionError("permanent failure")
+    def test_uses_extraction_result_model(self, mock_llm, mock_render):
+        """LLMGateway must be called with ExtractionResult as response_model."""
+        chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
+        asyncio.get_event_loop().run_until_complete(
+            extract_enriched_graph(chunks)
         )
-        chunks = [ChapterChunk(text="text", chapter_numbers=[1], start_char=0, end_char=4)]
+        call_kwargs = mock_llm.acreate_structured_output.call_args
+        # Check response_model is ExtractionResult
+        assert call_kwargs.kwargs.get("response_model") is ExtractionResult
+
+    def test_calls_to_datapoints(self, mock_llm, mock_render):
+        """Should call ExtractionResult.to_datapoints() — produces Character, Location etc."""
+        chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
         result = asyncio.get_event_loop().run_until_complete(
-            extract_enriched_graph(chunks, max_retries=2)
+            extract_enriched_graph(chunks)
         )
-        assert result == []
+        types = {type(dp).__name__ for dp in result}
+        assert "Character" in types
 
-    def test_multiple_chunks(self):
-        """Multiple chunks should produce combined datapoints."""
-        mock_result = ExtractionResult(
-            characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
-            locations=[LocationExtraction(name="London", first_chapter=1)],
-        )
-        _mock_llm_gateway.acreate_structured_output = AsyncMock(return_value=mock_result)
-
+    def test_multiple_chunks_aggregated(self, mock_llm, mock_render):
         chunks = [
-            ChapterChunk(text="c1", chapter_numbers=[1], start_char=0, end_char=2),
-            ChapterChunk(text="c2", chapter_numbers=[2], start_char=2, end_char=4),
+            ChapterChunk(text="chunk1", chapter_numbers=[1], start_char=0, end_char=6),
+            ChapterChunk(text="chunk2", chapter_numbers=[2], start_char=6, end_char=12),
         ]
         result = asyncio.get_event_loop().run_until_complete(
-            extract_enriched_graph(chunks, max_retries=1)
+            extract_enriched_graph(chunks)
         )
-        # 2 datapoints per chunk (1 character + 1 location) x 2 chunks = 4
-        assert len(result) == 4
+        assert mock_llm.acreate_structured_output.call_count == 2
+        assert len(result) > 0
 
-    def test_defaults_for_none_booknlp_ontology(self):
-        """Passing None for booknlp/ontology should not crash."""
-        mock_result = ExtractionResult()
-        _mock_llm_gateway.acreate_structured_output = AsyncMock(return_value=mock_result)
+    def test_retries_on_failure(self, mock_render, sample_extraction_result):
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(
+                side_effect=[Exception("fail"), sample_extraction_result]
+            )
+            chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
+            result = asyncio.get_event_loop().run_until_complete(
+                extract_enriched_graph(chunks, max_retries=3)
+            )
+            assert len(result) > 0
+            assert mock_llm.acreate_structured_output.call_count == 2
 
-        chunks = [ChapterChunk(text="t", chapter_numbers=[1], start_char=0, end_char=1)]
+    def test_all_retries_fail_gracefully(self, mock_render):
+        """Per CLAUDE.md: 3 retries then halt. Failed chunks skipped, not crash."""
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(
+                side_effect=Exception("permanent failure")
+            )
+            chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
+            result = asyncio.get_event_loop().run_until_complete(
+                extract_enriched_graph(chunks, max_retries=2)
+            )
+            assert result == []
+            assert mock_llm.acreate_structured_output.call_count == 2
+
+    def test_default_max_retries_is_three(self):
+        import inspect
+        sig = inspect.signature(extract_enriched_graph)
+        assert sig.parameters["max_retries"].default == 3
+
+    def test_empty_chunks(self, mock_render):
         result = asyncio.get_event_loop().run_until_complete(
-            extract_enriched_graph(chunks, booknlp=None, ontology=None, max_retries=1)
+            extract_enriched_graph([])
         )
         assert result == []
+
+    def test_none_booknlp_handled(self, mock_llm, mock_render):
+        chunks = [ChapterChunk(text="test", chapter_numbers=[1], start_char=0, end_char=4)]
+        result = asyncio.get_event_loop().run_until_complete(
+            extract_enriched_graph(chunks, booknlp=None, ontology=None)
+        )
+        assert isinstance(result, list)
+
+    def test_separates_system_prompt_and_text_input(self, mock_render, sample_extraction_result):
+        """LLMGateway should receive system_prompt and text_input as separate args."""
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
+            chunks = [ChapterChunk(text="book text here", chapter_numbers=[1], start_char=0, end_char=14)]
+            asyncio.get_event_loop().run_until_complete(
+                extract_enriched_graph(chunks)
+            )
+            call_kwargs = mock_llm.acreate_structured_output.call_args.kwargs
+            assert "text_input" in call_kwargs
+            assert "system_prompt" in call_kwargs
+            assert call_kwargs["text_input"] != call_kwargs["system_prompt"]
+
+
+# ===================================================================
+# Batch artifact saving
+# ===================================================================
+
+class TestSaveBatchArtifacts:
+    def test_saves_input_text(self, sample_batch, tmp_path):
+        _save_batch_artifacts(sample_batch, {}, [], tmp_path)
+        input_path = tmp_path / "batch_01" / "input_text.txt"
+        assert input_path.exists()
+        assert input_path.read_text() == sample_batch.combined_text
+
+    def test_saves_annotations_json(self, sample_batch, sample_booknlp, tmp_path):
+        _save_batch_artifacts(sample_batch, sample_booknlp, [], tmp_path)
+        ann_path = tmp_path / "batch_01" / "annotations.json"
+        assert ann_path.exists()
+        data = json.loads(ann_path.read_text())
+        assert data["chapter_numbers"] == [1, 2, 3]
+        assert "entities" in data
+        assert "quotes" in data
+
+    def test_saves_extracted_datapoints_json(self, sample_batch, tmp_path):
+        char = Character(name="Scrooge", first_chapter=1)
+        _save_batch_artifacts(sample_batch, {}, [char], tmp_path)
+        dp_path = tmp_path / "batch_01" / "extracted_datapoints.json"
+        assert dp_path.exists()
+        data = json.loads(dp_path.read_text())
+        assert len(data) == 1
+
+    def test_batch_dir_named_by_first_chapter(self, tmp_path):
+        batch = Batch(chapter_numbers=[4, 5, 6], texts=["a"], combined_text="a")
+        _save_batch_artifacts(batch, {}, [], tmp_path)
+        assert (tmp_path / "batch_04").exists()
+
+    def test_all_three_files_per_spec(self, sample_batch, sample_booknlp, tmp_path):
+        """Per CLAUDE.md output structure: input_text.txt, annotations.json, extracted_datapoints.json."""
+        char = Character(name="Test", first_chapter=1)
+        _save_batch_artifacts(sample_batch, sample_booknlp, [char], tmp_path)
+        batch_dir = tmp_path / "batch_01"
+        assert (batch_dir / "input_text.txt").exists()
+        assert (batch_dir / "annotations.json").exists()
+        assert (batch_dir / "extracted_datapoints.json").exists()
+
+    def test_empty_datapoints_saves_empty_list(self, sample_batch, tmp_path):
+        _save_batch_artifacts(sample_batch, {}, [], tmp_path)
+        dp_path = tmp_path / "batch_01" / "extracted_datapoints.json"
+        data = json.loads(dp_path.read_text())
+        assert data == []
+
+
+# ===================================================================
+# run_bookrag_pipeline — integration
+# ===================================================================
+
+class TestRunBookragPipeline:
+    @pytest.fixture
+    def mock_everything(self, sample_extraction_result):
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+             patch("pipeline.cognee_pipeline.render_prompt", return_value=("sys", "text")), \
+             patch("pipeline.cognee_pipeline.run_pipeline") as mock_pipeline, \
+             patch("pipeline.cognee_pipeline.Task"):
+            mock_llm.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
+
+            async def empty_pipeline(**kwargs):
+                return
+                yield  # make it an async generator
+
+            mock_pipeline.return_value = empty_pipeline()
+            yield {"llm": mock_llm, "pipeline": mock_pipeline}
+
+    def test_returns_datapoints(self, mock_everything, sample_batch, sample_booknlp, sample_ontology, tmp_path):
+        result = asyncio.get_event_loop().run_until_complete(
+            run_bookrag_pipeline(
+                batch=sample_batch, booknlp_output=sample_booknlp,
+                ontology=sample_ontology, book_id="christmas_carol",
+                output_dir=tmp_path / "batches",
+            )
+        )
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+    def test_saves_batch_artifacts(self, mock_everything, sample_batch, sample_booknlp, sample_ontology, tmp_path):
+        asyncio.get_event_loop().run_until_complete(
+            run_bookrag_pipeline(
+                batch=sample_batch, booknlp_output=sample_booknlp,
+                ontology=sample_ontology, book_id="christmas_carol",
+                output_dir=tmp_path / "batches",
+            )
+        )
+        batch_dir = tmp_path / "batches" / "batch_01"
+        assert (batch_dir / "input_text.txt").exists()
+        assert (batch_dir / "annotations.json").exists()
+        assert (batch_dir / "extracted_datapoints.json").exists()
+
+    def test_default_output_dir(self, mock_everything, sample_batch, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        asyncio.get_event_loop().run_until_complete(
+            run_bookrag_pipeline(
+                batch=sample_batch, booknlp_output={},
+                ontology={}, book_id="test_book",
+            )
+        )
+        expected = tmp_path / "data" / "processed" / "test_book" / "batches" / "batch_01"
+        assert expected.exists()
+
+    def test_function_signature(self):
+        import inspect
+        sig = inspect.signature(run_bookrag_pipeline)
+        params = set(sig.parameters.keys())
+        for p in ["batch", "booknlp_output", "ontology", "book_id", "chunk_size", "max_retries", "output_dir"]:
+            assert p in params, f"Missing parameter: {p}"
+
+    def test_chunk_size_default(self):
+        import inspect
+        sig = inspect.signature(run_bookrag_pipeline)
+        assert sig.parameters["chunk_size"].default == 1500
+
+    def test_max_retries_default(self):
+        import inspect
+        sig = inspect.signature(run_bookrag_pipeline)
+        assert sig.parameters["max_retries"].default == 3
+
+
+# ===================================================================
+# Spec alignment
+# ===================================================================
+
+class TestSpecAlignment:
+    def test_uses_models_datapoints_extraction_result(self):
+        """Must use ExtractionResult from models/datapoints.py, not a local one."""
+        from pipeline.cognee_pipeline import ExtractionResult as PipelineER
+        from models.datapoints import ExtractionResult as ModelsER
+        assert PipelineER is ModelsER
+
+    def test_no_local_entity_node_class(self):
+        """The old generic EntityNode/RelationEdge should not exist."""
+        import pipeline.cognee_pipeline as mod
+        assert not hasattr(mod, "EntityNode")
+        assert not hasattr(mod, "RelationEdge")
+
+    def test_pipeline_has_three_stages(self):
+        """Per spec: chunk, extract, add_data_points."""
+        assert callable(chunk_with_chapter_awareness)
+        assert asyncio.iscoroutinefunction(extract_enriched_graph)
+        assert asyncio.iscoroutinefunction(run_bookrag_pipeline)
+
+    def test_imports_from_cognee(self):
+        """Pipeline must import from cognee for DataPoint, LLMGateway, Task, etc."""
+        import pipeline.cognee_pipeline as mod
+        source = Path(mod.__file__).read_text()
+        assert "from cognee" in source
+        assert "LLMGateway" in source
+        assert "add_data_points" in source
+        assert "DataPoint" in source

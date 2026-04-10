@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 import types
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -37,12 +37,65 @@ def _install_cognee_mock():
         cognee_engine = types.ModuleType("cognee.infrastructure.engine")
         cognee_engine.DataPoint = _DataPoint
 
+        # LLMGateway mock — cognee_pipeline.py imports this
+        cognee_llm = types.ModuleType("cognee.infrastructure.llm")
+        cognee_llm_gw = types.ModuleType("cognee.infrastructure.llm.LLMGateway")
+        cognee_llm_gw.LLMGateway = MagicMock()
+        cognee_llm.LLMGateway = cognee_llm_gw
+
+        # Pipeline mocks
+        cognee_modules = types.ModuleType("cognee.modules")
+        cognee_pipelines = types.ModuleType("cognee.modules.pipelines")
+        cognee_pipelines.run_pipeline = MagicMock()
+        cognee_pipelines_tasks = types.ModuleType("cognee.modules.pipelines.tasks")
+        cognee_pipelines_tasks_task = types.ModuleType("cognee.modules.pipelines.tasks.task")
+        cognee_pipelines_tasks_task.Task = MagicMock()
+
+        # Storage mock
+        cognee_tasks = types.ModuleType("cognee.tasks")
+        cognee_storage = types.ModuleType("cognee.tasks.storage")
+        cognee_storage.add_data_points = MagicMock()
+
+        # Search mocks — used by validation/test_suite.py
+        cognee_search = types.ModuleType("cognee.modules.search")
+        cognee_search_types = types.ModuleType("cognee.modules.search.types")
+
+        class _SearchType:
+            GRAPH_COMPLETION = "GRAPH_COMPLETION"
+            CHUNKS = "CHUNKS"
+            SUMMARIES = "SUMMARIES"
+            CYPHER = "CYPHER"
+            RAG_COMPLETION = "RAG_COMPLETION"
+
+        cognee_search_types.SearchType = _SearchType
+        cognee_search.types = cognee_search_types
+
+        cognee.search = AsyncMock(return_value=[])
+
         sys.modules["cognee"] = cognee
         sys.modules["cognee.infrastructure"] = cognee_infra
         sys.modules["cognee.infrastructure.engine"] = cognee_engine
+        sys.modules["cognee.infrastructure.llm"] = cognee_llm
+        sys.modules["cognee.infrastructure.llm.LLMGateway"] = cognee_llm_gw
+        sys.modules["cognee.modules"] = cognee_modules
+        sys.modules["cognee.modules.pipelines"] = cognee_pipelines
+        sys.modules["cognee.modules.pipelines.tasks"] = cognee_pipelines_tasks
+        sys.modules["cognee.modules.pipelines.tasks.task"] = cognee_pipelines_tasks_task
+        sys.modules["cognee.modules.search"] = cognee_search
+        sys.modules["cognee.modules.search.types"] = cognee_search_types
+        sys.modules["cognee.tasks"] = cognee_tasks
+        sys.modules["cognee.tasks.storage"] = cognee_storage
 
         cognee.infrastructure = cognee_infra
         cognee_infra.engine = cognee_engine
+        cognee_infra.llm = cognee_llm
+        cognee.modules = cognee_modules
+        cognee_modules.pipelines = cognee_pipelines
+        cognee_pipelines.tasks = cognee_pipelines_tasks
+        cognee_pipelines_tasks.task = cognee_pipelines_tasks_task
+        cognee_modules.search = cognee_search
+        cognee.tasks = cognee_tasks
+        cognee_tasks.storage = cognee_storage
 
 
 _install_cognee_mock()
