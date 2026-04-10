@@ -1,0 +1,30 @@
+# BookRAG pipeline configuration
+# Env vars with prefix BOOKRAG_ override these values.
+# See models/config.py for the full schema.
+
+# Pipeline
+batch_size: 3                        # Default chapters per batch
+max_retries: 3                       # Retries before halting
+booknlp_model: "small"               # "small" or "big"
+chunk_size: 1500                     # Target tokens per chunk
+
+# Coreference resolution
+distance_threshold: 3                # Annotate when antecedent 3+ sentences away
+annotate_ambiguous: true             # Also annotate when multiple characters in scope
+
+# Cognee / LLM
+llm_provider: "anthropic"
+llm_model: "claude-sonnet-4-20250514"
+graph_db: "kuzu"                     # or "neo4j"
+vector_db: "lancedb"                 # or "qdrant"
+
+# Ontology
+auto_review: false                   # If true, skip CLI prompt
+min_entity_frequency: 2              # Minimum mentions to include entity type
+
+# EPUB cleaning
+strip_html: true
+remove_toc: true
+remove_copyright: true
+keep_epigraphs: true
+keep_section_breaks: true
