@@ -1,0 +1,130 @@
+{
+  "book_id": "christmas_carol",
+  "description": "Known-answer validation fixtures for A Christmas Carol by Charles Dickens (5 chapters, ~28k words)",
+  "expected_characters": [
+    {
+      "name": "Scrooge",
+      "aliases": ["Ebenezer Scrooge", "Ebenezer", "Mr. Scrooge"],
+      "should_exist": true,
+      "min_chapter": 1,
+      "description_keywords": ["miser", "cold", "covetous"]
+    },
+    {
+      "name": "Bob Cratchit",
+      "aliases": ["Cratchit", "Bob"],
+      "should_exist": true,
+      "min_chapter": 1,
+      "description_keywords": ["clerk"]
+    },
+    {
+      "name": "Jacob Marley",
+      "aliases": ["Marley", "Marley's Ghost"],
+      "should_exist": true,
+      "min_chapter": 1,
+      "description_keywords": ["ghost", "chain", "dead", "partner"]
+    },
+    {
+      "name": "Tiny Tim",
+      "aliases": ["Tim"],
+      "should_exist": true,
+      "min_chapter": 3,
+      "description_keywords": ["crippled", "crutch", "child"]
+    },
+    {
+      "name": "Fred",
+      "aliases": ["Scrooge's nephew"],
+      "should_exist": true,
+      "min_chapter": 1,
+      "description_keywords": ["nephew", "cheerful", "merry"]
+    }
+  ],
+  "expected_locations": [
+    {
+      "name": "London",
+      "should_exist": true
+    },
+    {
+      "name": "Scrooge's counting-house",
+      "aliases": ["counting-house", "the counting-house"],
+      "should_exist": true
+    }
+  ],
+  "expected_relationships": [
+    {
+      "source": "Scrooge",
+      "target": "Bob Cratchit",
+      "relation_contains": ["employ", "clerk"],
+      "description": "Scrooge employs Bob Cratchit as his clerk"
+    },
+    {
+      "source": "Scrooge",
+      "target": "Jacob Marley",
+      "relation_contains": ["partner", "business"],
+      "description": "Scrooge and Marley were business partners"
+    },
+    {
+      "source": "Fred",
+      "target": "Scrooge",
+      "relation_contains": ["nephew", "uncle", "family"],
+      "description": "Fred is Scrooge's nephew"
+    },
+    {
+      "source": "Bob Cratchit",
+      "target": "Tiny Tim",
+      "relation_contains": ["father", "parent", "family"],
+      "description": "Bob Cratchit is Tiny Tim's father"
+    }
+  ],
+  "expected_events": [
+    {
+      "chapter": 1,
+      "description_keywords": ["Marley", "ghost", "appears", "visit"],
+      "note": "Marley's ghost visits Scrooge on Christmas Eve"
+    },
+    {
+      "chapter": 5,
+      "description_keywords": ["Scrooge", "change", "transform", "reform", "Christmas", "morning"],
+      "note": "Scrooge wakes up reformed on Christmas morning"
+    }
+  ],
+  "known_answer_queries": [
+    {
+      "question": "Who is Scrooge's clerk?",
+      "expected_answer_contains": ["Bob Cratchit"],
+      "expected_answer_not_contains": ["Marley", "Fred"]
+    },
+    {
+      "question": "Who was Scrooge's business partner?",
+      "expected_answer_contains": ["Marley", "Jacob Marley"],
+      "expected_answer_not_contains": ["Bob Cratchit"]
+    },
+    {
+      "question": "Who is Tiny Tim's father?",
+      "expected_answer_contains": ["Bob Cratchit", "Cratchit"],
+      "expected_answer_not_contains": ["Scrooge"]
+    },
+    {
+      "question": "What happens on Christmas morning in the final chapter?",
+      "expected_answer_contains": ["Scrooge", "change", "reform", "transform", "turkey"],
+      "expected_answer_not_contains": []
+    },
+    {
+      "question": "What are the three spirits that visit Scrooge?",
+      "expected_answer_contains": ["Past", "Present", "Future"],
+      "expected_answer_not_contains": []
+    },
+    {
+      "question": "What is the relationship between Fred and Scrooge?",
+      "expected_answer_contains": ["nephew", "uncle"],
+      "expected_answer_not_contains": []
+    }
+  ],
+  "structural_checks": {
+    "min_characters": 4,
+    "min_locations": 1,
+    "min_relationships": 3,
+    "min_events": 3,
+    "expected_chapters_covered": [1, 2, 3, 4, 5],
+    "no_orphan_entities": true
+  }
+}

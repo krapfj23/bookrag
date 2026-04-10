@@ -592,7 +592,7 @@ class PipelineOrchestrator:
         processed_dir = Path(getattr(self.config, "processed_dir", "data/processed"))
         validation_dir = self._book_dir(state.book_id) / "validation"
 
-        report = run_validation(state.book_id, processed_dir)
+        report = await run_validation(state.book_id, processed_dir)
         save_validation_report(report, validation_dir)
 
         if report.all_passed:
