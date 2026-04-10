@@ -203,7 +203,7 @@ async def run_booknlp(
         model_size, len(full_text), output_dir,
     )
 
-    model = BookNLP("en", {"pipeline": "entity,quote,coref"})
+    model = BookNLP("en", {"pipeline": "entity,quote,coref", "model": model_size})
 
     # BookNLP is CPU-bound; run in a thread to avoid blocking the event loop
     await asyncio.to_thread(
@@ -237,6 +237,13 @@ def parse_booknlp_output(output_dir: Path, book_id: str) -> BookNLPOutput:
     entities = _parse_entities_tsv(output_dir / f"{book_id}.entities")
     quotes = _parse_quotes_tsv(output_dir / f"{book_id}.quotes")
     tokens = _parse_tokens_tsv(output_dir / f"{book_id}.tokens")
+
+    # Enrich character names from entity mentions when the .book JSON
+    # lacks the 'names' field (common with BookNLP small model).
+    # First pass: PROP mentions (proper nouns — highest confidence).
+    # Second pass: NOM mentions (nominals — "the Ghost", "his nephew") for
+    # characters that still have placeholder names after PROP pass.
+    _enrich_character_names_from_entities(characters, entities)
 
     # Build coref_id → canonical name mapping from character profiles
     coref_id_to_name = _build_coref_name_map(characters)
@@ -401,6 +408,70 @@ def _parse_tokens_tsv(path: Path) -> list[TokenAnnotation]:
 def _build_coref_name_map(characters: list[CharacterProfile]) -> dict[int, str]:
     """Build a mapping from coref cluster ID to canonical character name."""
     return {c.coref_id: c.canonical_name for c in characters}
+
+
+def _enrich_character_names_from_entities(
+    characters: list[CharacterProfile],
+    entities: list[EntityMention],
+) -> None:
+    """Fill in character names from entity mentions when .book JSON lacks them.
+
+    BookNLP's small model often omits the 'names' dict from character profiles.
+    Two-pass approach:
+      1. PROP mentions (proper nouns) — highest quality: "Scrooge", "Bob Cratchit"
+      2. NOM mentions (nominals) — fallback: "the Ghost", "his nephew", "the boy"
+         Only used for characters still unnamed after pass 1.
+         Filters out generic pronouns and very short mentions.
+    """
+    from collections import Counter, defaultdict
+
+    # Pass 1: PROP mentions
+    prop_names: dict[int, Counter] = defaultdict(Counter)
+    for e in entities:
+        if e.prop == "PROP" and e.text:
+            prop_names[e.coref_id][e.text] += 1
+
+    enriched_prop = 0
+    for ch in characters:
+        if ch.canonical_name.startswith("CHARACTER_") and ch.coref_id in prop_names:
+            names = prop_names[ch.coref_id]
+            if names:
+                ch.canonical_name = names.most_common(1)[0][0]
+                ch.aliases = dict(names)
+                enriched_prop += 1
+
+    # Pass 2: NOM mentions for remaining CHARACTER_N placeholders
+    nom_names: dict[int, Counter] = defaultdict(Counter)
+    # Skip generic words that aren't useful as character identifiers
+    skip_noms = {
+        "he", "she", "him", "her", "his", "it", "its", "they", "them",
+        "their", "i", "me", "my", "we", "us", "our", "you", "your",
+        "myself", "himself", "herself", "themselves", "yourself",
+        "sir", "ma'am", "one",
+    }
+    for e in entities:
+        if e.prop == "NOM" and e.text and e.text.lower() not in skip_noms:
+            # Only keep nominals that look like descriptive references (2+ chars)
+            if len(e.text) > 2:
+                nom_names[e.coref_id][e.text] += 1
+
+    enriched_nom = 0
+    for ch in characters:
+        if ch.canonical_name.startswith("CHARACTER_") and ch.coref_id in nom_names:
+            names = nom_names[ch.coref_id]
+            if names:
+                # Pick the most frequent nominal as the display name
+                best_name = names.most_common(1)[0][0]
+                # Title-case it for readability: "the ghost" → "The Ghost"
+                ch.canonical_name = best_name.title() if best_name[0].islower() else best_name
+                ch.aliases = dict(names)
+                enriched_nom += 1
+
+    if enriched_prop or enriched_nom:
+        logger.info(
+            "Enriched character names: {} from PROP mentions, {} from NOM mentions",
+            enriched_prop, enriched_nom,
+        )
 
 
 def _fill_char_offsets_entities(
