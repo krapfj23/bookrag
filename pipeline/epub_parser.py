@@ -127,6 +127,15 @@ def parse_epub(epub_path: str | Path, output_dir: str | Path | None = None) -> P
     if not epub_path.exists():
         raise FileNotFoundError(f"EPUB file not found: {epub_path}")
 
+    # Guard against files that are too large before decompressing.
+    # The API upload endpoint enforces 500 MB on the compressed file; this
+    # duplicates that check at the parser level for files arriving via other paths.
+    file_size = epub_path.stat().st_size
+    if file_size > 500 * 1024 * 1024:
+        raise ValueError(
+            f"EPUB file too large: {file_size} bytes (limit 500 MB)"
+        )
+
     book_id = _slugify(epub_path.name)
     logger.info("Parsing EPUB: {} (book_id={})", epub_path.name, book_id)
 

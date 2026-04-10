@@ -16,12 +16,13 @@ import sys
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Path as FPath, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pydantic import BaseModel
+from typing import Annotated
 
-from models.config import load_config, BookRAGConfig
+from models.config import load_config, ensure_directories, BookRAGConfig
 from pipeline.orchestrator import PipelineOrchestrator
 
 # ---------------------------------------------------------------------------
@@ -32,6 +33,10 @@ MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB
 MAX_CONCURRENT_PIPELINES = 5
 _SAFE_SLUG_RE = re.compile(r"[^a-z0-9_]")
 _EPUB_ZIP_MAGIC = b"PK\x03\x04"
+_SAFE_BOOK_ID_RE = re.compile(r"^[a-z0-9_-]+$")
+
+# Type alias for validated book_id path parameters
+SafeBookId = Annotated[str, FPath(pattern=r"^[a-z0-9_-]+$")]
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -55,6 +60,7 @@ logger.add(
 # ---------------------------------------------------------------------------
 
 config: BookRAGConfig = load_config()
+ensure_directories(config)
 
 app = FastAPI(
     title="BookRAG",
@@ -176,7 +182,7 @@ async def upload_book(file: UploadFile = File(...)) -> UploadResponse:
 
 
 @app.get("/books/{book_id}/status")
-async def get_status(book_id: str) -> dict:
+async def get_status(book_id: SafeBookId) -> dict:
     """Return the current pipeline state as JSON."""
     state = orchestrator.get_state(book_id)
     if state is None:
@@ -185,7 +191,7 @@ async def get_status(book_id: str) -> dict:
 
 
 @app.get("/books/{book_id}/validation")
-async def get_validation(book_id: str) -> dict:
+async def get_validation(book_id: SafeBookId) -> dict:
     """Return validation test results for a processed book."""
     validation_path = (
         Path(config.processed_dir) / book_id / "validation" / "validation_results.json"
@@ -199,7 +205,7 @@ async def get_validation(book_id: str) -> dict:
 
 
 @app.post("/books/{book_id}/progress", response_model=ProgressResponse)
-async def set_progress(book_id: str, req: ProgressRequest) -> ProgressResponse:
+async def set_progress(book_id: SafeBookId, req: ProgressRequest) -> ProgressResponse:
     """Set the reader's current chapter progress for spoiler filtering.
 
     This is stored as a simple JSON file alongside the book's processed data.
