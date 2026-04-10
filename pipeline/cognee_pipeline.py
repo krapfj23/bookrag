@@ -210,7 +210,7 @@ def _format_booknlp_quotes(quotes: list[dict]) -> str:
 
     lines = []
     for q in quotes[:30]:  # cap to avoid prompt bloat
-        speaker = q.get("speaker", "Unknown")
+        speaker = q.get("speaker_name", q.get("speaker", "Unknown"))
         text = q.get("text", q.get("quote", ""))
         if text:
             # Truncate long quotes

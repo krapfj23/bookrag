@@ -204,7 +204,7 @@ class PipelineOrchestrator:
         """Parse the EPUB into chapter-segmented text."""
         epub_path = ctx["epub_path"]
         output_dir = self._book_dir(state.book_id) / "raw"
-        parsed = parse_epub(epub_path, output_dir=output_dir)
+        parsed = await asyncio.to_thread(parse_epub, epub_path, output_dir=output_dir)
         ctx["parsed_book"] = parsed
         log.info("Parsed {} chapters from EPUB", parsed.chapter_count)
 
@@ -303,7 +303,7 @@ class PipelineOrchestrator:
         coref_tokens = [
             CorefToken(
                 token_id=t.token_id,
-                sentence_id=0,  # will be filled below
+                sentence_id=t.sentence_id,  # parsed from sentence_ID column in .tokens TSV
                 token_offset_begin=t.start_char,
                 token_offset_end=t.end_char,
                 word=t.text,
@@ -313,9 +313,10 @@ class PipelineOrchestrator:
             for t in booknlp_result.tokens
         ]
 
-        # Assign sentence IDs: BookNLP tokens don't always carry sentence_id
-        # in our parsed format. We approximate by splitting on sentence-ending POS.
-        _assign_sentence_ids(coref_tokens)
+        # Fall back to POS-based sentence assignment if TSV lacked sentence_ID
+        # (i.e. every token has sentence_id=0 from the default).
+        if coref_tokens and all(t.sentence_id == 0 for t in coref_tokens):
+            _assign_sentence_ids(coref_tokens)
 
         coref_entities = [
             CorefEntityMention(
@@ -338,10 +339,13 @@ class PipelineOrchestrator:
             for c in booknlp_result.characters
         ]
 
-        # Chapter boundaries as token ranges
+        # Chapter boundaries as token ranges.
+        # Use the char boundaries already computed by epub_parser (which include
+        # chapter marker headers) so token assignments are accurate for all chapters.
         chapter_texts = parsed.chapter_texts if parsed else []
+        char_boundaries = parsed.chapter_boundaries if parsed else None
         chapter_boundaries = _compute_chapter_token_boundaries(
-            coref_tokens, chapter_texts
+            coref_tokens, chapter_texts, char_boundaries=char_boundaries
         )
 
         log.info(
@@ -662,25 +666,40 @@ def _assign_sentence_ids(tokens: list[CorefToken]) -> None:
 def _compute_chapter_token_boundaries(
     tokens: list[CorefToken],
     chapter_texts: list[str],
+    char_boundaries: list[tuple[int, int]] | None = None,
 ) -> list[tuple[int, int]]:
     """Compute (start_token_id, end_token_id) boundaries per chapter.
 
     Uses character offsets: each chapter's char range maps to a token range.
     Falls back to a single boundary spanning all tokens if chapter_texts is empty.
+
+    Args:
+        tokens: CorefToken list (carry token_offset_begin char positions).
+        chapter_texts: Chapter text strings (used only when char_boundaries is None).
+        char_boundaries: Pre-computed (start_char, end_char) pairs from ParsedBook.
+            When provided, these are used directly instead of recomputing from
+            chapter_texts — this preserves the correct offsets including chapter
+            marker headers inserted by epub_parser.
     """
-    if not chapter_texts or not tokens:
-        if tokens:
-            return [(tokens[0].token_id, tokens[-1].token_id + 1)]
+    if not tokens:
         return []
 
-    # Build chapter char boundaries
-    boundaries: list[tuple[int, int]] = []
-    cursor = 0
-    for ch_text in chapter_texts:
-        start = cursor
-        end = cursor + len(ch_text)
-        boundaries.append((start, end))
-        cursor = end + 2  # account for "\n\n" join separator
+    if char_boundaries is not None:
+        boundaries = char_boundaries
+    elif not chapter_texts:
+        return [(tokens[0].token_id, tokens[-1].token_id + 1)]
+    else:
+        # Fallback: reconstruct char boundaries from raw chapter text lengths.
+        # NOTE: this ignores chapter marker headers (=== CHAPTER N ===) inserted
+        # by epub_parser, so token assignments after chapter 1 will be shifted.
+        # Prefer passing char_boundaries from ParsedBook whenever available.
+        boundaries = []
+        cursor = 0
+        for ch_text in chapter_texts:
+            start = cursor
+            end = cursor + len(ch_text)
+            boundaries.append((start, end))
+            cursor = end + 2  # account for "\n\n" join separator
 
     # Map each chapter's char range to token ID range
     token_boundaries: list[tuple[int, int]] = []

@@ -81,6 +81,7 @@ class TokenAnnotation:
     """A single token annotation from BookNLP's .tokens file."""
 
     token_id: int
+    sentence_id: int       # sentence_ID column from .tokens TSV
     text: str
     lemma: str
     pos: str               # POS tag
@@ -385,6 +386,7 @@ def _parse_tokens_tsv(path: Path) -> list[TokenAnnotation]:
 
             tokens.append(TokenAnnotation(
                 token_id=safe_int(row.get("token_ID_within_document", row.get("token_id", "0"))),
+                sentence_id=safe_int(row.get("sentence_ID", row.get("sentence_id", "0"))),
                 text=row.get("word", row.get("text", "")),
                 lemma=row.get("lemma", ""),
                 pos=row.get("POS_tag", row.get("pos", "")),

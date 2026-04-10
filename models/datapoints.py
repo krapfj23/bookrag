@@ -204,11 +204,12 @@ class ExtractionResult(BaseModel):
             datapoints.append(dp)
 
         # --- Plot Events ---
-        for ev in self.events:
+        for i, ev in enumerate(self.events):
             participants = [char_map[n] for n in ev.participant_names if n in char_map]
             location = loc_map.get(ev.location_name) if ev.location_name else None
+            desc_slug = ev.description[:60] if ev.description else f"unnamed_{i}"
             dp = PlotEvent(
-                id=uuid.uuid5(uuid.NAMESPACE_DNS, f"event:{ev.chapter}:{ev.description[:60]}"),
+                id=uuid.uuid5(uuid.NAMESPACE_DNS, f"event:{ev.chapter}:{desc_slug}"),
                 description=ev.description,
                 chapter=ev.chapter,
                 participants=participants,

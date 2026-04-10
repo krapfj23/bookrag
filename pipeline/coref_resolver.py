@@ -133,18 +133,6 @@ def _build_mention_index(
     return idx
 
 
-def _build_mention_span_set(
-    entities: list[EntityMention],
-) -> set[int]:
-    """Return set of token_ids that are *continuation* tokens of a multi-word
-    mention (i.e. not the start). These tokens are skipped during output so
-    the mention text is emitted once at the start token."""
-    continuation: set[int] = set()
-    for em in entities:
-        for tid in range(em.start_token + 1, em.end_token):
-            continuation.add(tid)
-    return continuation
-
 
 def _build_mention_end_index(
     entities: list[EntityMention],
@@ -165,18 +153,6 @@ def _build_mention_end_index(
         idx[last_tok] = em
     return idx
 
-
-def _build_mention_interior(
-    entities: list[EntityMention],
-) -> set[int]:
-    """Return set of token_ids that are INTERIOR tokens of a mention
-    (between start and last, exclusive of both). These tokens should not
-    trigger annotation — only the last token does."""
-    interior: set[int] = set()
-    for em in entities:
-        for tid in range(em.start_token + 1, em.end_token - 1):
-            interior.add(tid)
-    return interior
 
 
 # ---------------------------------------------------------------------------
@@ -285,26 +261,17 @@ def resolve_coreferences(
     for ch in characters:
         clusters[ch.coref_id] = CorefCluster(canonical_name=ch.name)
 
+    # Pre-map token_id → Token for quick access (must come before sentence_clusters)
+    token_map: dict[int, Token] = {t.token_id: t for t in tokens}
+
     # Build sentence → set of coref_ids present (for ambiguity detection)
     sentence_clusters: dict[int, set[int]] = defaultdict(set)
     for em in entities:
         if em.coref_id < 0:
             continue
-        # Find sentence_id from start_token
-        for tok in tokens:
-            if tok.token_id == em.start_token:
-                sentence_clusters[tok.sentence_id].add(em.coref_id)
-                break
-
-    # Pre-map token_id → Token for quick access
-    token_map: dict[int, Token] = {t.token_id: t for t in tokens}
-
-    # Pre-compute: for each entity mention, map to its sentence_id
-    mention_sentence: dict[int, int] = {}  # start_token → sentence_id
-    for em in entities:
         tok = token_map.get(em.start_token)
         if tok:
-            mention_sentence[em.start_token] = tok.sentence_id
+            sentence_clusters[tok.sentence_id].add(em.coref_id)
 
     def _active_clusters_in_window(sentence_id: int) -> set[int]:
         """Return coref_ids of characters active in the ambiguity window
