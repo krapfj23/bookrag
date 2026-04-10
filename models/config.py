@@ -19,7 +19,7 @@ from pydantic_settings import BaseSettings
 class BookRAGConfig(BaseSettings):
     """Central configuration for the BookRAG pipeline and API."""
 
-    model_config = {"env_prefix": "BOOKRAG_", "env_nested_delimiter": "__"}
+    model_config = {"env_prefix": "BOOKRAG_"}
 
     # Pipeline
     batch_size: int = 3
@@ -84,11 +84,6 @@ def load_config(config_path: str | Path = "config.yaml") -> BookRAGConfig:
     # Pydantic will merge yaml_values with env vars (env vars win)
     config = BookRAGConfig(**yaml_values)
 
-    # Ensure directories exist
-    config.data_dir.mkdir(parents=True, exist_ok=True)
-    config.books_dir.mkdir(parents=True, exist_ok=True)
-    config.processed_dir.mkdir(parents=True, exist_ok=True)
-
     logger.info(
         "Config: batch_size={}, llm={}/{}, graph_db={}, vector_db={}",
         config.batch_size,
@@ -99,3 +94,14 @@ def load_config(config_path: str | Path = "config.yaml") -> BookRAGConfig:
     )
 
     return config
+
+
+def ensure_directories(config: BookRAGConfig) -> None:
+    """Create the pipeline data directories if they don't exist.
+
+    Separated from load_config so that tests importing config don't trigger
+    filesystem side effects.  Call this once at application startup.
+    """
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    config.books_dir.mkdir(parents=True, exist_ok=True)
+    config.processed_dir.mkdir(parents=True, exist_ok=True)
