@@ -146,6 +146,39 @@ def _build_mention_span_set(
     return continuation
 
 
+def _build_mention_end_index(
+    entities: list[EntityMention],
+) -> dict[int, EntityMention]:
+    """Map the last token_id of each mention → EntityMention.
+
+    Used to fire bracket annotations after the final token of a mention,
+    so every token emits via tok.word (no em.text duplication).
+
+    BookNLP uses two conventions:
+    - Single-token: start_token == end_token (e.g., start=9, end=9 means token 9)
+    - Multi-token: end_token is exclusive (e.g., start=3, end=5 means tokens 3,4)
+    We handle both: last_tok = max(start_token, end_token - 1).
+    """
+    idx: dict[int, EntityMention] = {}
+    for em in entities:
+        last_tok = max(em.start_token, em.end_token - 1)
+        idx[last_tok] = em
+    return idx
+
+
+def _build_mention_interior(
+    entities: list[EntityMention],
+) -> set[int]:
+    """Return set of token_ids that are INTERIOR tokens of a mention
+    (between start and last, exclusive of both). These tokens should not
+    trigger annotation — only the last token does."""
+    interior: set[int] = set()
+    for em in entities:
+        for tid in range(em.start_token + 1, em.end_token - 1):
+            interior.add(tid)
+    return interior
+
+
 # ---------------------------------------------------------------------------
 # Chapter / boundary helpers
 # ---------------------------------------------------------------------------
@@ -205,6 +238,7 @@ def resolve_coreferences(
     chapter_texts: list[str],
     chapter_boundaries: list[tuple[int, int]],
     config: CorefConfig | None = None,
+    source_text: str | None = None,
 ) -> CorefResult:
     """Produce resolved text with parenthetical coreference annotations.
 
@@ -222,6 +256,10 @@ def resolve_coreferences(
         (start_token_id, end_token_id) per chapter.
     config : CorefConfig, optional
         Resolution configuration.
+    source_text : str, optional
+        Original full text that token offsets refer to.  When provided,
+        whitespace between tokens is preserved exactly (including
+        paragraph breaks).  Without it, a single space is used.
 
     Returns
     -------
@@ -233,7 +271,7 @@ def resolve_coreferences(
     alias_map = _build_shortest_alias_map(characters)
     char_coref_ids = {ch.coref_id for ch in characters}
     mention_idx = _build_mention_index(entities)
-    continuation_tokens = _build_mention_span_set(entities)
+    mention_end_idx = _build_mention_end_index(entities)
     tok_to_chap = _assign_token_chapters_fast(tokens, chapter_boundaries)
 
     num_chapters = len(chapter_boundaries) if chapter_boundaries else 1
@@ -281,7 +319,7 @@ def resolve_coreferences(
 
         Returns the rule name ("distance", "ambiguity", "both") or None.
         """
-        # Never annotate proper nouns
+        # Never annotate proper nouns — they're already clear
         if em.prop == "PROP":
             return None
 
@@ -289,8 +327,24 @@ def resolve_coreferences(
         if cid < 0:
             return None
 
+        # Bug 3 fix: skip all-caps multi-word mentions (headings like STAVE ONE)
+        if em.text == em.text.upper() and " " in em.text.strip():
+            return None
+
         # Must have a known canonical name
         if cid not in alias_map and cid not in clusters:
+            return None
+
+        # Bug 2 fix: skip if the resolved name is a placeholder or a pronoun
+        canonical = alias_map.get(cid)
+        if canonical is None:
+            cl = clusters.get(cid)
+            canonical = cl.canonical_name if cl else ""
+        if (
+            not canonical
+            or canonical.startswith("CHARACTER_")
+            or canonical.lower() in ("he", "she", "it", "they", "his", "her", "him")
+        ):
             return None
 
         distance_triggered = False
@@ -333,87 +387,83 @@ def resolve_coreferences(
     # Sort tokens by token_id to ensure order
     sorted_tokens = sorted(tokens, key=lambda t: t.token_id)
 
+    # Track which mention is "active" as we walk tokens, so we can
+    # record the mention in the cluster at the start and annotate at the end.
+    active_mention: EntityMention | None = None
+    active_mention_sentence: int = 0
+
     for tok in sorted_tokens:
         chap = tok_to_chap.get(tok.token_id, 0)
 
-        # Skip continuation tokens of multi-word mentions
-        if tok.token_id in continuation_tokens:
-            continue
-
-        # Determine whitespace / gap before this token
+        # --- Whitespace / gap before this token ---
         if chap in prev_token_end:
             gap_start = prev_token_end[chap]
             gap_end = tok.token_offset_begin
             if gap_end > gap_start:
-                # Find the original whitespace between tokens
-                # We approximate with a single space; for newlines we check POS
-                # In practice BookNLP tokens are space-separated within sentences
-                # and newline-separated between paragraphs.
+                if source_text is not None and gap_end <= len(source_text):
+                    chapter_buffers[chap].append(source_text[gap_start:gap_end])
+                else:
+                    chapter_buffers[chap].append(" ")
+            elif gap_end < gap_start:
                 chapter_buffers[chap].append(" ")
-            elif gap_end == gap_start:
-                pass  # No gap (e.g., punctuation attached to word)
-            else:
-                chapter_buffers[chap].append(" ")
+
+        # --- Emit this token's word (every token emits exactly once) ---
+        chapter_buffers[chap].append(tok.word)
         prev_token_end[chap] = tok.token_offset_end
 
-        # Check if this token starts an entity mention
-        em = mention_idx.get(tok.token_id)
+        # --- Check if this token STARTS a mention ---
+        em_start = mention_idx.get(tok.token_id)
+        if em_start is not None:
+            active_mention = em_start
+            active_mention_sentence = tok.sentence_id
 
-        if em is not None:
-            sentence_id = tok.sentence_id
-
-            # Emit the mention text (original span text from EntityMention)
-            chapter_buffers[chap].append(em.text)
-
-            # Update the prev_token_end to cover the full mention span
-            last_tok_in_mention = token_map.get(em.end_token - 1)
-            if last_tok_in_mention:
-                prev_token_end[chap] = last_tok_in_mention.token_offset_end
-
-            # Record this mention in the cluster
-            if em.coref_id >= 0:
-                if em.coref_id not in clusters:
-                    # Entity without a CharacterProfile — create a cluster
-                    clusters[em.coref_id] = CorefCluster(
-                        canonical_name=alias_map.get(em.coref_id, em.text)
+            # Record mention in cluster
+            if em_start.coref_id >= 0:
+                if em_start.coref_id not in clusters:
+                    clusters[em_start.coref_id] = CorefCluster(
+                        canonical_name=alias_map.get(em_start.coref_id, em_start.text)
                     )
-                clusters[em.coref_id].mentions.append({
+                clusters[em_start.coref_id].mentions.append({
                     "token_id": tok.token_id,
-                    "text": em.text,
-                    "sentence_id": sentence_id,
-                    "prop": em.prop,
-                    "cat": em.cat,
+                    "text": em_start.text,
+                    "sentence_id": active_mention_sentence,
+                    "prop": em_start.prop,
+                    "cat": em_start.cat,
                     "chapter": chap,
                 })
 
-                # Decide whether to annotate
-                rule = _should_annotate(em, sentence_id)
-                if rule is not None:
-                    canonical = alias_map.get(em.coref_id)
-                    if canonical is None:
-                        canonical = clusters[em.coref_id].canonical_name
+        # --- Check if this token ENDS a mention → append [Name] ---
+        em_end = mention_end_idx.get(tok.token_id)
+        if em_end is not None and em_end.coref_id >= 0:
+            # Use the sentence_id from when this mention started
+            sid = active_mention_sentence if active_mention is em_end else tok.sentence_id
 
-                    # Don't annotate if the mention text already matches the
-                    # canonical label (case-insensitive)
-                    if em.text.lower().strip() != canonical.lower().strip():
-                        annotation = f" [{canonical}]"
-                        chapter_buffers[chap].append(annotation)
+            rule = _should_annotate(em_end, sid)
+            if rule is not None:
+                canonical = alias_map.get(em_end.coref_id)
+                if canonical is None:
+                    canonical = clusters[em_end.coref_id].canonical_name
 
-                        clusters[em.coref_id].resolution_count += 1
-                        resolution_log.append(ResolutionEvent(
-                            token_id=tok.token_id,
-                            original_text=em.text,
-                            inserted_annotation=canonical,
-                            rule_triggered=rule,
-                            sentence_id=sentence_id,
-                            chapter=chap,
-                        ))
+                # Don't annotate if mention text already matches the label
+                if em_end.text.lower().strip() != canonical.lower().strip():
+                    chapter_buffers[chap].append(f" [{canonical}]")
 
-                # Update last-seen sentence for this cluster
-                last_mention_sentence[em.coref_id] = sentence_id
-        else:
-            # Regular token — emit as-is
-            chapter_buffers[chap].append(tok.word)
+                    clusters[em_end.coref_id].resolution_count += 1
+                    resolution_log.append(ResolutionEvent(
+                        token_id=em_end.start_token,
+                        original_text=em_end.text,
+                        inserted_annotation=canonical,
+                        rule_triggered=rule,
+                        sentence_id=sid,
+                        chapter=chap,
+                    ))
+
+            # Update last-seen sentence for this cluster
+            last_mention_sentence[em_end.coref_id] = sid
+
+            # Clear active mention
+            if active_mention is em_end:
+                active_mention = None
 
     # -----------------------------------------------------------------------
     # Assemble chapter strings
