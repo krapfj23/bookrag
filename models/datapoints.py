@@ -29,14 +29,14 @@ class Character(DataPoint):
     description: str | None = None
     first_chapter: int
     chapters_present: list[int] = []
-    metadata: dict = Field(default_factory=lambda: {"index_fields": ["name", "description"]})
+    metadata: dict = {"index_fields": ["name", "description"]}
 
 
 class Location(DataPoint):
     name: str
     description: str | None = None
     first_chapter: int
-    metadata: dict = Field(default_factory=lambda: {"index_fields": ["name", "description"]})
+    metadata: dict = {"index_fields": ["name", "description"]}
 
 
 class Faction(DataPoint):
@@ -44,7 +44,7 @@ class Faction(DataPoint):
     description: str | None = None
     first_chapter: int
     members: list[Character] = []
-    metadata: dict = Field(default_factory=lambda: {"index_fields": ["name"]})
+    metadata: dict = {"index_fields": ["name"]}
 
 
 class PlotEvent(DataPoint):
@@ -52,7 +52,7 @@ class PlotEvent(DataPoint):
     chapter: int
     participants: list[Character] = []
     location: Location | None = None
-    metadata: dict = Field(default_factory=lambda: {"index_fields": ["description"]})
+    metadata: dict = {"index_fields": ["description"]}
 
 
 class Relationship(DataPoint):
@@ -61,7 +61,7 @@ class Relationship(DataPoint):
     relation_type: str
     description: str | None = None
     first_chapter: int
-    metadata: dict = Field(default_factory=lambda: {"index_fields": ["relation_type", "description"]})
+    metadata: dict = {"index_fields": ["relation_type", "description"]}
 
 
 class Theme(DataPoint):
@@ -69,7 +69,7 @@ class Theme(DataPoint):
     description: str | None = None
     first_chapter: int
     related_characters: list[Character] = []
-    metadata: dict = Field(default_factory=lambda: {"index_fields": ["name", "description"]})
+    metadata: dict = {"index_fields": ["name", "description"]}
 
 
 # ===========================================================================

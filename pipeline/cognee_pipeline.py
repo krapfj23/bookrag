@@ -28,6 +28,7 @@ from cognee.modules.pipelines import run_pipeline
 from cognee.modules.pipelines.tasks.task import Task
 from cognee.tasks.storage import add_data_points
 
+from models.config import DEFAULT_CHUNK_SIZE, DEFAULT_MAX_RETRIES
 from models.datapoints import ExtractionResult
 from pipeline.batcher import Batch
 
@@ -42,7 +43,7 @@ def configure_cognee(config: Any) -> None:
     import cognee
 
     provider = getattr(config, "llm_provider", "openai")
-    model = getattr(config, "llm_model", "gpt-4o")
+    model = getattr(config, "llm_model", "gpt-4.1-mini")
 
     # Resolve API key from environment based on provider
     key_env_map = {
@@ -90,16 +91,33 @@ class ChapterChunk:
 # Task 1: Chapter-aware chunking
 # ---------------------------------------------------------------------------
 
+def _split_into_segments(text: str) -> list[str]:
+    """Split text into segments using paragraph breaks, newlines, or sentences."""
+    import re
+
+    if not text or not text.strip():
+        return [text] if text else [""]
+    # Try paragraph breaks first
+    if "\n\n" in text:
+        return text.split("\n\n")
+    # Fall back to single newlines
+    if "\n" in text:
+        return text.split("\n")
+    # Fall back to sentence boundaries (split after ". " keeping the period)
+    segments = re.split(r'(?<=\.\s)', text)
+    return [s for s in segments if s.strip()] or [text]
+
+
 def chunk_with_chapter_awareness(
     text: str,
-    chunk_size: int = 1500,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     chapter_numbers: list[int] | None = None,
 ) -> list[ChapterChunk]:
-    """Split batch text into chunks that respect paragraph boundaries.
+    """Split batch text into chunks that respect paragraph/sentence boundaries.
 
     Each chunk is tagged with the chapter number(s) it spans.  Chunks target
     roughly ``chunk_size`` tokens (estimated as chars/4) and never split
-    mid-paragraph.
+    mid-paragraph (or mid-sentence when no paragraph breaks exist).
 
     Args:
         text: The combined batch text (may contain multiple chapters).
@@ -113,19 +131,21 @@ def chunk_with_chapter_awareness(
         chapter_numbers = [1]
 
     target_chars = chunk_size * 4
-    paragraphs = text.split("\n\n")
+    segments = _split_into_segments(text)
+    separator = "\n\n" if "\n\n" in text else ("\n" if "\n" in text else " ")
+    sep_len = len(separator)
 
     chunks: list[ChapterChunk] = []
-    current_paragraphs: list[str] = []
+    current_segments: list[str] = []
     current_chars = 0
     chunk_start = 0
     cursor = 0
 
-    for para in paragraphs:
-        para_len = len(para)
+    for seg in segments:
+        seg_len = len(seg)
 
-        if current_paragraphs and (current_chars + para_len + 2) > target_chars:
-            chunk_text = "\n\n".join(current_paragraphs)
+        if current_segments and (current_chars + seg_len + sep_len) > target_chars:
+            chunk_text = separator.join(current_segments)
             chunks.append(
                 ChapterChunk(
                     text=chunk_text,
@@ -135,15 +155,15 @@ def chunk_with_chapter_awareness(
                 )
             )
             chunk_start = cursor
-            current_paragraphs = []
+            current_segments = []
             current_chars = 0
 
-        current_paragraphs.append(para)
-        current_chars += para_len + 2
-        cursor += para_len + 2
+        current_segments.append(seg)
+        current_chars += seg_len + sep_len
+        cursor += seg_len + sep_len
 
-    if current_paragraphs:
-        chunk_text = "\n\n".join(current_paragraphs)
+    if current_segments:
+        chunk_text = separator.join(current_segments)
         chunks.append(
             ChapterChunk(
                 text=chunk_text,
@@ -288,7 +308,7 @@ async def extract_enriched_graph(
     chunks: list[ChapterChunk],
     booknlp: dict[str, Any] | None = None,
     ontology: dict[str, Any] | None = None,
-    max_retries: int = 3,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> list[DataPoint]:
     """Extract knowledge graph DataPoints from chunks using Claude via LLMGateway.
 
@@ -438,8 +458,8 @@ async def run_bookrag_pipeline(
     booknlp_output: dict[str, Any],
     ontology: dict[str, Any],
     book_id: str,
-    chunk_size: int = 1500,
-    max_retries: int = 3,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    max_retries: int = DEFAULT_MAX_RETRIES,
     output_dir: Path | None = None,
 ) -> list[DataPoint]:
     """Run the full BookRAG Cognee pipeline for a single batch.
@@ -484,7 +504,12 @@ async def run_bookrag_pipeline(
         max_retries=max_retries,
     )
 
-    # Stage 3: Persist via Cognee
+    # Save batch artifacts to disk first (before Cognee persistence which may fail)
+    if output_dir is None:
+        output_dir = Path("data/processed") / book_id / "batches"
+    _save_batch_artifacts(batch, booknlp_output, datapoints, output_dir)
+
+    # Stage 3: Persist via Cognee (best-effort — extraction data is already saved)
     if datapoints:
         logger.info("Persisting {} DataPoints via Cognee add_data_points...", len(datapoints))
         try:
@@ -496,15 +521,11 @@ async def run_bookrag_pipeline(
             ):
                 logger.debug("Cognee pipeline status: {}", status)
         except Exception as exc:
-            logger.error("Cognee add_data_points failed: {}", exc)
-            raise
+            logger.warning(
+                "Cognee add_data_points failed (extraction data saved to disk): {}", exc
+            )
     else:
         logger.warning("No DataPoints extracted for batch chapters {}", batch.chapter_numbers)
-
-    # Save batch artifacts to disk
-    if output_dir is None:
-        output_dir = Path("data/processed") / book_id / "batches"
-    _save_batch_artifacts(batch, booknlp_output, datapoints, output_dir)
 
     logger.info(
         "Pipeline complete for batch chapters {} — {} DataPoints",

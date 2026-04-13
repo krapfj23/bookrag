@@ -13,8 +13,8 @@ distance_threshold: 3                # Annotate when antecedent 3+ sentences awa
 annotate_ambiguous: true             # Also annotate when multiple characters in scope
 
 # Cognee / LLM
-llm_provider: "anthropic"
-llm_model: "claude-sonnet-4-20250514"
+llm_provider: "openai"
+llm_model: "gpt-4o-mini"
 graph_db: "kuzu"                     # or "neo4j"
 vector_db: "lancedb"                 # or "qdrant"
 
