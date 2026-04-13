@@ -38,8 +38,11 @@ dependencies = [
     # Install separately: pip install cognee
     # Cognee brings its own Kuzu, LanceDB, SQLite deps
 
+    # Environment
+    "python-dotenv>=1.0",
+
     # LLM provider
-    "anthropic>=0.25",
+    "openai>=1.0",
 ]
 
 [project.optional-dependencies]

@@ -9,6 +9,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import html as html_mod
 import json
 import re
 import shutil
@@ -19,11 +20,11 @@ load_dotenv()
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Path as FPath, UploadFile
+from fastapi import FastAPI, File, HTTPException, Path as FPath, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
-from pydantic import BaseModel
-from typing import Annotated
+from pydantic import BaseModel, Field
+from typing import Annotated, Any
 
 from fastapi.responses import HTMLResponse
 
@@ -96,8 +97,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 orchestrator = PipelineOrchestrator(config)
@@ -135,7 +136,7 @@ class HealthResponse(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    question: str
+    question: str = Field(..., max_length=2000)
     search_type: str = "GRAPH_COMPLETION"
 
 
@@ -372,6 +373,12 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     Results are limited to chapters at or before the reader's current progress.
     Set progress first via POST /books/{book_id}/progress.
     """
+    if req.search_type not in _ALLOWED_SEARCH_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid search_type '{req.search_type}'. Allowed: {sorted(_ALLOWED_SEARCH_TYPES)}",
+        )
+
     book_dir = Path(config.processed_dir) / book_id
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
@@ -499,7 +506,7 @@ def _load_batch_datapoints(book_id: str, max_chapter: int | None = None) -> dict
 
 
 @app.get("/books/{book_id}/graph/data")
-async def get_graph_data(book_id: SafeBookId, max_chapter: int | None = None) -> dict:
+async def get_graph_data(book_id: SafeBookId, max_chapter: int | None = Query(default=None, ge=1)) -> dict:
     """Return knowledge graph as JSON nodes and edges, optionally spoiler-filtered."""
     book_dir = Path(config.processed_dir) / book_id
     if not book_dir.exists():
@@ -508,7 +515,7 @@ async def get_graph_data(book_id: SafeBookId, max_chapter: int | None = None) ->
 
 
 @app.get("/books/{book_id}/graph", response_class=HTMLResponse)
-async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None = None) -> HTMLResponse:
+async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None = Query(default=None, ge=1)) -> HTMLResponse:
     """Return an interactive HTML visualization of the knowledge graph."""
     book_dir = Path(config.processed_dir) / book_id
     if not book_dir.exists():
@@ -523,15 +530,18 @@ async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None =
             "</body></html>"
         )
 
-    nodes_js = json.dumps(graph_data["nodes"])
-    edges_js = json.dumps(graph_data["edges"])
-    chapter_label = f" (up to chapter {max_chapter})" if max_chapter else ""
+    # Escape JSON for safe embedding in <script type="application/json"> (prevent </script> breakout)
+    safe_graph_json = json.dumps(graph_data).replace("</", "<\\/")
+    safe_book_id = html_mod.escape(book_id)
+    chapter_label = html_mod.escape(f" (up to chapter {max_chapter})") if max_chapter else ""
 
     html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>BookRAG Knowledge Graph — {book_id}{chapter_label}</title>
-    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <title>BookRAG Knowledge Graph — {safe_book_id}{chapter_label}</title>
+    <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"
+            integrity="sha384-yxKDWWf0wwdUj/gPeuL11czrnKFQROnLgY8ll7En9NYoXibgg3C6NK/UDHNtUgWJ"
+            crossorigin="anonymous"></script>
     <style>
         body {{ margin: 0; font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; }}
         #graph {{ width: 100vw; height: 85vh; }}
@@ -545,7 +555,7 @@ async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None =
 </head>
 <body>
     <div id="header">
-        <h1>{book_id}{chapter_label}</h1>
+        <h1>{safe_book_id}{chapter_label}</h1>
         <div class="legend">
             <span class="legend-item"><span class="legend-dot" style="background:#4363d8"></span> Character</span>
             <span class="legend-item"><span class="legend-dot" style="background:#3cb44b"></span> Location</span>
@@ -556,9 +566,12 @@ async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None =
     </div>
     <div id="graph"></div>
     <div id="info">Click a node to see details. Scroll to zoom. Drag to pan.</div>
+    <script type="application/json" id="graph-data">{safe_graph_json}</script>
     <script>
-        var rawNodes = {nodes_js};
-        var rawEdges = {edges_js};
+        function esc(s) {{ return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }}
+        var gd = JSON.parse(document.getElementById('graph-data').textContent);
+        var rawNodes = gd.nodes;
+        var rawEdges = gd.edges;
 
         var nodes = new vis.DataSet(rawNodes.map(function(n) {{
             return {{
@@ -566,7 +579,7 @@ async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None =
                 label: n.label,
                 color: {{ background: n.color, border: n.color, highlight: {{ background: '#fff', border: n.color }} }},
                 font: {{ color: '#eee', size: 14 }},
-                title: '<b>' + n.type + ':</b> ' + n.label + (n.description ? '<br>' + n.description : '') + (n.chapter ? '<br>Ch. ' + n.chapter : ''),
+                title: '<b>' + esc(n.type) + ':</b> ' + esc(n.label) + (n.description ? '<br>' + esc(n.description) : '') + (n.chapter ? '<br>Ch. ' + n.chapter : ''),
                 shape: n.type === 'PlotEvent' ? 'diamond' : 'dot',
                 size: n.type === 'Character' ? 20 : 14
             }};
@@ -605,4 +618,4 @@ async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None =
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

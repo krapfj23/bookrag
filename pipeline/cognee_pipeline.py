@@ -17,7 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from jinja2 import BaseLoader, Environment
+from jinja2 import BaseLoader
+from jinja2.sandbox import SandboxedEnvironment
 from loguru import logger
 
 import os
@@ -285,7 +286,7 @@ def render_prompt(
     entities = booknlp_output.get("entities_tsv", booknlp_output.get("entities", []))
     quotes = booknlp_output.get("quotes", [])
 
-    env = Environment(loader=BaseLoader(), keep_trailing_newline=True)
+    env = SandboxedEnvironment(loader=BaseLoader(), keep_trailing_newline=True)
     template = env.from_string(template_str)
 
     system_prompt = template.render(
