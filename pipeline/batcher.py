@@ -11,6 +11,8 @@ from typing import Any
 
 from loguru import logger
 
+from models.config import DEFAULT_BATCH_SIZE, DEFAULT_MAX_TOKENS
+
 
 @dataclass
 class Batch:
@@ -53,7 +55,7 @@ class FixedSizeBatcher(Batcher):
     The last batch may contain fewer chapters than ``batch_size``.
     """
 
-    def __init__(self, batch_size: int = 3) -> None:
+    def __init__(self, batch_size: int = DEFAULT_BATCH_SIZE) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {batch_size}")
         self.batch_size = batch_size
@@ -103,7 +105,7 @@ class TokenBudgetBatcher(Batcher):
 
     CHARS_PER_TOKEN = 4  # rough average for English text
 
-    def __init__(self, max_tokens: int = 8000) -> None:
+    def __init__(self, max_tokens: int = DEFAULT_MAX_TOKENS) -> None:
         if max_tokens < 100:
             raise ValueError(f"max_tokens must be >= 100, got {max_tokens}")
         self.max_tokens = max_tokens
@@ -192,10 +194,10 @@ def get_batcher(config: Any) -> Batcher:
     """
     if isinstance(config, dict):
         max_tokens = config.get("max_tokens")
-        batch_size = config.get("batch_size", 3)
+        batch_size = config.get("batch_size", DEFAULT_BATCH_SIZE)
     else:
         max_tokens = getattr(config, "max_tokens", None)
-        batch_size = getattr(config, "batch_size", 3)
+        batch_size = getattr(config, "batch_size", DEFAULT_BATCH_SIZE)
 
     if max_tokens is not None:
         logger.info("Using TokenBudgetBatcher (max_tokens={})", max_tokens)

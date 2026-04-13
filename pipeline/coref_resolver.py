@@ -20,6 +20,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from models.config import DEFAULT_DISTANCE_THRESHOLD
 from pipeline.booknlp_runner import EntityMention
 
 # ---------------------------------------------------------------------------
@@ -50,7 +51,7 @@ class CharacterProfile:
 
 @dataclass
 class CorefConfig:
-    distance_threshold: int = 3
+    distance_threshold: int = DEFAULT_DISTANCE_THRESHOLD
     ambiguity_window: int = 2
     annotate_ambiguous: bool = True
 
@@ -619,7 +620,7 @@ def main() -> None:
 
     tokens, entities, characters, chapter_texts, chapter_boundaries = _build_demo_data()
 
-    config = CorefConfig(distance_threshold=3, ambiguity_window=2, annotate_ambiguous=True)
+    config = CorefConfig(distance_threshold=DEFAULT_DISTANCE_THRESHOLD, ambiguity_window=2, annotate_ambiguous=True)
 
     result = resolve_coreferences(
         tokens=tokens,

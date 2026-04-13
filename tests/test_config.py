@@ -14,7 +14,7 @@ Aligned with:
 - CLAUDE.md: ".env for secrets + YAML for settings"
 - Plan config.yaml spec: batch_size=3, max_retries=3, booknlp_model="small",
   distance_threshold=3, annotate_ambiguous=true, llm_provider="openai",
-  llm_model="gpt-4o", graph_db="kuzu", vector_db="lancedb",
+  llm_model="gpt-4.1-mini", graph_db="kuzu", vector_db="lancedb",
   auto_review=false, min_entity_frequency=2, strip_html=true, remove_toc=true,
   remove_copyright=true, keep_epigraphs=true, keep_section_breaks=true
 """
@@ -62,7 +62,7 @@ class TestBookRAGConfigDefaults:
         assert BookRAGConfig().llm_provider == "openai"
 
     def test_llm_model(self):
-        assert BookRAGConfig().llm_model == "gpt-4o"
+        assert BookRAGConfig().llm_model == "gpt-4.1-mini"
 
     def test_graph_db(self):
         """Plan: 'graph_db: kuzu'. CLAUDE.md: 'Cognee defaults: Kuzu + LanceDB + SQLite'."""

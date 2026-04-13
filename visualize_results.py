@@ -18,7 +18,7 @@ import html as html_mod
 from collections import Counter, defaultdict
 from pathlib import Path
 
-OUTPUT_BASE = Path("data/processed/christmas_carol")
+OUTPUT_BASE = Path("data/processed/christmas_carol_e6ddcd76")
 
 # Assign consistent colors to top characters
 COLORS = [

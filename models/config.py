@@ -16,24 +16,35 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
+# ---------------------------------------------------------------------------
+# Default constants — referenced by BookRAGConfig and pipeline modules
+# ---------------------------------------------------------------------------
+
+DEFAULT_BATCH_SIZE: int = 3
+DEFAULT_MAX_RETRIES: int = 3
+DEFAULT_CHUNK_SIZE: int = 1500
+DEFAULT_MAX_TOKENS: int = 8000
+DEFAULT_DISTANCE_THRESHOLD: int = 3
+
+
 class BookRAGConfig(BaseSettings):
     """Central configuration for the BookRAG pipeline and API."""
 
     model_config = {"env_prefix": "BOOKRAG_"}
 
     # Pipeline
-    batch_size: int = 3
-    max_retries: int = 3
+    batch_size: int = DEFAULT_BATCH_SIZE
+    max_retries: int = DEFAULT_MAX_RETRIES
     booknlp_model: str = "small"
-    chunk_size: int = 1500
+    chunk_size: int = DEFAULT_CHUNK_SIZE
 
     # Coreference resolution
-    distance_threshold: int = 3
+    distance_threshold: int = DEFAULT_DISTANCE_THRESHOLD
     annotate_ambiguous: bool = True
 
     # Cognee / LLM
     llm_provider: str = "openai"
-    llm_model: str = "gpt-4o"
+    llm_model: str = "gpt-4.1-mini"
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 

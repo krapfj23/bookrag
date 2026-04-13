@@ -94,7 +94,7 @@ tests/                           18 test files, 805 passing tests
 ### Install
 
 ```bash
-git clone https://github.com/yourusername/bookrag.git
+git clone https://github.com/krapfj23/bookrag.git
 cd bookrag
 
 # Install dependencies
