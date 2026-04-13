@@ -13,6 +13,9 @@ import json
 import re
 import shutil
 import sys
+
+from dotenv import load_dotenv
+load_dotenv()
 import uuid
 from pathlib import Path
 
@@ -22,8 +25,20 @@ from loguru import logger
 from pydantic import BaseModel
 from typing import Annotated
 
+from fastapi.responses import HTMLResponse
+
 from models.config import load_config, ensure_directories, BookRAGConfig
 from pipeline.orchestrator import PipelineOrchestrator
+
+# Cognee search imports — optional at import time, configured at startup
+try:
+    import cognee
+    from cognee.modules.search.types import SearchType
+    from pipeline.cognee_pipeline import configure_cognee
+
+    COGNEE_AVAILABLE = True
+except (ImportError, AttributeError):
+    COGNEE_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -87,6 +102,14 @@ app.add_middleware(
 
 orchestrator = PipelineOrchestrator(config)
 
+if COGNEE_AVAILABLE:
+    try:
+        configure_cognee(config)
+        logger.info("Cognee configured for search at startup")
+    except (AttributeError, Exception) as exc:
+        logger.warning("Cognee configuration skipped at startup: {}", exc)
+        COGNEE_AVAILABLE = False
+
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
@@ -109,6 +132,26 @@ class ProgressResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class QueryRequest(BaseModel):
+    question: str
+    search_type: str = "GRAPH_COMPLETION"
+
+
+class QueryResultItem(BaseModel):
+    content: str
+    entity_type: str | None = None
+    chapter: int | None = None
+
+
+class QueryResponse(BaseModel):
+    book_id: str
+    question: str
+    search_type: str
+    current_chapter: int
+    results: list[QueryResultItem]
+    result_count: int
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +195,7 @@ async def upload_book(file: UploadFile = File(...)) -> UploadResponse:
         )
 
     # Check concurrent pipeline limit
-    active = sum(1 for t in orchestrator._threads.values() if t.is_alive())
+    active = sum(1 for t in orchestrator._tasks.values() if not t.done())
     if active >= MAX_CONCURRENT_PIPELINES:
         raise HTTPException(
             status_code=429,
@@ -232,3 +275,334 @@ async def set_progress(book_id: SafeBookId, req: ProgressRequest) -> ProgressRes
 async def health_check() -> HealthResponse:
     """Basic health check."""
     return HealthResponse(status="ok", version="0.1.0")
+
+
+# ---------------------------------------------------------------------------
+# Query endpoint
+# ---------------------------------------------------------------------------
+
+_ALLOWED_SEARCH_TYPES = {
+    "GRAPH_COMPLETION", "CHUNKS", "SUMMARIES", "RAG_COMPLETION",
+}
+
+
+def _get_reading_progress(book_id: str) -> int:
+    """Load current reading progress for a book. Defaults to chapter 1."""
+    progress_path = Path(config.processed_dir) / book_id / "reading_progress.json"
+    if progress_path.exists():
+        data = json.loads(progress_path.read_text(encoding="utf-8"))
+        return data.get("current_chapter", 1)
+    return 1
+
+
+def _extract_chapter(item: Any) -> int | None:
+    """Extract the earliest chapter reference from a search result item."""
+    obj = item
+    if hasattr(item, "search_result"):
+        obj = item.search_result
+    if isinstance(obj, dict):
+        return obj.get("chapter") or obj.get("first_chapter")
+    for attr in ("chapter", "first_chapter"):
+        if hasattr(obj, attr):
+            val = getattr(obj, attr)
+            if val is not None:
+                return int(val)
+    return None
+
+
+def _result_to_text(item: Any) -> str:
+    """Convert a search result item to a displayable text string."""
+    obj = item
+    if hasattr(item, "search_result"):
+        obj = item.search_result
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        return obj.get("description") or obj.get("name") or obj.get("text") or json.dumps(obj)
+    for attr in ("description", "name", "text"):
+        if hasattr(obj, attr):
+            val = getattr(obj, attr)
+            if val:
+                return str(val)
+    return str(obj)
+
+
+def _result_entity_type(item: Any) -> str | None:
+    """Extract entity type name from a search result item."""
+    obj = item
+    if hasattr(item, "search_result"):
+        obj = item.search_result
+    return type(obj).__name__ if not isinstance(obj, (str, dict)) else None
+
+
+def _search_datapoints_on_disk(book_id: str, question: str, max_chapter: int) -> list[QueryResultItem]:
+    """Search extracted DataPoints on disk using keyword matching + spoiler filtering."""
+    graph_data = _load_batch_datapoints(book_id, max_chapter)
+    if not graph_data["nodes"]:
+        return []
+
+    keywords = [w.lower() for w in question.split() if len(w) > 2]
+    results: list[QueryResultItem] = []
+
+    for node in graph_data["nodes"]:
+        label = (node.get("label") or "").lower()
+        desc = (node.get("description") or "").lower()
+        searchable = f"{label} {desc}"
+
+        score = sum(1 for kw in keywords if kw in searchable)
+        if score > 0:
+            content = node.get("label", "")
+            if node.get("description"):
+                content += f" — {node['description']}"
+            results.append(QueryResultItem(
+                content=content,
+                entity_type=node.get("type"),
+                chapter=node.get("chapter"),
+            ))
+
+    # Sort by relevance (more keyword hits first)
+    results.sort(key=lambda r: sum(1 for kw in keywords if kw in r.content.lower()), reverse=True)
+    return results
+
+
+@app.post("/books/{book_id}/query", response_model=QueryResponse)
+async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
+    """Query the knowledge graph with spoiler filtering.
+
+    Results are limited to chapters at or before the reader's current progress.
+    Set progress first via POST /books/{book_id}/progress.
+    """
+    book_dir = Path(config.processed_dir) / book_id
+    if not book_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
+
+    current_chapter = _get_reading_progress(book_id)
+
+    # Try Cognee graph search first, fall back to disk-based search
+    results: list[QueryResultItem] = []
+
+    if COGNEE_AVAILABLE and req.search_type in _ALLOWED_SEARCH_TYPES:
+        try:
+            search_type = SearchType(req.search_type)
+            raw_results = await cognee.search(
+                query_text=req.question,
+                query_type=search_type,
+                datasets=[book_id],
+                only_context=True,
+            )
+            for item in raw_results or []:
+                ch = _extract_chapter(item)
+                if ch is not None and ch > current_chapter:
+                    continue
+                results.append(QueryResultItem(
+                    content=_result_to_text(item),
+                    entity_type=_result_entity_type(item),
+                    chapter=ch,
+                ))
+        except Exception as exc:
+            logger.warning("Cognee search unavailable, falling back to disk: {}", exc)
+
+    # Fall back to disk-based keyword search if Cognee returned nothing
+    if not results:
+        results = _search_datapoints_on_disk(book_id, req.question, current_chapter)
+
+    return QueryResponse(
+        book_id=book_id,
+        question=req.question,
+        search_type=req.search_type,
+        current_chapter=current_chapter,
+        results=results,
+        result_count=len(results),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Graph visualization endpoints
+# ---------------------------------------------------------------------------
+
+
+def _load_batch_datapoints(book_id: str, max_chapter: int | None = None) -> dict:
+    """Load extracted DataPoints from batch output files and build graph data."""
+    batches_dir = Path(config.processed_dir) / book_id / "batches"
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+
+    type_colors = {
+        "Character": "#4363d8",
+        "Location": "#3cb44b",
+        "Faction": "#911eb4",
+        "Theme": "#e6194b",
+        "PlotEvent": "#f58231",
+    }
+
+    if not batches_dir.exists():
+        return {"nodes": [], "edges": []}
+
+    for dp_file in sorted(batches_dir.glob("batch_*/extracted_datapoints.json")):
+        data = json.loads(dp_file.read_text(encoding="utf-8"))
+        items = data if isinstance(data, list) else data.get("datapoints", [])
+
+        for dp in items:
+            dp_type = dp.get("type") or dp.get("__type__") or "Unknown"
+            first_ch = dp.get("first_chapter") or dp.get("chapter")
+
+            if max_chapter and first_ch and int(first_ch) > max_chapter:
+                continue
+
+            name = dp.get("name") or dp.get("description", "")[:40]
+            node_id = f"{dp_type}:{name}"
+
+            if dp_type in ("Character", "Location", "Faction", "Theme"):
+                if node_id not in nodes:
+                    nodes[node_id] = {
+                        "id": node_id,
+                        "label": name,
+                        "type": dp_type,
+                        "color": type_colors.get(dp_type, "#aaaaaa"),
+                        "description": dp.get("description", ""),
+                        "chapter": first_ch,
+                    }
+
+            if dp_type == "Relationship":
+                src = dp.get("source", {})
+                tgt = dp.get("target", {})
+                src_name = src.get("name", "") if isinstance(src, dict) else str(src)
+                tgt_name = tgt.get("name", "") if isinstance(tgt, dict) else str(tgt)
+                if src_name and tgt_name:
+                    edges.append({
+                        "from": f"Character:{src_name}",
+                        "to": f"Character:{tgt_name}",
+                        "label": dp.get("relation_type", ""),
+                    })
+
+            if dp_type == "PlotEvent":
+                event_id = f"PlotEvent:{name}"
+                if event_id not in nodes:
+                    nodes[event_id] = {
+                        "id": event_id,
+                        "label": name[:30] + "..." if len(name) > 30 else name,
+                        "type": "PlotEvent",
+                        "color": type_colors["PlotEvent"],
+                        "description": dp.get("description", ""),
+                        "chapter": first_ch,
+                    }
+                for participant in dp.get("participants", []):
+                    p_name = participant.get("name", "") if isinstance(participant, dict) else str(participant)
+                    if p_name:
+                        edges.append({
+                            "from": f"Character:{p_name}",
+                            "to": event_id,
+                            "label": "participates_in",
+                        })
+
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
+@app.get("/books/{book_id}/graph/data")
+async def get_graph_data(book_id: SafeBookId, max_chapter: int | None = None) -> dict:
+    """Return knowledge graph as JSON nodes and edges, optionally spoiler-filtered."""
+    book_dir = Path(config.processed_dir) / book_id
+    if not book_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
+    return _load_batch_datapoints(book_id, max_chapter)
+
+
+@app.get("/books/{book_id}/graph", response_class=HTMLResponse)
+async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None = None) -> HTMLResponse:
+    """Return an interactive HTML visualization of the knowledge graph."""
+    book_dir = Path(config.processed_dir) / book_id
+    if not book_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
+
+    graph_data = _load_batch_datapoints(book_id, max_chapter)
+
+    if not graph_data["nodes"]:
+        return HTMLResponse(
+            content="<html><body><h2>No graph data available.</h2>"
+            "<p>The pipeline may not have completed Phase 2 (Cognee extraction) yet.</p>"
+            "</body></html>"
+        )
+
+    nodes_js = json.dumps(graph_data["nodes"])
+    edges_js = json.dumps(graph_data["edges"])
+    chapter_label = f" (up to chapter {max_chapter})" if max_chapter else ""
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>BookRAG Knowledge Graph — {book_id}{chapter_label}</title>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body {{ margin: 0; font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; }}
+        #graph {{ width: 100vw; height: 85vh; }}
+        #header {{ padding: 12px 20px; background: #16213e; display: flex; align-items: center; gap: 20px; }}
+        #header h1 {{ margin: 0; font-size: 1.3em; }}
+        .legend {{ display: flex; gap: 16px; font-size: 0.85em; }}
+        .legend-item {{ display: flex; align-items: center; gap: 4px; }}
+        .legend-dot {{ width: 12px; height: 12px; border-radius: 50%; display: inline-block; }}
+        #info {{ padding: 8px 20px; font-size: 0.85em; opacity: 0.7; }}
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>{book_id}{chapter_label}</h1>
+        <div class="legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#4363d8"></span> Character</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#3cb44b"></span> Location</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#911eb4"></span> Faction</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#e6194b"></span> Theme</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f58231"></span> Event</span>
+        </div>
+    </div>
+    <div id="graph"></div>
+    <div id="info">Click a node to see details. Scroll to zoom. Drag to pan.</div>
+    <script>
+        var rawNodes = {nodes_js};
+        var rawEdges = {edges_js};
+
+        var nodes = new vis.DataSet(rawNodes.map(function(n) {{
+            return {{
+                id: n.id,
+                label: n.label,
+                color: {{ background: n.color, border: n.color, highlight: {{ background: '#fff', border: n.color }} }},
+                font: {{ color: '#eee', size: 14 }},
+                title: '<b>' + n.type + ':</b> ' + n.label + (n.description ? '<br>' + n.description : '') + (n.chapter ? '<br>Ch. ' + n.chapter : ''),
+                shape: n.type === 'PlotEvent' ? 'diamond' : 'dot',
+                size: n.type === 'Character' ? 20 : 14
+            }};
+        }}));
+
+        var edges = new vis.DataSet(rawEdges.map(function(e, i) {{
+            return {{
+                id: i,
+                from: e.from,
+                to: e.to,
+                label: e.label,
+                font: {{ color: '#999', size: 10, strokeWidth: 0 }},
+                color: {{ color: '#555', highlight: '#aaa' }},
+                arrows: 'to'
+            }};
+        }}));
+
+        var container = document.getElementById('graph');
+        var data = {{ nodes: nodes, edges: edges }};
+        var options = {{
+            physics: {{
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: {{ gravitationalConstant: -50, centralGravity: 0.01, springLength: 150 }},
+                stabilization: {{ iterations: 200 }}
+            }},
+            interaction: {{ hover: true, tooltipDelay: 100 }},
+            layout: {{ improvedLayout: true }}
+        }};
+        new vis.Network(container, data, options);
+    </script>
+</body>
+</html>"""
+
+    return HTMLResponse(content=html)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
