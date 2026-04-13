@@ -87,8 +87,14 @@ BookNLP does NOT produce resolved text. We reconstruct it from `.entities` + `.t
 - ebooklib for EPUB parsing
 - 3 chapters default batch size, pluggable batcher interface
 - All intermediate outputs saved to disk
-- Simple background threads (not Celery), API-only, single user, M4 Pro Mac
+- asyncio.create_task for background pipelines (not threads, not Celery), API-only, single user, M4 Pro Mac
 - loguru for all logging, .env + config.yaml for config
+
+## Temporary Decisions
+
+- **Pipeline runs on main event loop via `asyncio.create_task()`** (was daemon threads). Cognee 0.5.6 singletons (LanceDB adapter, asyncio.Lock) bind to the event loop where they're created, causing `RuntimeError: bound to a different event loop` when the pipeline ran in a background thread with its own loop. CPU-bound stages (BookNLP, coref, ontology) already use `asyncio.to_thread()`. If scaling requires true background processing, revisit with multiprocessing or Celery (not threads).
+- **Cognee `add_data_points` is best-effort** — extraction data is saved to disk before persistence. If Cognee persistence fails, the pipeline still completes and endpoints serve from disk files.
+- **Patched Cognee 0.5.6 locally** — `upsert_edges.py` and `upsert_nodes.py` have empty-list guards added. `metadata` fields on DataPoints use plain dict defaults (not `Field(default_factory=...)`) to work with Cognee's `copy_model`.
 
 ## Style
 

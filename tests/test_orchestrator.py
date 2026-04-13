@@ -119,7 +119,7 @@ class TestOrchestratorInit:
     def test_init(self, tmp_config):
         o = PipelineOrchestrator(tmp_config)
         assert o.config is tmp_config
-        assert o._threads == {}
+        assert o._tasks == {}
 
 
 class TestGetState:
@@ -390,22 +390,21 @@ class TestRunPipeline:
 
 
 class TestRunInBackground:
-    def test_starts_daemon_thread(self, orchestrator, tmp_config):
-        with patch.object(orchestrator, "_run_sync_wrapper") as mock_run:
+    def test_starts_async_task(self, orchestrator, tmp_config):
+        """run_in_background should schedule an asyncio Task."""
+        mock_task = MagicMock()
+        mock_task.done.return_value = False
+        with patch("asyncio.create_task", return_value=mock_task) as mock_create:
             orchestrator.run_in_background("bgbook", Path("/fake.epub"))
-            time.sleep(0.1)
-            assert "bgbook" in orchestrator._threads
-            thread = orchestrator._threads["bgbook"]
-            assert thread.daemon is True
-            assert thread.name == "pipeline-bgbook"
+            mock_create.assert_called_once()
+            assert "bgbook" in orchestrator._tasks
 
     def test_duplicate_guard(self, orchestrator, tmp_config):
-        """Should not start a second thread for the same book."""
-        # Create a mock thread that appears alive
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = True
-        orchestrator._threads["dupbook"] = mock_thread
+        """Should not start a second task for the same book."""
+        mock_task = MagicMock()
+        mock_task.done.return_value = False
+        orchestrator._tasks["dupbook"] = mock_task
 
-        with patch.object(threading, "Thread") as MockThread:
+        with patch("asyncio.create_task") as mock_create:
             orchestrator.run_in_background("dupbook", Path("/fake.epub"))
-            MockThread.assert_not_called()
+            mock_create.assert_not_called()

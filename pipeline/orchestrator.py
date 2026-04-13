@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 import time
 import traceback
 from pathlib import Path
@@ -57,31 +56,28 @@ class PipelineOrchestrator:
 
     def __init__(self, config: Any) -> None:
         self.config = config
-        self._threads: dict[str, threading.Thread] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def run_in_background(self, book_id: str, epub_path: str | Path) -> None:
-        """Launch the full pipeline in a background daemon thread.
+        """Launch the full pipeline as an asyncio Task on the main event loop.
 
         Args:
             book_id: Unique identifier for the book.
             epub_path: Path to the uploaded EPUB file.
         """
-        if book_id in self._threads and self._threads[book_id].is_alive():
+        if book_id in self._tasks and not self._tasks[book_id].done():
             logger.warning("Pipeline already running for book_id={}", book_id)
             return
 
-        thread = threading.Thread(
-            target=self._run_sync_wrapper,
-            args=(book_id, epub_path),
+        task = asyncio.create_task(
+            self._run_pipeline_safe(book_id, Path(epub_path)),
             name=f"pipeline-{book_id}",
-            daemon=True,
         )
-        self._threads[book_id] = thread
-        thread.start()
+        self._tasks[book_id] = task
         logger.info("Background pipeline started for book_id={}", book_id)
 
     def get_state(self, book_id: str) -> PipelineState | None:
@@ -92,19 +88,15 @@ class PipelineOrchestrator:
         return load_state(state_path)
 
     # ------------------------------------------------------------------
-    # Internal: sync wrapper for threading
+    # Internal: safe async wrapper
     # ------------------------------------------------------------------
 
-    def _run_sync_wrapper(self, book_id: str, epub_path: str | Path) -> None:
-        """Sync entry point that runs the async pipeline in a new event loop."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    async def _run_pipeline_safe(self, book_id: str, epub_path: Path) -> None:
+        """Top-level wrapper that catches exceptions so the task doesn't propagate."""
         try:
-            loop.run_until_complete(self._run_pipeline(book_id, Path(epub_path)))
+            await self._run_pipeline(book_id, epub_path)
         except Exception as exc:
             logger.exception("Pipeline failed for book_id={}: {}", book_id, exc)
-        finally:
-            loop.close()
 
     # ------------------------------------------------------------------
     # Pipeline execution

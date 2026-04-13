@@ -181,11 +181,11 @@ class TestUploadEndpoint:
     def test_upload_concurrent_limit(self, client):
         """Vuln fix: too many concurrent pipelines returns 429."""
         test_client, mock_orch, _ = client
-        # Simulate MAX_CONCURRENT_PIPELINES alive threads
+        # Simulate MAX_CONCURRENT_PIPELINES active tasks
         import main as main_module
         from unittest.mock import MagicMock as MM
-        mock_orch._threads = {
-            f"book_{i}": MM(is_alive=MM(return_value=True))
+        mock_orch._tasks = {
+            f"book_{i}": MM(done=MM(return_value=False))
             for i in range(main_module.MAX_CONCURRENT_PIPELINES)
         }
         epub_content = b"PK\x03\x04fake"
