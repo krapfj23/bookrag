@@ -149,3 +149,85 @@ export async function setProgress(
   }
   return (await resp.json()) as ProgressResponse;
 }
+
+// ---------------------------------------------------------------------------
+// Query endpoint (slice 4)
+// ---------------------------------------------------------------------------
+
+export type QuerySearchType =
+  | "GRAPH_COMPLETION"
+  | "CHUNKS"
+  | "SUMMARIES"
+  | "RAG_COMPLETION";
+
+export type QueryResult = {
+  content: string;
+  entity_type: string | null;
+  chapter: number | null;
+};
+
+export type QueryResponse = {
+  book_id: string;
+  question: string;
+  search_type: string;
+  current_chapter: number;
+  results: QueryResult[];
+  result_count: number;
+};
+
+export class QueryError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "QueryError";
+    this.status = status;
+  }
+}
+
+export class QueryRateLimitError extends QueryError {
+  constructor(message = "Too many requests, slow down.") {
+    super(429, message);
+    this.name = "QueryRateLimitError";
+  }
+}
+
+export class QueryServerError extends QueryError {
+  constructor(status: number, message = "Something went wrong. Try again.") {
+    super(status, message);
+    this.name = "QueryServerError";
+  }
+}
+
+export class QueryNetworkError extends QueryError {
+  constructor(message = "Something went wrong. Try again.") {
+    super(0, message);
+    this.name = "QueryNetworkError";
+  }
+}
+
+export async function queryBook(
+  book_id: string,
+  question: string,
+  max_chapter: number,
+  search_type: QuerySearchType = "GRAPH_COMPLETION"
+): Promise<QueryResponse> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${BASE_URL}/books/${book_id}/query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, search_type, max_chapter }),
+    });
+  } catch {
+    throw new QueryNetworkError();
+  }
+
+  if (resp.ok) {
+    return (await resp.json()) as QueryResponse;
+  }
+
+  if (resp.status === 429) {
+    throw new QueryRateLimitError();
+  }
+  throw new QueryServerError(resp.status);
+}
