@@ -1,0 +1,60 @@
+import type { CSSProperties, PropsWithChildren } from "react";
+
+type IconProps = PropsWithChildren<{
+  d?: string;
+  size?: number;
+  stroke?: number;
+  fill?: string;
+  viewBox?: string;
+  style?: CSSProperties;
+}>;
+
+export function Icon({
+  d,
+  size = 16,
+  stroke = 1.5,
+  fill = "none",
+  viewBox = "0 0 16 16",
+  style,
+  children,
+}: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={viewBox}
+      fill={fill}
+      stroke="currentColor"
+      strokeWidth={stroke}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0, ...style }}
+    >
+      {d ? <path d={d} /> : children}
+    </svg>
+  );
+}
+
+type Props = Omit<IconProps, "d" | "children" | "viewBox">;
+
+export const IcSearch = (p: Props) => (
+  <Icon {...p} d="M7.5 12.5a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm3.5-1.5l2.5 2.5" />
+);
+export const IcPlus = (p: Props) => <Icon {...p} d="M8 3v10M3 8h10" />;
+export const IcSun = (p: Props) => (
+  <Icon {...p}>
+    <circle cx="8" cy="8" r="3" />
+    <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5M3.3 3.3l1 1M11.7 11.7l1 1M12.7 3.3l-1 1M3.3 12.7l1-1" />
+  </Icon>
+);
+export const IcMoon = (p: Props) => (
+  <Icon {...p}>
+    <path d="M13 9a5 5 0 0 1-6-6 5 5 0 1 0 6 6z" />
+  </Icon>
+);
+export const IcSettings = (p: Props) => (
+  <Icon {...p}>
+    <circle cx="8" cy="8" r="1.8" />
+    <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.5 1.5M11.2 11.2l1.5 1.5M12.7 3.3l-1.5 1.5M4.8 11.2l-1.5 1.5" />
+  </Icon>
+);
