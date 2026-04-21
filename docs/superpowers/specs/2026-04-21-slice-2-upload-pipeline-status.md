@@ -25,7 +25,7 @@ Ship the Upload screen end-to-end: a drag-and-drop EPUB dropzone that POSTs to `
 6. Polling stops as soon as the response has `ready_for_query: true` OR any stage has `status: "failed"`. No further network calls to `/status` are made after that.
 7. When `ready_for_query` becomes true, a "Back to Library" action is rendered; clicking it navigates to `/` and the Library re-fetches `GET /books` so the new book is visible in the grid. Refreshing the page is not required.
 8. If any stage returns `status: "failed"`, the corresponding `PipelineRow` renders with `state="error"` and shows the sanitized `error` string as the row's `meta` or as a secondary line; polling halts; and an inline error banner is rendered above the pipeline panel. Other stages retain their last-known state.
-9. Upload errors surface in-place without crashing the screen: HTTP 400 (non-EPUB) shows "Only .epub files are accepted"; 413 shows "File too large (max 500 MB)"; 429 shows "Too many pipelines running, try again later"; any other non-2xx shows the backend detail text. The Dropzone returns to `idle`.
+9. Upload errors surface in-place without crashing the screen: HTTP 400 (non-EPUB) shows "Only .epub files are accepted"; 413 shows "File too large (max 500 MB)"; 429 shows "Too many pipelines running, try again later"; any other non-2xx shows the backend detail text. The Dropzone enters `error` state displaying the mapped message (an explicit error visual tied to the user's action) and the user can drop or browse again to retry.
 10. `npm run test` and `pytest -v` both pass. No existing tests regress. No new backend endpoints are introduced.
 
 ## UI scope

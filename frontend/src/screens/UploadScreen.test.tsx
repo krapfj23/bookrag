@@ -93,19 +93,32 @@ describe("UploadScreen", () => {
       expect(screen.getByText(BOOK_ID)).toBeInTheDocument();
     });
 
-    // Let polling fire once
+    // Let polling run for 6 seconds to pin the ~2s cadence:
+    // an implementation that polls every 500ms would produce >= 12 calls and fail.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(6000);
     });
 
-    expect(statusSpy).toHaveBeenCalled();
-    expect(screen.getByText("Parse EPUB")).toBeInTheDocument();
-    expect(screen.getByText("Run BookNLP")).toBeInTheDocument();
-    expect(screen.getByText("Resolve coref")).toBeInTheDocument();
-    expect(screen.getByText("Discover ontology")).toBeInTheDocument();
-    expect(screen.getByText("Review ontology")).toBeInTheDocument();
-    expect(screen.getByText("Cognee batches")).toBeInTheDocument();
-    expect(screen.getByText("Validate")).toBeInTheDocument();
+    // 3 calls (2000/4000/6000) or 4 calls (immediate + 2000/4000/6000) is acceptable;
+    // anything outside that range implies the cadence is wrong.
+    expect(statusSpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(statusSpy.mock.calls.length).toBeLessThanOrEqual(4);
+
+    // Row labels render in pipeline order.
+    const labels = screen
+      .getAllByText(
+        /^(Parse EPUB|Run BookNLP|Resolve coref|Discover ontology|Review ontology|Cognee batches|Validate)$/,
+      )
+      .map((n) => n.textContent);
+    expect(labels).toEqual([
+      "Parse EPUB",
+      "Run BookNLP",
+      "Resolve coref",
+      "Discover ontology",
+      "Review ontology",
+      "Cognee batches",
+      "Validate",
+    ]);
   });
 
   it("stops polling and renders 'Back to Library' when ready_for_query becomes true", async () => {
@@ -192,6 +205,8 @@ describe("UploadScreen", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/pipeline failed/i);
     });
     expect(screen.getByText(/oom killed/i)).toBeInTheDocument();
+    // Last-known state of already-completed stages must survive the failure.
+    expect(screen.getByText("0.4s")).toBeInTheDocument();
 
     const callsAtFail = statusSpy.mock.calls.length;
     await act(async () => {

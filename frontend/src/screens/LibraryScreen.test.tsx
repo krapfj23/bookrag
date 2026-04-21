@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route, Link } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
 import { LibraryScreen } from "./LibraryScreen";
 
 const CC = {
@@ -72,24 +73,38 @@ describe("LibraryScreen", () => {
     expect(screen.getByText("Upload")).toBeInTheDocument();
   });
 
-  it("re-fetches /books when the route is re-entered (pathname changes)", async () => {
+  it("re-fetches /books each time the user navigates back to /", async () => {
+    // Uses a single <MemoryRouter> with <Link> navigation between routes so
+    // the test actually exercises the effect's re-entry behavior rather than
+    // forcing a remount via two separate routers.
     const fetchMock = vi
       .fn()
       .mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const user = userEvent.setup();
 
-    const { rerender } = render(
-      <MemoryRouter initialEntries={["/upload", "/"]} initialIndex={0}>
-        <LibraryScreen />
-      </MemoryRouter>
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <>
+                <LibraryScreen />
+                <Link to="/upload">go to upload</Link>
+              </>
+            }
+          />
+          <Route path="/upload" element={<Link to="/">back home</Link>} />
+        </Routes>
+      </MemoryRouter>,
     );
+
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-    rerender(
-      <MemoryRouter initialEntries={["/"]}>
-        <LibraryScreen />
-      </MemoryRouter>
-    );
+    await user.click(screen.getByRole("link", { name: /go to upload/i }));
+    await user.click(await screen.findByRole("link", { name: /back home/i }));
+
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 });
