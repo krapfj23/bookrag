@@ -98,3 +98,54 @@ export async function fetchStatus(book_id: string): Promise<PipelineState> {
   }
   return (await resp.json()) as PipelineState;
 }
+
+export type ChapterSummary = {
+  num: number;
+  title: string;
+  word_count: number;
+};
+
+export type Chapter = {
+  num: number;
+  title: string;
+  paragraphs: string[];
+  has_prev: boolean;
+  has_next: boolean;
+  total_chapters: number;
+};
+
+export type ProgressResponse = {
+  book_id: string;
+  current_chapter: number;
+};
+
+export async function fetchChapters(book_id: string): Promise<ChapterSummary[]> {
+  const resp = await fetch(`${BASE_URL}/books/${book_id}/chapters`);
+  if (!resp.ok) {
+    throw new Error(`GET /books/${book_id}/chapters failed: ${resp.status}`);
+  }
+  return (await resp.json()) as ChapterSummary[];
+}
+
+export async function fetchChapter(book_id: string, n: number): Promise<Chapter> {
+  const resp = await fetch(`${BASE_URL}/books/${book_id}/chapters/${n}`);
+  if (!resp.ok) {
+    throw new Error(`GET /books/${book_id}/chapters/${n} failed: ${resp.status}`);
+  }
+  return (await resp.json()) as Chapter;
+}
+
+export async function setProgress(
+  book_id: string,
+  current_chapter: number
+): Promise<ProgressResponse> {
+  const resp = await fetch(`${BASE_URL}/books/${book_id}/progress`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_chapter }),
+  });
+  if (!resp.ok) {
+    throw new Error(`POST /books/${book_id}/progress failed: ${resp.status}`);
+  }
+  return (await resp.json()) as ProgressResponse;
+}
