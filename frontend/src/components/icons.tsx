@@ -99,3 +99,6 @@ export const IcArrowL = (p: Props) => (
 export const IcArrowR = (p: Props) => (
   <Icon {...p} d="M3.5 8h9m-3-3l3 3-3 3" />
 );
+export const IcSend = (p: Props) => (
+  <Icon {...p} d="M2.5 13.5L13.5 8 2.5 2.5v4.5L10 8l-7.5 1.5v4z" fill="currentColor" stroke="none" />
+);
