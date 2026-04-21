@@ -135,6 +135,14 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class BookSummary(BaseModel):
+    book_id: str
+    title: str
+    total_chapters: int
+    current_chapter: int
+    ready_for_query: bool
+
+
 class QueryRequest(BaseModel):
     question: str = Field(..., max_length=2000)
     search_type: str = "GRAPH_COMPLETION"
@@ -225,6 +233,12 @@ async def upload_book(file: UploadFile = File(...)) -> UploadResponse:
     return UploadResponse(book_id=book_id, message="Pipeline started")
 
 
+@app.get("/books", response_model=list[BookSummary])
+async def list_books() -> list[BookSummary]:
+    """List every book whose pipeline has completed and is ready for query."""
+    return _list_ready_books()
+
+
 @app.get("/books/{book_id}/status")
 async def get_status(book_id: SafeBookId) -> dict:
     """Return the current pipeline state as JSON."""
@@ -285,6 +299,60 @@ async def health_check() -> HealthResponse:
 _ALLOWED_SEARCH_TYPES = {
     "GRAPH_COMPLETION", "CHUNKS", "SUMMARIES", "RAG_COMPLETION",
 }
+
+
+_BOOK_ID_HEX_SUFFIX_RE = re.compile(r"_[0-9a-f]{8}$")
+
+
+def _derive_title(book_id: str) -> str:
+    """Strip an optional trailing _<8-hex> id and title-case the remaining slug."""
+    slug = _BOOK_ID_HEX_SUFFIX_RE.sub("", book_id)
+    words = [w for w in slug.split("_") if w]
+    return " ".join(w.capitalize() for w in words) if words else book_id
+
+
+def _list_ready_books() -> list[BookSummary]:
+    """Scan processed_dir for books ready for query.
+
+    Skips directories whose pipeline_state.json is missing or unreadable
+    and logs a warning; never raises.
+    """
+    from models.pipeline_state import load_state  # local import — avoid cycles
+
+    processed_dir = Path(config.processed_dir)
+    if not processed_dir.exists():
+        return []
+
+    books: list[BookSummary] = []
+    for child in sorted(processed_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        state_path = child / "pipeline_state.json"
+        if not state_path.exists():
+            logger.warning("Skipping {}: pipeline_state.json missing", child.name)
+            continue
+        try:
+            state = load_state(state_path)
+        except (json.JSONDecodeError, KeyError, OSError) as exc:
+            logger.warning("Skipping {}: cannot load pipeline state ({})", child.name, exc)
+            continue
+        if not state.ready_for_query:
+            continue
+        chapters_dir = child / "raw" / "chapters"
+        total_chapters = (
+            len(list(chapters_dir.glob("chapter_*.txt"))) if chapters_dir.exists() else 0
+        )
+        current_chapter = _get_reading_progress(child.name)
+        books.append(
+            BookSummary(
+                book_id=child.name,
+                title=_derive_title(child.name),
+                total_chapters=total_chapters,
+                current_chapter=current_chapter,
+                ready_for_query=True,
+            )
+        )
+    return books
 
 
 def _get_reading_progress(book_id: str) -> int:
