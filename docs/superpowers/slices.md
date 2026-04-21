@@ -4,7 +4,7 @@ Canonical status tracker for the four slices defined in `specs/2026-04-21-fronte
 
 | # | Slice | Status | Kickoff | PRD | Plan | Review |
 |---|---|---|---|---|---|---|
-| 1 | Scaffold + Library screen | test | 2026-04-21 | [spec](specs/2026-04-21-slice-1-scaffold-library.md) | [plan](plans/2026-04-21-slice-1-scaffold-library-plan.md) | |
+| 1 | Scaffold + Library screen | generate | 2026-04-21 | [spec](specs/2026-04-21-slice-1-scaffold-library.md) | [plan](plans/2026-04-21-slice-1-scaffold-library-plan.md) | |
 | 2 | Upload screen + pipeline status | not started | | | | |
 | 3 | Reading screen + chapter serving | not started | | | | |
 | 4 | Chat + query wiring | not started | | | | |
