@@ -143,6 +143,21 @@ class BookSummary(BaseModel):
     ready_for_query: bool
 
 
+class ChapterSummary(BaseModel):
+    num: int
+    title: str
+    word_count: int
+
+
+class Chapter(BaseModel):
+    num: int
+    title: str
+    paragraphs: list[str]
+    has_prev: bool
+    has_next: bool
+    total_chapters: int
+
+
 class QueryRequest(BaseModel):
     question: str = Field(..., max_length=2000)
     search_type: str = "GRAPH_COMPLETION"
@@ -262,6 +277,40 @@ async def get_validation(book_id: SafeBookId) -> dict:
     return json.loads(validation_path.read_text(encoding="utf-8"))
 
 
+@app.get("/books/{book_id}/chapters", response_model=list[ChapterSummary])
+async def list_chapters(book_id: SafeBookId) -> list[ChapterSummary]:
+    """List chapter metadata for a ready book."""
+    files = _list_chapter_files(book_id)
+    if not files:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Book '{book_id}' not found or not ready for query",
+        )
+    summaries: list[ChapterSummary] = []
+    for idx, path in enumerate(files, start=1):
+        raw_text = path.read_text(encoding="utf-8")
+        summaries.append(
+            ChapterSummary(
+                num=idx,
+                title=_derive_chapter_title(raw_text, idx),
+                word_count=len(raw_text.split()),
+            )
+        )
+    return summaries
+
+
+@app.get("/books/{book_id}/chapters/{n}", response_model=Chapter)
+async def get_chapter(book_id: SafeBookId, n: int) -> Chapter:
+    """Load a single chapter's body as paragraph-split text."""
+    chapter = _load_chapter(book_id, n)
+    if chapter is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chapter {n} not found for book '{book_id}'",
+        )
+    return chapter
+
+
 @app.post("/books/{book_id}/progress", response_model=ProgressResponse)
 async def set_progress(book_id: SafeBookId, req: ProgressRequest) -> ProgressResponse:
     """Set the reader's current chapter progress for spoiler filtering.
@@ -353,6 +402,73 @@ def _list_ready_books() -> list[BookSummary]:
             )
         )
     return books
+
+
+def _list_chapter_files(book_id: str) -> list[Path]:
+    """Return sorted chapter_*.txt paths for a ready book.
+
+    Prefers raw/chapters/ (which preserves \\n\\n paragraph breaks).
+    Returns [] if the book dir is missing OR ready_for_query is false.
+    """
+    from models.pipeline_state import load_state  # local import — avoid cycles
+
+    book_dir = Path(config.processed_dir) / book_id
+    state_path = book_dir / "pipeline_state.json"
+    if not state_path.exists():
+        return []
+    try:
+        state = load_state(state_path)
+    except (json.JSONDecodeError, KeyError, OSError):
+        return []
+    if not state.ready_for_query:
+        return []
+    chapters_dir = book_dir / "raw" / "chapters"
+    if not chapters_dir.exists():
+        return []
+    return sorted(chapters_dir.glob("chapter_*.txt"))
+
+
+_TITLE_TERMINATORS = ".!?:"
+
+
+def _derive_chapter_title(raw_text: str, n: int) -> str:
+    """First non-empty stripped line if short + not sentence-terminated + no special chars, else 'Chapter N'.
+
+    Rejects lines containing '*' or '#' (Gutenberg boilerplate markers).
+    """
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if (
+            len(stripped) < 80
+            and stripped[-1] not in _TITLE_TERMINATORS
+            and "*" not in stripped
+            and "#" not in stripped
+        ):
+            return stripped
+        break
+    return f"Chapter {n}"
+
+
+def _load_chapter(book_id: str, n: int) -> Chapter | None:
+    """Load a single chapter. Returns None if the book isn't ready or n is out of range."""
+    files = _list_chapter_files(book_id)
+    if not files:
+        return None
+    if n < 1 or n > len(files):
+        return None
+    raw_text = files[n - 1].read_text(encoding="utf-8")
+    paragraphs = [p.strip() for p in raw_text.split("\n\n") if p.strip()]
+    title = _derive_chapter_title(raw_text, n)
+    return Chapter(
+        num=n,
+        title=title,
+        paragraphs=paragraphs,
+        has_prev=n > 1,
+        has_next=n < len(files),
+        total_chapters=len(files),
+    )
 
 
 def _get_reading_progress(book_id: str) -> int:
