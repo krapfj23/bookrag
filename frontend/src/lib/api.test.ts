@@ -306,3 +306,133 @@ describe("setProgress", () => {
     await expect(setProgress("bk", 0)).rejects.toThrow(/400/);
   });
 });
+
+import {
+  queryBook,
+  QueryError,
+  QueryRateLimitError,
+  QueryServerError,
+  QueryNetworkError,
+  type QueryResponse,
+} from "./api";
+
+describe("queryBook", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const BOOK_ID = "christmas_carol_e6ddcd76";
+
+  const sampleResponse: QueryResponse = {
+    book_id: BOOK_ID,
+    question: "Who is Marley?",
+    search_type: "GRAPH_COMPLETION",
+    current_chapter: 2,
+    results: [
+      {
+        content: "Marley was dead: to begin with.",
+        entity_type: "Character",
+        chapter: 1,
+      },
+    ],
+    result_count: 1,
+  };
+
+  it("POSTs JSON to /books/{id}/query with question, search_type, max_chapter", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(sampleResponse),
+    });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    const result = await queryBook(BOOK_ID, "Who is Marley?", 2);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe(`http://localhost:8000/books/${BOOK_ID}/query`);
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ "Content-Type": "application/json" });
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({
+      question: "Who is Marley?",
+      search_type: "GRAPH_COMPLETION",
+      max_chapter: 2,
+    });
+    expect(result).toEqual(sampleResponse);
+  });
+
+  it("throws QueryRateLimitError on 429", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ detail: "too many" }),
+    }) as unknown as typeof fetch;
+
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
+      QueryRateLimitError
+    );
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(QueryError);
+  });
+
+  it("throws QueryServerError on 500", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ detail: "boom" }),
+    }) as unknown as typeof fetch;
+
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
+      QueryServerError
+    );
+  });
+
+  it("throws QueryServerError on 503", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({}),
+    }) as unknown as typeof fetch;
+
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
+      QueryServerError
+    );
+  });
+
+  it("throws QueryServerError on 4xx other than 429", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({ detail: "nope" }),
+    }) as unknown as typeof fetch;
+
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
+      QueryServerError
+    );
+  });
+
+  it("throws QueryNetworkError when fetch itself rejects", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new TypeError("network down")) as unknown as typeof fetch;
+
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
+      QueryNetworkError
+    );
+  });
+
+  it("sets status property on thrown errors for the UI to branch on", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({}),
+    }) as unknown as typeof fetch;
+
+    try {
+      await queryBook(BOOK_ID, "q", 1);
+    } catch (err) {
+      expect((err as QueryRateLimitError).status).toBe(429);
+    }
+  });
+});

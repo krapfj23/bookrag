@@ -269,3 +269,239 @@ describe("ReadingScreen", () => {
     expect(chapterSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("ReadingScreen — chat panel (slice 4)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // HTMLElement.prototype.scrollIntoView is not implemented in jsdom; stub it.
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows the empty state before any messages are sent", async () => {
+    mockApi();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+    expect(
+      screen.getByText(/ask about what you've read/i, {
+        selector: "p, div, span",
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("header 'safe through ch. N' matches current_chapter", async () => {
+    mockApi();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/safe through ch\. 2/i)).toBeInTheDocument()
+    );
+  });
+
+  it("submitting a question appends a UserBubble and a thinking AssistantBubble", async () => {
+    mockApi();
+    const querySpy = vi
+      .spyOn(api, "queryBook")
+      .mockImplementation(
+        () => new Promise(() => {}) as Promise<api.QueryResponse>
+      );
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+
+    const input = screen.getByLabelText(/ask about what you've read/i);
+    await user.type(input, "Who is Marley?");
+    await user.keyboard("{Enter}");
+
+    // User bubble appears
+    expect(screen.getByText("Who is Marley?")).toBeInTheDocument();
+    // Thinking bubble: text "Thinking…" with the blinking cursor
+    expect(screen.getByText(/thinking…/i)).toBeInTheDocument();
+    // queryBook was called with book.current_chapter as max_chapter
+    expect(querySpy).toHaveBeenCalledWith(BOOK_ID, "Who is Marley?", 2);
+  });
+
+  it("on 2xx replaces thinking with an AssistantBubble + sources", async () => {
+    mockApi();
+    vi.spyOn(api, "queryBook").mockResolvedValue({
+      book_id: BOOK_ID,
+      question: "Who is Marley?",
+      search_type: "GRAPH_COMPLETION",
+      current_chapter: 2,
+      results: [
+        {
+          content: "Marley is Scrooge's dead business partner.",
+          entity_type: "Character",
+          chapter: 1,
+        },
+        {
+          content: "Another ref",
+          entity_type: null,
+          chapter: null, // should NOT render as a source
+        },
+      ],
+      result_count: 2,
+    });
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+
+    const input = screen.getByLabelText(/ask about what you've read/i);
+    await user.type(input, "Who is Marley?");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/marley is scrooge's dead business partner/i)
+      ).toBeInTheDocument()
+    );
+    // "Thinking…" has been replaced
+    expect(screen.queryByText(/thinking…/i)).toBeNull();
+    // Ch. 1 source is visible
+    expect(screen.getByText("Ch. 1")).toBeInTheDocument();
+  });
+
+  it("on empty results renders the fallback line and no sources", async () => {
+    mockApi();
+    vi.spyOn(api, "queryBook").mockResolvedValue({
+      book_id: BOOK_ID,
+      question: "Who is Marley?",
+      search_type: "GRAPH_COMPLETION",
+      current_chapter: 2,
+      results: [],
+      result_count: 0,
+    });
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+
+    await user.type(
+      screen.getByLabelText(/ask about what you've read/i),
+      "obscure question"
+    );
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/i don't have anything in your read-so-far/i)
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("on QueryRateLimitError shows 'Too many requests, slow down.'", async () => {
+    mockApi();
+    vi.spyOn(api, "queryBook").mockRejectedValue(
+      new api.QueryRateLimitError()
+    );
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+
+    await user.type(
+      screen.getByLabelText(/ask about what you've read/i),
+      "q"
+    );
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/too many requests, slow down\./i)
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("on QueryServerError shows 'Something went wrong. Try again.'", async () => {
+    mockApi();
+    vi.spyOn(api, "queryBook").mockRejectedValue(
+      new api.QueryServerError(500)
+    );
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+
+    await user.type(
+      screen.getByLabelText(/ask about what you've read/i),
+      "q"
+    );
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/something went wrong\. try again\./i)
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("on QueryNetworkError shows 'Something went wrong. Try again.'", async () => {
+    mockApi();
+    vi.spyOn(api, "queryBook").mockRejectedValue(
+      new api.QueryNetworkError()
+    );
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+
+    await user.type(
+      screen.getByLabelText(/ask about what you've read/i),
+      "q"
+    );
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/something went wrong\. try again\./i)
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("the input clears after submission", async () => {
+    mockApi();
+    vi.spyOn(api, "queryBook").mockResolvedValue({
+      book_id: BOOK_ID,
+      question: "x",
+      search_type: "GRAPH_COMPLETION",
+      current_chapter: 2,
+      results: [],
+      result_count: 0,
+    });
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+    const input = screen.getByLabelText(
+      /ask about what you've read/i
+    ) as HTMLTextAreaElement;
+    await user.type(input, "x");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("does NOT render the slice-3 disabled textarea + 'Chat coming soon' placeholder", async () => {
+    mockApi();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/chat coming soon/i)).toBeNull();
+    expect(
+      screen.queryByPlaceholderText(/available in the next release/i)
+    ).toBeNull();
+  });
+});
