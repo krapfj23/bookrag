@@ -18,6 +18,6 @@
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src", "vitest.setup.ts"],
-  "exclude": ["e2e"],
+  "exclude": ["e2e", "src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
