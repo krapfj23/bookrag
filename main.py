@@ -161,6 +161,7 @@ class Chapter(BaseModel):
 class QueryRequest(BaseModel):
     question: str = Field(..., max_length=2000)
     search_type: str = "GRAPH_COMPLETION"
+    max_chapter: int | None = Field(default=None, ge=1)
 
 
 class QueryResultItem(BaseModel):
@@ -567,7 +568,10 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    current_chapter = _get_reading_progress(book_id)
+    disk_max = _get_reading_progress(book_id)
+    current_chapter = (
+        min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
+    )
 
     # Try Cognee graph search first, fall back to disk-based search
     results: list[QueryResultItem] = []
