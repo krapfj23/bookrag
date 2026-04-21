@@ -58,3 +58,12 @@ export const IcSettings = (p: Props) => (
     <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.5 1.5M11.2 11.2l1.5 1.5M12.7 3.3l-1.5 1.5M4.8 11.2l-1.5 1.5" />
   </Icon>
 );
+export const IcUpload = (p: Props) => (
+  <Icon {...p} d="M8 11V3m0 0L5 6m3-3l3 3M3 13h10" />
+);
+export const IcCheck = (p: Props) => (
+  <Icon {...p} d="M3 8.5L6.5 12 13 5" />
+);
+export const IcClose = (p: Props) => (
+  <Icon {...p} d="M4 4l8 8M12 4l-8 8" />
+);
