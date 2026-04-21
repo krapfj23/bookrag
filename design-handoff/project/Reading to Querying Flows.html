@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · Reading ↔ Querying Flows</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; height: 100%; }
+  @keyframes brPulse { 0% { box-shadow: 0 0 0 0 currentColor; opacity: 1; } 70% { box-shadow: 0 0 0 6px transparent; opacity: .65; } 100% { box-shadow: 0 0 0 0 transparent; opacity: 1; } }
+  @keyframes brBlink { 50% { opacity: 0; } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .reader { font-family: var(--serif); font-size: 18px; line-height: 1.75; color: var(--ink-0); }
+  .reader h2 { font-family: var(--serif); font-weight: 400; font-size: 28px; letter-spacing: -.5px; margin: 32px 0 22px; }
+  .reader p { margin: 0 0 20px; text-wrap: pretty; }
+  .chap-num { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink-2); letter-spacing: .4px; margin-bottom: 4px; }
+
+  /* Simulated user selection */
+  .sel {
+    background: color-mix(in oklab, var(--accent-soft) 80%, transparent);
+    color: var(--ink-0);
+    padding: 0 1px;
+  }
+
+  /* Floating "Ask about this" chip — appears above selection */
+  .ask-chip {
+    position: absolute; display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 12px 7px 10px;
+    background: var(--ink-0); color: var(--paper-00);
+    border-radius: 999px; font-family: var(--sans); font-size: 12.5px;
+    font-weight: 500; letter-spacing: .1px;
+    box-shadow: 0 4px 14px rgba(32,28,22,.22), 0 1px 3px rgba(0,0,0,.1);
+    cursor: pointer;
+    animation: fadeUp 180ms var(--ease-out);
+  }
+  .ask-chip::before {
+    content: ''; position: absolute; bottom: -4px; left: 20px;
+    width: 8px; height: 8px; background: var(--ink-0);
+    transform: rotate(45deg);
+  }
+  .ask-chip kbd {
+    font-family: var(--mono); font-size: 10.5px; padding: 1px 5px;
+    background: rgba(255,255,255,.14); border-radius: 3px; color: rgba(255,255,255,.8);
+    margin-left: 2px;
+  }
+
+  /* Query-mode veil — blurs the forward page except the anchor */
+  .veil {
+    filter: blur(6px);
+    transition: filter var(--dur-slow) var(--ease);
+    user-select: none; pointer-events: none;
+  }
+  .veil-light { filter: blur(2px); }
+
+  /* Top bar */
+  .tb { display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 22px; border-bottom: 1px solid var(--paper-2);
+    background: color-mix(in oklab, var(--paper-0) 85%, transparent);
+    font-family: var(--sans); height: 52px; box-sizing: border-box; }
+  .tb-title { font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--ink-0); }
+  .tb-sub { font-size: 12px; color: var(--ink-3); margin-left: 10px; }
+  .prog { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 11px;
+    background: var(--accent-softer); color: var(--accent-ink);
+    border-radius: 999px; font-size: 11px; font-weight: 500; letter-spacing: .2px; font-variant-numeric: tabular-nums; }
+  .prog .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent); }
+
+  /* Mode indicator shown during querying */
+  .mode-flag {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 4px 11px 4px 9px; background: var(--ink-0); color: var(--paper-00);
+    border-radius: 999px; font-family: var(--sans); font-size: 11px; font-weight: 500;
+    letter-spacing: .3px;
+  }
+
+  /* Margin notes (pinned) */
+  .pin {
+    position: absolute; left: calc(100% + 24px); top: 0;
+    width: 200px;
+    font-family: var(--serif); font-size: 12.5px; line-height: 1.45;
+    color: var(--ink-2); font-style: italic;
+    border-left: 2px solid var(--accent);
+    padding: 4px 0 4px 12px;
+  }
+  .pin .q { color: var(--ink-3); font-style: normal; font-family: var(--sans); font-size: 10.5px; letter-spacing: .3px; text-transform: uppercase; margin-bottom: 4px; }
+
+  /* Anchor quote (the passage the query is about) */
+  .anchor-quote {
+    font-family: var(--serif); font-style: italic; font-size: 14.5px;
+    color: var(--ink-1); line-height: 1.55;
+    border-left: 2px solid var(--accent); padding: 2px 0 2px 12px;
+  }
+
+  .close-x {
+    width: 28px; height: 28px; border-radius: 999px; display: inline-flex; align-items: center;
+    justify-content: center; cursor: pointer; color: var(--ink-2); transition: all var(--dur);
+  }
+  .close-x:hover { background: var(--paper-1); color: var(--ink-0); }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+
+  <script>
+    document.documentElement.dataset.paper = 'linen';
+    document.documentElement.dataset.accent = 'sage';
+    document.documentElement.dataset.radii = 'balanced';
+  </script>
+
+  <script type="text/babel">
+    // Shared top bar
+    const TopBar = ({ mode }) => (
+      <div className="tb">
+        <div style={{ display: 'flex', alignItems: 'baseline' }}>
+          <span className="tb-title">A Christmas Carol</span>
+          <span className="tb-sub">Charles Dickens</span>
+        </div>
+        {mode === 'query' ? (
+          <div className="mode-flag">
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/></svg>
+            Asking about a passage
+          </div>
+        ) : (
+          <span className="prog">
+            <span className="dot"/> Reading up to: Ch. 3 · 54%
+          </span>
+        )}
+      </div>
+    );
+
+    // Reading prose shared across artboards. `selectRange` marks which range
+    // is "selected" (shown as highlighted). `veil` dims everything after the
+    // selection.
+    const ReadingBody = ({ mode = 'read', selected = false, veil = false, anchor = false }) => {
+      const selClass = selected ? 'sel' : '';
+      // post = paragraphs after the selection — veiled in query mode
+      return (
+        <div className="reader">
+          <div className="chap-num">Stave III</div>
+          <h2>The Second of the Three Spirits</h2>
+
+          <p>
+            Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.
+          </p>
+          <p>
+            The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened. The crisp leaves of holly, mistletoe, and ivy reflected back the light, as if so many little mirrors had been scattered there.
+          </p>
+          <p>
+            Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, <span className={selClass}>sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts, cherry-cheeked apples</span>, juicy pears, immense twelfth-cakes, and seething bowls of punch.
+          </p>
+          <div className={veil ? 'veil' : ''}>
+            <p>
+              In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn, and held it up, high up, to shed its light on Scrooge, as he came peeping round the door.
+            </p>
+            <p>
+              "Come in!" exclaimed the Ghost. "Come in! and know me better, man!" Scrooge entered timidly, and hung his head before this Spirit. He was not the dogged Scrooge he had been.
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // Answer content reused across layouts
+    const AnswerContent = ({ compact }) => (
+      <div style={{ fontFamily: 'var(--serif)', fontSize: compact ? 14 : 15.5, lineHeight: compact ? 1.55 : 1.65, color: 'var(--ink-0)' }}>
+        <p style={{ margin: '0 0 12px', textWrap: 'pretty' }}>
+          The Ghost of Christmas Present arrives surrounded by <em>plenty</em> — Dickens piles on food for a full paragraph. It's a deliberate contrast to Scrooge's miserliness and to the cold streets outside: abundance as a moral argument, not a meal.
+        </p>
+        <p style={{ margin: 0, textWrap: 'pretty', color: 'var(--ink-1)' }}>
+          The torch shaped "not unlike Plenty's horn" is the same image. Watch for who this bounty is <em>not</em> shared with later in the chapter.
+        </p>
+      </div>
+    );
+
+    // Pinned margin note — persistent next to anchored passage
+    const PinnedNote = () => (
+      <div className="pin">
+        <div className="q">Asked earlier</div>
+        <div>Why so much food imagery at the Spirit's arrival?</div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // OPTION A — Inline expansion (margin note that grew)
+    // The selected passage lifts slightly, the answer appears beneath it
+    // inline, pushing following text down. Forward text veils.
+    // ─────────────────────────────────────────────────────────────
+    const OptionA = () => (
+      <div className="br" style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="query"/>
+        <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+          <div style={{ maxWidth: 640, margin: '0 auto', padding: '36px 32px 80px', position: 'relative' }}>
+            <div className="reader">
+              <div className="chap-num">Stave III</div>
+              <h2>The Second of the Three Spirits</h2>
+              <p>Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.</p>
+              <p>The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened. The crisp leaves of holly, mistletoe, and ivy reflected back the light, as if so many little mirrors had been scattered there.</p>
+              <p>
+                Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, <span className="sel">sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts, cherry-cheeked apples</span>, juicy pears, immense twelfth-cakes, and seething bowls of punch.
+              </p>
+
+              {/* Inline answer — slotted between paragraphs */}
+              <div style={{
+                margin: '4px 0 28px',
+                padding: '20px 0 18px 20px',
+                borderLeft: '2px solid var(--accent)',
+                background: 'linear-gradient(to right, var(--accent-softer), transparent 40%)',
+                animation: 'fadeUp 220ms var(--ease-out)',
+                position: 'relative',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                  <div style={{ fontFamily: 'var(--sans)', fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+                    You asked
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, paddingRight: 4 }}>
+                    <button title="Pin to margin" style={{ width: 26, height: 26, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer' }}><IcBookmark size={12}/></button>
+                    <button title="Dismiss" style={{ width: 26, height: 26, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer' }}><IcClose size={12}/></button>
+                  </div>
+                </div>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 14.5, fontStyle: 'italic', color: 'var(--ink-1)', marginBottom: 14 }}>
+                  Why so much food imagery here?
+                </div>
+                <AnswerContent/>
+                <div style={{ marginTop: 16, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button style={{ padding: '4px 10px', borderRadius: 999, background: 'var(--paper-00)', border: '1px solid var(--paper-2)', fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-2)', cursor: 'pointer' }}>Follow up…</button>
+                  <button style={{ padding: '4px 10px', borderRadius: 999, background: 'var(--paper-00)', border: '1px solid var(--paper-2)', fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-2)', cursor: 'pointer' }}>Who is this Spirit?</button>
+                </div>
+              </div>
+
+              <div className="veil">
+                <p>In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn, and held it up, high up, to shed its light on Scrooge, as he came peeping round the door.</p>
+                <p>"Come in!" exclaimed the Ghost. "Come in! and know me better, man!" Scrooge entered timidly, and hung his head before this Spirit.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // OPTION B — Right side panel
+    // Reading column shifts left, a 380px panel slides in from the right
+    // with the question, anchor quote, streaming answer, and thread history.
+    // ─────────────────────────────────────────────────────────────
+    const OptionB = () => (
+      <div className="br" style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="query"/>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+            <div style={{ maxWidth: 600, margin: '0 auto', padding: '36px 40px 80px' }}>
+              <ReadingBody selected veil/>
+            </div>
+          </div>
+          <aside style={{
+            width: 400, borderLeft: '1px solid var(--paper-2)',
+            background: 'color-mix(in oklab, var(--paper-0) 90%, var(--paper-1))',
+            display: 'flex', flexDirection: 'column',
+            animation: 'fadeUp 220ms var(--ease-out)',
+          }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--paper-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 500, color: 'var(--ink-0)', letterSpacing: .1 }}>Asking about a passage</div>
+              <div className="close-x"><IcClose size={13}/></div>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+              <div className="anchor-quote">
+                …sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts…
+              </div>
+              <div style={{ marginTop: 16, marginBottom: 20, padding: '10px 14px', background: 'var(--paper-1)', borderRadius: 'var(--r-lg)', borderBottomLeftRadius: 2, fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink-0)' }}>
+                Why so much food imagery here?
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginRight: 28 }}>
+                <div style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 999, background: 'var(--accent-softer)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12 }}>r</div>
+                <div style={{ flex: 1 }}>
+                  <AnswerContent compact/>
+                  <div style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)' }}>
+                    <IcLock size={11}/> spoiler-safe through p. 54
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--paper-2)' }}>
+              <div style={{ display: 'flex', gap: 8, padding: '8px 12px', background: 'var(--paper-00)', border: '1px solid var(--paper-2)', borderRadius: 'var(--r-lg)' }}>
+                <span style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink-3)', flex: 1 }}>Follow up…</span>
+                <IcSend size={14} style={{ color: 'var(--ink-3)' }}/>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, justifyContent: 'space-between' }}>
+                <button style={{ padding: '4px 10px', fontSize: 11, color: 'var(--ink-2)', background: 'none', border: 0, cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+                  <IcBookmark size={11} style={{ verticalAlign: -1, marginRight: 4 }}/> Pin to margin
+                </button>
+                <button style={{ padding: '4px 10px', fontSize: 11, color: 'var(--ink-3)', background: 'none', border: 0, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Back to reading →</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // OPTION C — Bottom sheet overlay
+    // Reading stays fully visible but dimmed + veiled; a sheet slides up
+    // from the bottom taking ~60% height. Reading is a backdrop you can
+    // still see. Good for "glance and dismiss" queries.
+    // ─────────────────────────────────────────────────────────────
+    const OptionC = () => (
+      <div className="br" style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        <TopBar mode="query"/>
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          <div style={{ maxWidth: 640, margin: '0 auto', padding: '36px 32px 40px', filter: 'brightness(.96)' }}>
+            <ReadingBody selected veil/>
+          </div>
+          {/* backdrop */}
+          <div style={{ position: 'absolute', inset: 0, background: 'color-mix(in oklab, var(--ink-0) 12%, transparent)', pointerEvents: 'none' }}/>
+          {/* sheet */}
+          <div style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: '62%',
+            background: 'var(--paper-00)',
+            borderTopLeftRadius: 20, borderTopRightRadius: 20,
+            boxShadow: '0 -12px 48px rgba(32,28,22,.18)',
+            animation: 'fadeUp 260ms var(--ease-out)',
+            display: 'flex', flexDirection: 'column',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--paper-3)' }}/>
+            </div>
+            <div style={{ padding: '8px 28px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontFamily: 'var(--sans)', fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)' }}>Asking about</div>
+              <div className="close-x"><IcClose size={13}/></div>
+            </div>
+            <div style={{ padding: '10px 28px 0' }}>
+              <div className="anchor-quote" style={{ fontSize: 13.5 }}>…sucking-pigs, long wreaths of sausages, mince-pies…</div>
+            </div>
+            <div style={{ padding: '18px 28px 0' }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink-0)', marginBottom: 14 }}>
+                Why so much food imagery here?
+              </div>
+              <AnswerContent/>
+            </div>
+            <div style={{ flex: 1 }}/>
+            <div style={{ padding: '16px 22px 20px', borderTop: '1px solid var(--paper-2)', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ flex: 1, display: 'flex', gap: 8, padding: '10px 14px', background: 'var(--paper-0)', borderRadius: 'var(--r-lg)' }}>
+                <span style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink-3)', flex: 1 }}>Ask a follow-up…</span>
+                <IcSend size={14} style={{ color: 'var(--ink-3)' }}/>
+              </div>
+              <button style={{ padding: '8px 12px', fontSize: 12, color: 'var(--ink-1)', background: 'var(--paper-1)', border: 0, borderRadius: 'var(--r-md)', cursor: 'pointer', fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <IcBookmark size={12}/> Pin
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // OPTION D — Inline compose, journal afterward
+    // The "Ask about this" chip expands into an inline input right where
+    // the selection is. After send, the answer lifts the selected passage
+    // into a quote, and a right-edge journal keeps the thread.
+    // Reading column stays put; forward page veils.
+    // ─────────────────────────────────────────────────────────────
+    const OptionD = () => (
+      <div className="br" style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="query"/>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+            <div style={{ maxWidth: 600, margin: '0 auto', padding: '36px 32px 80px', position: 'relative' }}>
+              <div className="reader">
+                <div className="chap-num">Stave III</div>
+                <h2>The Second of the Three Spirits</h2>
+                <p>Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.</p>
+
+                {/* The selection is lifted out — shown as a quote with the answer */}
+                <div style={{ margin: '28px 0', animation: 'fadeUp 220ms var(--ease-out)' }}>
+                  <div className="anchor-quote" style={{ fontSize: 15 }}>
+                    …sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters…
+                  </div>
+                  <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+                    <div style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 999, background: 'var(--accent-softer)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12 }}>r</div>
+                    <div style={{ flex: 1, fontFamily: 'var(--serif)', fontSize: 15.5, lineHeight: 1.65, color: 'var(--ink-0)' }}>
+                      The Ghost of Christmas Present arrives surrounded by <em>plenty</em> — a full paragraph of food as moral contrast to Scrooge's miserliness. The torch "not unlike Plenty's horn" carries the same image.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="veil">
+                  <p>The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened.</p>
+                  <p>In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Journal — thin right column of past Q&A, collapsible */}
+          <aside style={{ width: 260, borderLeft: '1px solid var(--paper-2)', padding: '20px 18px', fontFamily: 'var(--sans)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)' }}>Journal</div>
+              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>3 notes</span>
+            </div>
+            {[
+              { q: 'Why so much food imagery here?', ch: 'Ch. 3', now: true },
+              { q: 'Who is Marley, really?', ch: 'Ch. 1' },
+              { q: 'What does "counting-house" mean?', ch: 'Ch. 1' },
+            ].map((n, i) => (
+              <div key={i} style={{
+                padding: '12px 0',
+                borderBottom: i < 2 ? '1px solid var(--paper-2)' : 'none',
+                cursor: 'pointer',
+              }}>
+                <div style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 13.5, color: n.now ? 'var(--ink-0)' : 'var(--ink-1)', fontWeight: n.now ? 500 : 400, lineHeight: 1.4 }}>
+                  {n.q}
+                </div>
+                <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: n.now ? 'var(--accent)' : 'var(--ink-3)', letterSpacing: .2 }}>
+                  <span>{n.ch}</span>
+                  {n.now && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IcDot size={6}/> now</span>}
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop: 20, fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              Pinned questions stay here. Unpinned ones fade after you return to reading.
+            </div>
+          </aside>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // Entry: the selection chip itself (reading mode, not yet asked)
+    // ─────────────────────────────────────────────────────────────
+    const EntryChip = () => (
+      <div className="br" style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="read"/>
+        <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+          <div style={{ maxWidth: 640, margin: '0 auto', padding: '48px 32px 80px', position: 'relative' }}>
+            <div className="reader">
+              <div className="chap-num">Stave III</div>
+              <h2>The Second of the Three Spirits</h2>
+              <p>Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.</p>
+              <p>The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened. The crisp leaves of holly, mistletoe, and ivy reflected back the light, as if so many little mirrors had been scattered there.</p>
+              <p style={{ position: 'relative' }}>
+                Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, <span className="sel">sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts, cherry-cheeked apples</span>, juicy pears, immense twelfth-cakes.
+                <span className="ask-chip" style={{ top: 48, left: 110 }}>
+                  <IcSpark size={12}/> Ask about this <kbd>↵</kbd>
+                </span>
+              </p>
+              <p>In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // Canvas
+    // ─────────────────────────────────────────────────────────────
+    const Frame = ({ children }) => (
+      <div style={{ width: '100%', height: '100%', background: 'var(--paper-0)', overflow: 'hidden' }}>{children}</div>
+    );
+
+    const App = () => (
+      <DesignCanvas>
+        <DCSection id="entry" title="The entry point — shared across all variations"
+          subtitle="Select text in the prose; an 'Ask about this' chip appears above the selection. ⏎ or click to enter query mode.">
+          <DCArtboard id="entry-chip" label="Selection → 'Ask about this' chip" width={1200} height={760}>
+            <Frame><EntryChip/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="flows" title="Four variations · after sending the query"
+          subtitle="All share: reading is primary, forward page veils in query mode, answers can be pinned to margin notes.">
+          <DCArtboard id="opt-a" label="A · Inline expansion" width={1200} height={820}>
+            <Frame><OptionA/></Frame>
+          </DCArtboard>
+          <DCArtboard id="opt-b" label="B · Right side panel" width={1280} height={820}>
+            <Frame><OptionB/></Frame>
+          </DCArtboard>
+          <DCArtboard id="opt-c" label="C · Bottom sheet (peek)" width={1200} height={820}>
+            <Frame><OptionC/></Frame>
+          </DCArtboard>
+          <DCArtboard id="opt-d" label="D · Lift-and-journal" width={1280} height={820}>
+            <Frame><OptionD/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCPostIt top={20} left={60} rotate={-1.5} width={260}>
+          All 4 share entry (select → chip), fog-of-war on forward text during query, pin-to-margin, and session thread. They differ in WHERE the answer lands.
+        </DCPostIt>
+        <DCPostIt top={20} left={360} rotate={1.5} width={240}>
+          A · feels like annotating the book itself. B · most room for long threads. C · quick glance-and-dismiss. D · builds a reading journal over time.
+        </DCPostIt>
+      </DesignCanvas>
+    );
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

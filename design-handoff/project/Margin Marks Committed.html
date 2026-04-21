@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · Inline annotations</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; height: 100%; font-family: var(--sans); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .reader { font-family: var(--serif); font-size: 18px; line-height: 1.85; color: var(--ink-0); }
+  .reader h2 { font-family: var(--serif); font-weight: 400; font-size: 28px; letter-spacing: -.5px; margin: 24px 0 20px; }
+  .reader p { margin: 0 0 22px; text-wrap: pretty; }
+  .chap-num { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink-2); letter-spacing: .4px; margin-bottom: 4px; }
+
+  .tb { display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 22px; border-bottom: 1px solid var(--paper-2);
+    background: color-mix(in oklab, var(--paper-0) 85%, transparent);
+    height: 52px; box-sizing: border-box; }
+  .tb-title { font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--ink-0); }
+  .tb-sub { font-size: 12px; color: var(--ink-3); margin-left: 10px; }
+  .prog { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 11px;
+    background: var(--accent-softer); color: var(--accent-ink);
+    border-radius: 999px; font-size: 11px; font-weight: 500; letter-spacing: .2px; font-variant-numeric: tabular-nums; }
+  .prog .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent); }
+
+  /* Rail */
+  .rail { width: 48px; border-left: 1px solid var(--paper-2); background: color-mix(in oklab, var(--paper-0) 94%, var(--paper-1)); display: flex; flex-direction: column; align-items: center; padding: 14px 0; }
+  .rail-btn { width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink-2); background: none; border: 0; margin-bottom: 4px; transition: all var(--dur); position: relative; }
+  .rail-btn:hover { background: var(--paper-1); color: var(--ink-0); }
+  .rail-btn .pip { position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
+  .rail-btn .pip-dark { background: var(--ink-0); }
+
+  /* Panel */
+  .panel { display: flex; flex-direction: column; width: 400px; border-left: 1px solid var(--paper-2); background: color-mix(in oklab, var(--paper-0) 92%, var(--paper-1)); }
+  .panel-tabs { display: flex; border-bottom: 1px solid var(--paper-2); padding: 0 16px; gap: 2px; }
+  .panel-tabs button { background: none; border: 0; padding: 14px 14px 12px; font-family: var(--sans); font-size: 12.5px; font-weight: 500; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 6px; }
+  .panel-tabs button.active { color: var(--ink-0); border-bottom-color: var(--ink-0); }
+  .panel-tabs .count { background: var(--paper-2); color: var(--ink-2); font-size: 10.5px; padding: 1px 6px; border-radius: 999px; font-weight: 500; }
+  .panel-tabs button.active .count { background: var(--ink-0); color: var(--paper-00); }
+
+  /* ──────────────────────────────────────
+     The two inline annotations
+     ────────────────────────────────────── */
+
+  /* NOTE — soft highlight on the span */
+  .note {
+    background: color-mix(in oklab, var(--accent-soft) 85%, transparent);
+    padding: 0 2px; border-radius: 2px;
+    cursor: pointer;
+    transition: background var(--dur);
+  }
+  .note:hover { background: var(--accent-soft); }
+  .note.active {
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  /* QUERY — thin underline */
+  .query {
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 4px;
+    cursor: pointer;
+    transition: text-decoration-color var(--dur);
+  }
+  .query:hover {
+    text-decoration-color: var(--accent-ink);
+    text-decoration-thickness: 2px;
+  }
+  .query.active {
+    text-decoration-color: var(--accent-ink);
+    text-decoration-thickness: 2px;
+    background: var(--accent-softer);
+    padding: 0 2px; border-radius: 2px;
+  }
+
+  /* Selection */
+  .sel { background: color-mix(in oklab, var(--accent-softer) 80%, transparent); padding: 0 1px; }
+
+  /* Peek popover — anchored near the annotated span */
+  .peek {
+    position: absolute; width: 300px;
+    background: var(--paper-00); border: 1px solid var(--paper-2);
+    border-radius: var(--r-lg);
+    box-shadow: 0 12px 32px rgba(32,28,22,.14), 0 1px 3px rgba(0,0,0,.04);
+    animation: fadeUp 180ms var(--ease-out);
+    z-index: 8;
+  }
+  .peek::before {
+    content: ''; position: absolute; top: -5px; left: 24px;
+    width: 9px; height: 9px; background: var(--paper-00);
+    border-left: 1px solid var(--paper-2); border-top: 1px solid var(--paper-2);
+    transform: rotate(45deg);
+  }
+  .peek .peek-head { padding: 10px 14px 0; display: flex; justify-content: space-between; align-items: center; font-family: var(--sans); font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase; color: var(--ink-3); }
+  .peek .peek-body { padding: 6px 14px 14px; font-family: var(--serif); font-size: 13.5px; line-height: 1.55; color: var(--ink-1); }
+  .peek .peek-foot { border-top: 1px solid var(--paper-2); padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .peek-action { background: none; border: 0; padding: 5px 8px; border-radius: 4px; color: var(--ink-2); font-size: 11px; font-family: var(--sans); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+  .peek-action:hover { background: var(--paper-1); color: var(--ink-0); }
+
+  .private-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; background: var(--paper-1); color: var(--ink-3); border-radius: 3px; font-family: var(--mono); font-size: 9px; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+
+  .tag { display: inline-flex; align-items: center; padding: 1px 6px; background: color-mix(in oklab, var(--accent-softer) 80%, var(--paper-0)); color: var(--accent-ink); border-radius: 3px; font-family: var(--mono); font-size: 10px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+
+  <script>
+    document.documentElement.dataset.paper = 'linen';
+    document.documentElement.dataset.accent = 'sage';
+    document.documentElement.dataset.radii = 'balanced';
+  </script>
+
+  <script type="text/babel">
+    const IcEdit = (p) => <svg width={p.size||14} height={p.size||14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={p.style}><path d="M11.5 2.5l2 2-7.5 7.5H4V10l7.5-7.5zM10 4l2 2"/></svg>;
+    const IcPrivate = (p) => <svg width={p.size||14} height={p.size||14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={p.style}><path d="M4.5 7.5h7v6h-7v-6zM6 7.5V5a2 2 0 0 1 4 0v2.5"/></svg>;
+    const IcExpand = (p) => <svg width={p.size||14} height={p.size||14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={p.style}><path d="M9 3h4v4M7 13H3V9M13 3l-5 5M3 13l5-5"/></svg>;
+
+    const TopBar = () => (
+      <div className="tb">
+        <div style={{ display: 'flex', alignItems: 'baseline' }}>
+          <span className="tb-title">A Christmas Carol</span>
+          <span className="tb-sub">Charles Dickens</span>
+        </div>
+        <span className="prog"><span className="dot"/> Reading up to: Ch. 3 · 54%</span>
+      </div>
+    );
+
+    const Rail = () => (
+      <div className="rail">
+        <button className="rail-btn" title="Thread"><IcSpark size={14}/><span className="pip"/></button>
+        <button className="rail-btn" title="Notes"><IcEdit size={14}/><span className="pip pip-dark"/></button>
+        <button className="rail-btn" title="Highlights"><IcHighlight size={14}/></button>
+        <div style={{ flex: 1 }}/>
+        <button className="rail-btn" title="Expand panel"><IcArrowL size={14}/></button>
+      </div>
+    );
+
+    // Peeks
+    const NotePeek = ({ top, left }) => (
+      <div className="peek" style={{ top, left }}>
+        <div className="peek-head">
+          <span>Your note · 2h ago</span>
+          <span className="private-chip"><IcPrivate size={8}/> private</span>
+        </div>
+        <div className="peek-body" style={{ fontStyle: 'italic' }}>
+          Echoes of Eden — abundance as inheritance before the weighing begins. Dickens stacks the nouns like offerings on an altar.
+        </div>
+        <div style={{ padding: '0 14px 10px', display: 'flex', gap: 4 }}>
+          <span className="tag">#theme-abundance</span>
+          <span className="tag">#spirit-present</span>
+        </div>
+        <div className="peek-foot">
+          <button className="peek-action"><IcEdit size={11}/> Edit</button>
+          <button className="peek-action"><IcExpand size={11}/> Open in panel</button>
+        </div>
+      </div>
+    );
+
+    const QueryPeek = ({ top, left }) => (
+      <div className="peek" style={{ top, left }}>
+        <div className="peek-head">
+          <span>Question · 1 answer</span>
+          <IcBookmark size={11} style={{ color: 'var(--accent)' }}/>
+        </div>
+        <div style={{ padding: '4px 14px 10px' }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink-0)', marginBottom: 8, fontWeight: 500 }}>
+            Why so much food imagery?
+          </div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-2)', fontStyle: 'italic' }}>
+            Dickens piles up food as a moral argument — abundance set against Scrooge's miserliness and the cold streets…
+          </div>
+        </div>
+        <div className="peek-foot">
+          <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontFamily: 'var(--mono)' }}>spoiler-safe</span>
+          <button className="peek-action"><IcExpand size={11}/> Open thread</button>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // Scene A — inline annotations in context, one active with peek
+    // ─────────────────────────────────────────────────────────────
+    const SceneA = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar/>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: '48px 32px 80px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ maxWidth: 620, width: '100%', position: 'relative' }}>
+              <div className="reader">
+                <div className="chap-num">Stave III</div>
+                <h2>The Second of the Three Spirits</h2>
+
+                <p>
+                  Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by <span className="query">a great light there</span>, had undergone a surprising transformation.
+                </p>
+
+                <p>
+                  The walls and ceiling were <span className="note">so hung with living green, that it looked a perfect grove</span>; from every part of which, bright gleaming berries glistened. The crisp leaves of holly, mistletoe, and ivy reflected back the light.
+                </p>
+
+                <div style={{ position: 'relative' }}>
+                  <p style={{ margin: '0 0 22px' }}>
+                    Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, <span className="note active">sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters</span>, juicy pears, immense twelfth-cakes, and seething bowls of punch.
+                  </p>
+                  <div style={{ height: 240 }}/>
+                  <NotePeek top={96} left={10}/>
+                </div>
+
+                <p>
+                  In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike <span className="query">Plenty's horn</span>, and held it up, high up, to shed its light on Scrooge.
+                </p>
+
+                <p>"Come in!" exclaimed the Ghost. "Come in! and know me better, man!"</p>
+              </div>
+            </div>
+          </div>
+          <Rail/>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // Scene B — panel expanded, focused note
+    // ─────────────────────────────────────────────────────────────
+    const SceneB = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar/>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: '36px 32px 80px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ maxWidth: 560, width: '100%' }}>
+              <div className="reader">
+                <div className="chap-num">Stave III</div>
+                <h2>The Second of the Three Spirits</h2>
+                <p>Scrooge awoke in his own bedroom, attracted by <span className="query">a great light there</span>.</p>
+                <p>The walls and ceiling were <span className="note">so hung with living green, that it looked a perfect grove</span>.</p>
+                <p>Heaped up on the floor were <span className="note active">sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters</span>.</p>
+                <p>In easy state upon this couch, there sat a jolly Giant, who bore a torch shaped like <span className="query">Plenty's horn</span>.</p>
+              </div>
+            </div>
+          </div>
+          <div className="panel">
+            <div className="panel-tabs">
+              <button><IcSpark size={12}/> Thread <span className="count">2</span></button>
+              <button className="active"><IcEdit size={12}/> Notes <span className="count">7</span></button>
+              <button><IcHighlight size={12}/> Highlights <span className="count">3</span></button>
+              <div style={{ flex: 1 }}/>
+              <button style={{ padding: '14px 10px', background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer' }}><IcClose size={13}/></button>
+            </div>
+
+            <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px' }}>
+              <div style={{ fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 8 }}>Opened from highlight · Ch. 3 ¶3</div>
+
+              <div style={{ background: 'var(--paper-00)', border: '1px solid var(--paper-2)', borderRadius: 'var(--r-lg)', padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)' }}>Your note · 2h ago</div>
+                  <span className="private-chip"><IcPrivate size={8}/> private</span>
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--ink-3)', letterSpacing: .8, textTransform: 'uppercase', fontFamily: 'var(--sans)', marginBottom: 4 }}>highlighted passage</div>
+                <div style={{ background: 'color-mix(in oklab, var(--accent-soft) 85%, transparent)', padding: '6px 10px', borderRadius: 4, fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12.5, color: 'var(--ink-1)', lineHeight: 1.45, marginBottom: 14 }}>
+                  sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters
+                </div>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 14.5, color: 'var(--ink-0)', lineHeight: 1.6 }}>
+                  Echoes of Eden — abundance as inheritance before the weighing begins. Dickens stacks the nouns like offerings on an altar; the prose itself gets heavy.
+                </div>
+                <div style={{ marginTop: 12, display: 'flex', gap: 5 }}>
+                  <span className="tag">#theme-abundance</span>
+                  <span className="tag">#spirit-present</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--paper-2)', padding: '12px 16px', background: 'var(--paper-00)', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <IcEdit size={13} style={{ color: 'var(--ink-3)' }}/>
+              <span style={{ flex: 1, fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 13, color: 'var(--ink-3)' }}>Write a new note…</span>
+              <span className="private-chip"><IcPrivate size={8}/> private</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // Scene C — the vocabulary, labeled
+    // ─────────────────────────────────────────────────────────────
+    const SceneC = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '32px 28px 20px', borderBottom: '1px solid var(--paper-2)' }}>
+          <div style={{ fontSize: 10.5, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 6 }}>Annotation vocabulary</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--ink-0)', letterSpacing: -.3 }}>Two treatments, no margin.</div>
+          <div style={{ marginTop: 6, fontFamily: 'var(--serif)', fontSize: 14, fontStyle: 'italic', color: 'var(--ink-2)', maxWidth: 560 }}>
+            Annotations live inline, on the words themselves. Nothing in the margin. The book stays the subject.
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {[
+            {
+              label: 'Note · soft highlight',
+              demo: <span className="note">words you've noted</span>,
+              desc: 'A pale sage fill on the span. Warm, ink-on-paper feel — like a pencil swipe. Click to open the peek.',
+              spec: 'bg: accent-soft\npad: 0 2px\nradius: 2',
+            },
+            {
+              label: 'Query · thin underline',
+              demo: <span className="query">words you've asked about</span>,
+              desc: '1.5px sage underline set 4px below the baseline. Quieter than highlight; reads as reference.',
+              spec: 'underline: accent\nthickness: 1.5px\noffset: 4px',
+            },
+            {
+              label: 'Active state (either kind)',
+              demo: <span className="note active">focused passage</span>,
+              desc: 'When the peek is open or the panel shows this item, the span deepens — 1px ring for notes; heavier underline + soft fill for queries.',
+              spec: 'shadow: 0 0 0 1px accent\nor deeper underline',
+            },
+          ].map((r,i) => (
+            <div key={i} style={{ display: 'flex', gap: 20, padding: '22px 28px', borderBottom: '1px solid var(--paper-2)', alignItems: 'flex-start' }}>
+              <div style={{ width: 240, paddingTop: 2 }}>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 17, lineHeight: 1.7, color: 'var(--ink-0)' }}>
+                  Some prose with {r.demo} running through it.
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 500, letterSpacing: .3, textTransform: 'uppercase', color: 'var(--ink-0)', marginBottom: 4 }}>{r.label}</div>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.55, textWrap: 'pretty', fontStyle: 'italic' }}>{r.desc}</div>
+              </div>
+              <div style={{ width: 140, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: .4, lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                {r.spec}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // Scene D — a query peek open on an underlined span
+    // ─────────────────────────────────────────────────────────────
+    const SceneD = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar/>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: '48px 32px 80px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ maxWidth: 620, width: '100%', position: 'relative' }}>
+              <div className="reader">
+                <div className="chap-num">Stave I</div>
+                <h2>Marley's Ghost</h2>
+                <div style={{ position: 'relative' }}>
+                  <p style={{ margin: '0 0 22px' }}>
+                    Marley was dead: to begin with. There is no doubt whatever about that. The register of his burial was signed by the clergyman, the clerk, the undertaker, and <span className="query active">the chief mourner</span>.
+                  </p>
+                  <div style={{ height: 220 }}/>
+                  <QueryPeek top={78} left={260}/>
+                </div>
+                <p>
+                  Scrooge signed it: and Scrooge's name was good upon 'Change, for anything he chose to put his hand to. Old Marley was as dead as <span className="note">a door-nail</span>.
+                </p>
+                <p>
+                  Mind! I don't mean to say that I know, of my own knowledge, what there is particularly dead about a door-nail. I might have been inclined, myself, to regard a <span className="query">coffin-nail</span> as the deadest piece of ironmongery in the trade.
+                </p>
+              </div>
+            </div>
+          </div>
+          <Rail/>
+        </div>
+      </div>
+    );
+
+    const Frame = ({ children }) => (
+      <div style={{ width: '100%', height: '100%', background: 'var(--paper-0)', overflow: 'hidden' }}>{children}</div>
+    );
+
+    const App = () => (
+      <DesignCanvas>
+        <DCSection id="hero" title="Annotations live on the words, not in the margin"
+          subtitle="Notes = soft sage highlight. Queries = thin sage underline. Nothing competes with the prose — the annotations ARE the prose, lightly marked.">
+          <DCArtboard id="a" label="A · In context (one note active, peek open)" width={1180} height={820}>
+            <Frame><SceneA/></Frame>
+          </DCArtboard>
+          <DCArtboard id="b" label="B · Panel expanded from an annotation" width={1280} height={800}>
+            <Frame><SceneB/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="grammar" title="The two treatments"
+          subtitle="Highlight and underline differ in weight so a glance tells you which is which, without reading. Active state deepens either.">
+          <DCArtboard id="c" label="C · Vocabulary reference" width={1100} height={580}>
+            <Frame><SceneC/></Frame>
+          </DCArtboard>
+          <DCArtboard id="d" label="D · Query peek on an underlined span" width={1180} height={720}>
+            <Frame><SceneD/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCPostIt top={20} left={60} rotate={-1.5} width={260}>
+          No gutter marks. The annotation IS the visual — highlight for private notes, underline for AI queries. Hover for peek, click to pin.
+        </DCPostIt>
+        <DCPostIt top={20} left={360} rotate={1.5} width={240}>
+          Overlapping annotations: a span can be both underlined AND highlighted if you note a passage you also asked about.
+        </DCPostIt>
+      </DesignCanvas>
+    );
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

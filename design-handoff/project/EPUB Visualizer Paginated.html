@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · EPUB Visualizer (Paginated)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: var(--paper-0); height: 100%; font-family: var(--sans); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ──────────────────────────────────────
+     Stage — the deep paper desktop
+     ────────────────────────────────────── */
+  .stage {
+    height: 100%;
+    background:
+      radial-gradient(ellipse at center top, color-mix(in oklab, var(--paper-0) 88%, var(--paper-1)), var(--paper-0) 60%),
+      var(--paper-0);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Top bar — minimal */
+  .tb {
+    display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 14px 22px;
+    height: 56px; box-sizing: border-box;
+  }
+  .tb-title { font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--ink-1); letter-spacing: .1px; }
+  .tb-center {
+    font-family: var(--serif); font-size: 13px; color: var(--ink-2);
+    letter-spacing: .2px; font-variant-numeric: tabular-nums; text-align: center;
+  }
+  .tb-center .sep { margin: 0 10px; color: var(--ink-3); }
+  .tb-right { display: flex; justify-content: flex-end; }
+  .prog { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 12px;
+    background: var(--accent-softer); color: var(--accent-ink);
+    border-radius: 999px; font-size: 11px; font-weight: 500; letter-spacing: .2px; font-variant-numeric: tabular-nums; }
+  .prog .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent); }
+
+  /* Workspace split */
+  .work { flex: 1; display: flex; min-height: 0; }
+
+  /* ──────────────────────────────────────
+     Chapter sidebar — thin, restrained
+     ────────────────────────────────────── */
+  .chapters {
+    width: 220px;
+    padding: 28px 12px 24px 26px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    font-family: var(--sans);
+  }
+  .chapters .heading {
+    font-size: 10px; font-weight: 500; letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 14px 12px;
+  }
+  .ch-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-radius: 4px;
+    font-size: 13px; color: var(--ink-1); cursor: pointer;
+    line-height: 1.35; position: relative;
+  }
+  .ch-row .num { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); width: 22px; flex-shrink: 0; }
+  .ch-row .label { flex: 1; text-wrap: balance; }
+  .ch-row:hover { background: color-mix(in oklab, var(--paper-1) 70%, transparent); }
+  .ch-row.current {
+    background: var(--accent-softer); color: var(--accent-ink); font-weight: 500;
+  }
+  .ch-row.current .num { color: var(--accent); }
+  .ch-row.read .num { color: var(--ink-2); }
+  .ch-row.locked { color: var(--ink-3); cursor: help; }
+  .ch-row.locked .label { text-decoration: none; }
+  .ch-row .lock {
+    opacity: .6; flex-shrink: 0;
+  }
+
+  /* ──────────────────────────────────────
+     The book — physical object at rest
+     ────────────────────────────────────── */
+  .book-stage {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    position: relative; padding: 0 20px;
+  }
+
+  .book {
+    position: relative;
+    width: 680px; height: 900px; max-height: calc(100vh - 180px);
+    background: var(--paper-00);
+    border-radius: 3px;
+    box-shadow:
+      0 1px 0 color-mix(in oklab, var(--paper-2) 70%, transparent),
+      0 24px 60px -20px rgba(28, 24, 18, 0.18),
+      0 8px 16px -6px rgba(28, 24, 18, 0.08),
+      0 2px 4px rgba(28, 24, 18, 0.04);
+    /* subtle page edge stack illusion */
+  }
+  .book::before, .book::after {
+    content: ''; position: absolute; pointer-events: none;
+    left: 0; right: 0; border-radius: inherit;
+  }
+  .book::before {
+    top: 4px; bottom: -4px;
+    background: color-mix(in oklab, var(--paper-00) 60%, var(--paper-1));
+    z-index: -1; transform: translateX(4px);
+    box-shadow: 0 18px 40px -14px rgba(28,24,18,.08);
+  }
+  .book::after {
+    top: 8px; bottom: -8px;
+    background: color-mix(in oklab, var(--paper-00) 40%, var(--paper-1));
+    z-index: -2; transform: translateX(8px);
+  }
+
+  /* Page content */
+  .page {
+    position: absolute; inset: 0;
+    padding: 88px 76px 96px;
+    box-sizing: border-box;
+    display: flex; flex-direction: column;
+    animation: fadeIn var(--dur-slow) var(--ease);
+  }
+  .page-chap {
+    font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--ink-3);
+    letter-spacing: .4px; margin-bottom: 8px;
+  }
+  .page-h {
+    font-family: var(--serif); font-weight: 400; font-size: 30px;
+    letter-spacing: -.5px; margin: 4px 0 28px; color: var(--ink-0);
+  }
+  .prose { font-family: var(--serif); font-size: 17px; line-height: 1.75; color: var(--ink-0); flex: 1; }
+  .prose p { margin: 0 0 18px; text-wrap: pretty; }
+  .drop-cap::first-letter {
+    font-family: var(--serif); float: left; font-size: 66px; line-height: .92;
+    padding: 5px 10px 0 0; color: var(--ink-0); font-weight: 500;
+  }
+
+  /* page footer: folio + current-position running title */
+  .folio {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    font-family: var(--serif); font-style: italic; font-size: 11.5px; color: var(--ink-3);
+    letter-spacing: .3px;
+    padding-top: 16px;
+    margin-top: auto;
+  }
+  .folio .n { font-style: normal; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  /* Cutoff word — pencil mark */
+  .cutoff {
+    position: relative;
+    background: transparent;
+  }
+  .cutoff::after {
+    content: '';
+    position: absolute; left: 0; right: 0; bottom: -2px;
+    height: 1.5px;
+    background: linear-gradient(90deg,
+      color-mix(in oklab, var(--accent-ink) 60%, transparent) 0%,
+      color-mix(in oklab, #8a6b3a 85%, transparent) 50%,
+      color-mix(in oklab, var(--accent-ink) 60%, transparent) 100%);
+    border-radius: 1px;
+    filter: blur(.15px);
+  }
+
+  /* ──────────────────────────────────────
+     Page-turn arrows (outside the book)
+     ────────────────────────────────────── */
+  .turn {
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    width: 44px; height: 44px;
+    border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-2); cursor: pointer;
+    background: transparent; border: 0;
+    transition: all var(--dur);
+  }
+  .turn:hover { background: var(--paper-1); color: var(--ink-0); }
+  .turn.left  { left: 10px; }
+  .turn.right { right: 10px; }
+  .turn.disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ──────────────────────────────────────
+     Fog of war — spoiler lock overlay
+     ────────────────────────────────────── */
+  .fog {
+    position: absolute; inset: 0;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    background: color-mix(in oklab, var(--paper-00) 55%, transparent);
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeIn var(--dur-slow) var(--ease);
+  }
+  .fog-card {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 14px; padding: 32px 36px;
+    max-width: 340px; text-align: center;
+    animation: fadeUp 320ms var(--ease-out);
+  }
+  .fog-lock {
+    width: 52px; height: 52px; border-radius: 999px;
+    background: var(--paper-00); color: var(--ink-0);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 24px -8px rgba(28,24,18,.12), 0 1px 3px rgba(28,24,18,.06);
+  }
+  .fog-title {
+    font-family: var(--serif); font-size: 17px; color: var(--ink-0);
+    letter-spacing: -.1px;
+  }
+  .fog-sub {
+    font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--ink-2);
+    line-height: 1.5; text-wrap: pretty;
+  }
+  .fog-btn {
+    margin-top: 4px;
+    padding: 8px 16px;
+    background: var(--ink-0); color: var(--paper-00);
+    border: 0; border-radius: 999px;
+    font-family: var(--sans); font-size: 12px; font-weight: 500;
+    cursor: pointer; letter-spacing: .1px;
+    transition: background var(--dur);
+  }
+  .fog-btn:hover { background: var(--accent-ink); }
+
+  /* Under-fog blurred prose (so there's "something" behind the wall) */
+  .fogged-prose { filter: blur(7px); opacity: .75; user-select: none; pointer-events: none; }
+
+  /* ──────────────────────────────────────
+     Floating cutoff pill — bottom of the book
+     ────────────────────────────────────── */
+  .cutoff-pill {
+    position: absolute; bottom: -22px; left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 9px 16px 9px 14px;
+    background: var(--paper-00); color: var(--ink-1);
+    border: 1px solid var(--paper-2);
+    border-radius: 999px;
+    font-family: var(--sans); font-size: 12px;
+    box-shadow: 0 10px 28px -12px rgba(28,24,18,.18), 0 1px 2px rgba(28,24,18,.06);
+    cursor: pointer;
+    max-width: 520px;
+    transition: all var(--dur);
+  }
+  .cutoff-pill:hover { border-color: var(--accent); }
+  .cutoff-pill .word { font-family: var(--serif); font-style: italic; color: var(--ink-0); }
+  .cutoff-pill .meta { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .cutoff-pill .lock { color: var(--accent-ink); margin-left: 2px; }
+
+  /* tooltip for locked chapters */
+  .lock-tip {
+    position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+    padding: 6px 10px; background: var(--ink-0); color: var(--paper-00);
+    border-radius: 4px; font-size: 11px; font-family: var(--sans);
+    white-space: nowrap; animation: fadeIn 160ms var(--ease);
+    z-index: 5;
+  }
+  .lock-tip::before {
+    content: ''; position: absolute; right: 100%; top: 50%; transform: translateY(-50%);
+    border: 4px solid transparent; border-right-color: var(--ink-0);
+  }
+
+  /* popover for cutoff pill */
+  .cutoff-pop {
+    position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+    width: 340px; background: var(--paper-00);
+    border: 1px solid var(--paper-2); border-radius: var(--r-lg);
+    box-shadow: 0 20px 48px -12px rgba(28,24,18,.18), 0 2px 6px rgba(28,24,18,.06);
+    padding: 18px 20px; animation: fadeUp 200ms var(--ease-out);
+    z-index: 9;
+  }
+  .cutoff-pop::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: var(--paper-00);
+    filter: drop-shadow(0 1px 0 var(--paper-2));
+  }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+
+  <script>
+    document.documentElement.dataset.paper = 'linen';
+    document.documentElement.dataset.accent = 'sage';
+    document.documentElement.dataset.radii = 'balanced';
+  </script>
+
+  <script type="text/babel">
+    const IcLockLarge = (p) => (
+      <svg width={p.size||22} height={p.size||22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="6" y="11" width="12" height="9.5" rx="2"/>
+        <path d="M8.5 11V8a3.5 3.5 0 1 1 7 0v3"/>
+        <circle cx="12" cy="15.5" r=".8" fill="currentColor" stroke="none"/>
+      </svg>
+    );
+
+    // The reused chapter list
+    const Chapters = ({ currentCh = 3, cutoffCh = 3 }) => {
+      const chs = [
+        { n: 'I',   label: 'Marley\'s Ghost' },
+        { n: 'II',  label: 'The First of the Three Spirits' },
+        { n: 'III', label: 'The Second of the Three Spirits' },
+        { n: 'IV',  label: 'The Last of the Spirits' },
+        { n: 'V',   label: 'The End of It' },
+      ];
+      return (
+        <div className="chapters">
+          <div className="heading">Staves</div>
+          {chs.map((c, i) => {
+            const idx = i + 1;
+            const locked = idx > cutoffCh;
+            const current = idx === currentCh;
+            const read = idx < currentCh;
+            return (
+              <div key={i}
+                className={`ch-row ${current ? 'current' : ''} ${read ? 'read' : ''} ${locked ? 'locked' : ''}`}
+                title={locked ? 'You haven\'t read this yet.' : ''}>
+                <span className="num">{c.n}</span>
+                <span className="label">{c.label}</span>
+                {locked && <span className="lock"><IcLock size={11}/></span>}
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    const TopBar = ({ chap = 'III', page = 12, total = 47, percent = 54 }) => (
+      <div className="tb">
+        <div className="tb-title">A Christmas Carol · Charles Dickens</div>
+        <div className="tb-center">
+          Stave {chap}
+          <span className="sep">·</span>
+          Page {page} of {total}
+        </div>
+        <div className="tb-right">
+          <span className="prog"><span className="dot"/> {percent}% read</span>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // State A · Clean reading mid-book, no fog
+    // ─────────────────────────────────────────────────────────────
+    const SceneClean = () => (
+      <div className="stage">
+        <TopBar page={9} total={47} percent={48}/>
+        <div className="work">
+          <Chapters currentCh={3} cutoffCh={5}/>
+          <div className="book-stage">
+            <button className="turn left" title="Previous page"><IcArrowL size={18}/></button>
+            <div className="book">
+              <div className="page">
+                <div className="page-chap">Stave III</div>
+                <div className="prose">
+                  <p>Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.</p>
+                  <p>The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened. The crisp leaves of holly, mistletoe, and ivy reflected back the light, as if so many little mirrors had been scattered there.</p>
+                  <p>Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts, cherry-cheeked apples, juicy pears, immense twelfth-cakes, and seething bowls of punch.</p>
+                  <p>In easy state upon this couch, there sat a jolly Giant, glorious to see, who bore a glowing torch, in shape not unlike Plenty's horn.</p>
+                </div>
+                <div className="folio">
+                  <span>The Second of the Three Spirits</span>
+                  <span className="n">9 / 47</span>
+                </div>
+              </div>
+            </div>
+            <button className="turn right" title="Next page"><IcArrowR size={18}/></button>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // State B · Cutoff word visible on its page (pencil mark)
+    // ─────────────────────────────────────────────────────────────
+    const SceneCutoff = () => (
+      <div className="stage">
+        <TopBar page={12} total={47} percent={54}/>
+        <div className="work">
+          <Chapters currentCh={3} cutoffCh={3}/>
+          <div className="book-stage">
+            <button className="turn left" title="Previous page"><IcArrowL size={18}/></button>
+            <div className="book">
+              <div className="page">
+                <div className="page-chap">Stave III — continued</div>
+                <div className="prose">
+                  <p>"Come in!" exclaimed the Ghost. "Come in! and know me better, man!" Scrooge entered timidly, and hung his head before this Spirit. He was not the dogged Scrooge he had been; and though the Spirit's eyes were clear and kind, he did not like to meet them.</p>
+                  <p>"I am the Ghost of Christmas Present," said the Spirit. "Look upon me!"</p>
+                  <p>Scrooge reverently did so. It was clothed in one simple green robe, or mantle, bordered with white fur. This garment hung so loosely on the figure, that its capacious breast was bare, as if disdaining to be warded or concealed by any artifice. Its feet, observable beneath the ample folds of the garment, were also bare; and on its head it wore no other covering than a holly wreath, set here and there with shining icicles.</p>
+                  <p>Its dark brown curls were long and free; free as its genial face, its sparkling eye, its open hand, its cheery voice, its unconstrained demeanour, and its joyful air. Girded round its middle was an antique scabbard; but no sword was in it, and the ancient sheath was eaten up with <span className="cutoff">rust</span>.</p>
+                </div>
+                <div className="folio">
+                  <span>The Second of the Three Spirits</span>
+                  <span className="n">12 / 47</span>
+                </div>
+              </div>
+              <div className="cutoff-pill">
+                <span>Reading up to</span>
+                <span className="word">"rust"</span>
+                <span className="meta">· Stave III · Pg 12</span>
+                <span className="lock"><IcLock size={11}/></span>
+              </div>
+            </div>
+            <button className="turn right" title="Next page"><IcArrowR size={18}/></button>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // State C · Fog of war — user flipped past the cutoff
+    // ─────────────────────────────────────────────────────────────
+    const SceneFog = () => (
+      <div className="stage">
+        <TopBar page={13} total={47} percent={54}/>
+        <div className="work">
+          <Chapters currentCh={3} cutoffCh={3}/>
+          <div className="book-stage">
+            <button className="turn left" title="Previous page"><IcArrowL size={18}/></button>
+            <div className="book">
+              <div className="page">
+                <div className="page-chap" style={{ opacity: .4 }}>Stave III — continued</div>
+                <div className="prose fogged-prose">
+                  <p>From the hollow of its torch, as it was raised above his head, there sprung up many strange shapes and scenes. On Scrooge and the Ghost the streets and squares they passed seemed to brighten, and the windows of the houses threw down a friendlier light.</p>
+                  <p>The people who were shovelling away on the housetops were jovial and full of glee; calling out to one another from the parapets, and now and then exchanging a facetious snowball — better-natured missile far than many a wordy jest — laughing heartily if it went right, and not less heartily if it went wrong.</p>
+                  <p>The poulterers' shops were still half open, and the fruiterers' were radiant in their glory.</p>
+                </div>
+                <div className="folio" style={{ opacity: .3 }}>
+                  <span>The Second of the Three Spirits</span>
+                  <span className="n">13 / 47</span>
+                </div>
+              </div>
+
+              <div className="fog">
+                <div className="fog-card">
+                  <div className="fog-lock"><IcLockLarge size={22}/></div>
+                  <div className="fog-title">Spoiler protection active</div>
+                  <div className="fog-sub">You've marked your progress up to <em>"rust"</em> on page 12. The rest of the chapter waits for you.</div>
+                  <button className="fog-btn">I've read this — unlock this page</button>
+                </div>
+              </div>
+
+              <div className="cutoff-pill">
+                <span>Reading up to</span>
+                <span className="word">"rust"</span>
+                <span className="meta">· Stave III · Pg 12</span>
+                <span className="lock"><IcLock size={11}/></span>
+              </div>
+            </div>
+            <button className="turn right" title="Next page"><IcArrowR size={18}/></button>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // State D · Cutoff pill popover open (edit progress)
+    // ─────────────────────────────────────────────────────────────
+    const SceneEdit = () => (
+      <div className="stage">
+        <TopBar page={12} total={47} percent={54}/>
+        <div className="work">
+          <Chapters currentCh={3} cutoffCh={3}/>
+          <div className="book-stage">
+            <button className="turn left" title="Previous page"><IcArrowL size={18}/></button>
+            <div className="book">
+              <div className="page">
+                <div className="page-chap">Stave III — continued</div>
+                <div className="prose">
+                  <p>"Come in!" exclaimed the Ghost. "Come in! and know me better, man!" Scrooge entered timidly, and hung his head before this Spirit.</p>
+                  <p>"I am the Ghost of Christmas Present," said the Spirit. "Look upon me!"</p>
+                  <p>Its dark brown curls were long and free. Girded round its middle was an antique scabbard; but no sword was in it, and the ancient sheath was eaten up with <span className="cutoff">rust</span>.</p>
+                </div>
+                <div className="folio">
+                  <span>The Second of the Three Spirits</span>
+                  <span className="n">12 / 47</span>
+                </div>
+              </div>
+
+              <div className="cutoff-pill" style={{ borderColor: 'var(--accent)' }}>
+                <span>Reading up to</span>
+                <span className="word">"rust"</span>
+                <span className="meta">· Stave III · Pg 12</span>
+                <span className="lock"><IcLock size={11}/></span>
+              </div>
+
+              <div className="cutoff-pop">
+                <div style={{ fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 10 }}>Update your progress</div>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink-1)', lineHeight: 1.55, marginBottom: 14 }}>
+                  Click any word on the current page to set it as your new stopping point.
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ flex: 1, padding: '8px 12px', background: 'var(--paper-0)', borderRadius: 'var(--r-md)', fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink-1)' }}>
+                    Current: <em>"rust"</em> <span style={{ color: 'var(--ink-3)' }}>· Pg 12</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button style={{ background: 'none', border: 0, color: 'var(--ink-2)', fontFamily: 'var(--sans)', fontSize: 12, cursor: 'pointer', padding: '6px 4px' }}>
+                    Clear progress
+                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button style={{ padding: '6px 12px', background: 'var(--paper-1)', border: 0, borderRadius: 999, fontSize: 12, color: 'var(--ink-1)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+                      Jump to cutoff
+                    </button>
+                    <button style={{ padding: '6px 14px', background: 'var(--ink-0)', color: 'var(--paper-00)', border: 0, borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button className="turn right" title="Next page"><IcArrowR size={18}/></button>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // Canvas
+    // ─────────────────────────────────────────────────────────────
+    const Frame = ({ children }) => (
+      <div style={{ width: '100%', height: '100%', background: 'var(--paper-0)', overflow: 'hidden' }}>{children}</div>
+    );
+
+    const App = () => (
+      <DesignCanvas>
+        <DCSection id="hero" title="A physical book at rest"
+          subtitle="Kindle-style paginated reader. Book centered on the desk. Page-turn arrows sit outside the edges. No card UI, no clusters — just the object.">
+          <DCArtboard id="clean" label="A · Clean reading" width={1280} height={1040}>
+            <Frame><SceneClean/></Frame>
+          </DCArtboard>
+          <DCArtboard id="cutoff" label="B · Cutoff word on its page (pencil mark)" width={1280} height={1040}>
+            <Frame><SceneCutoff/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="fog" title="Fog of war"
+          subtitle="Turn past the cutoff and the next page blurs behind a soft lock. The text is there — you just can't read it yet. One-click override for when you really did read it.">
+          <DCArtboard id="fog-state" label="C · Spoiler protection triggered" width={1280} height={1040}>
+            <Frame><SceneFog/></Frame>
+          </DCArtboard>
+          <DCArtboard id="edit" label="D · Editing your progress" width={1280} height={1040}>
+            <Frame><SceneEdit/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCPostIt top={20} left={60} rotate={-1.5} width={260}>
+          The book has a subtle page-stack shadow so it feels like an object, not a panel. Drop cap, folio, running title — bookish, restrained.
+        </DCPostIt>
+        <DCPostIt top={20} left={360} rotate={1.5} width={260}>
+          Pencil underline is a warm graphite tint — not a highlighter. Reads as "my pencil mark", not as "system highlight."
+        </DCPostIt>
+      </DesignCanvas>
+    );
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

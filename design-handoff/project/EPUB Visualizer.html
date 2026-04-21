@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · EPUB Visualizer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; height: 100%; }
+  @keyframes brPulse { 0% { box-shadow: 0 0 0 0 currentColor; opacity: 1; } 70% { box-shadow: 0 0 0 6px transparent; opacity: .65; } 100% { box-shadow: 0 0 0 0 transparent; opacity: 1; } }
+  @keyframes brBlink { 50% { opacity: 0; } }
+  .br-tt:hover .br-tt-bubble { opacity: 1 !important; }
+
+  /* ── The reader ── */
+  .reader { font-family: var(--serif); font-size: 18px; line-height: 1.75; color: var(--ink-0); }
+  .reader h2 { font-family: var(--serif); font-weight: 400; font-size: 30px; letter-spacing: -.5px; line-height: 1.15; margin: 40px 0 28px; color: var(--ink-0); }
+  .reader p { margin: 0 0 22px; text-wrap: pretty; }
+  .reader .chap-meta { font-family: var(--sans); font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--ink-3); }
+  .reader .chap-num { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink-2); letter-spacing: .4px; margin-bottom: 4px; }
+
+  /* Word: the primary interactive surface. Stays invisible unless hovered
+     (so plain reading looks like plain reading). Hover gets a thin
+     pencil-preview underline; cutoff word gets the committed pencil mark. */
+  .w {
+    cursor: pointer;
+    transition: color var(--dur) var(--ease);
+  }
+  .w:hover {
+    /* faint preview — suggests "you could mark here" */
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--accent) 45%, transparent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  .w.cutoff {
+    /* the committed pencil-thin underline — warm, restrained */
+    text-decoration: underline;
+    text-decoration-color: oklch(58% 0.1 55);  /* pencil graphite, warm */
+    text-decoration-thickness: 1.2px;
+    text-underline-offset: 3px;
+    color: var(--ink-0);
+  }
+
+  /* Fog-of-war — everything after the cutoff gets this container.
+     Progressive blur achieved by layered spans (easier than filter-graph):
+     outer wrapper uses css filter with a mask so blur deepens downward. */
+  .fog {
+    position: relative;
+    filter: blur(1.2px);
+    transition: filter var(--dur-slow) var(--ease);
+    user-select: none;
+  }
+  .fog-deep {
+    /* used on chunks further down — adds cumulative blur */
+    filter: blur(5px);
+  }
+  .fog-deepest {
+    filter: blur(8.5px);
+  }
+  /* Wash that deepens with depth — sits above the blurred text */
+  .fog-wash {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to bottom,
+      transparent 0%,
+      color-mix(in oklab, var(--paper-0) 25%, transparent) 40%,
+      color-mix(in oklab, var(--paper-0) 55%, transparent) 75%,
+      color-mix(in oklab, var(--paper-0) 80%, transparent) 100%);
+    pointer-events: none;
+  }
+
+  /* Chapter divider that shows when a chapter is fully fogged */
+  .chap-veil {
+    margin: 32px 0; padding: 14px 0;
+    display: flex; align-items: center; gap: 10px;
+    color: var(--ink-3); font-family: var(--sans); font-size: 12px; letter-spacing: .3px;
+    border-top: 1px dashed var(--paper-3);
+    border-bottom: 1px dashed var(--paper-3);
+    justify-content: center;
+  }
+
+  /* Floating cutoff pill */
+  .cutoff-pill {
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 9px 14px 9px 16px;
+    background: var(--paper-00); color: var(--ink-1);
+    border: 1px solid var(--paper-2);
+    box-shadow: var(--shadow-2);
+    border-radius: 999px;
+    font-family: var(--sans); font-size: 12.5px; letter-spacing: .2px;
+    cursor: pointer; transition: all var(--dur) var(--ease);
+    z-index: 5;
+  }
+  .cutoff-pill:hover { box-shadow: var(--shadow-3); transform: translateX(-50%) translateY(-1px); }
+  .cutoff-pill .word {
+    font-family: var(--serif); font-style: italic; font-weight: 500; color: var(--ink-0);
+    max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cutoff-pill .sep { color: var(--ink-4); }
+  .cutoff-pill .meta { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .cutoff-pill .lock { color: var(--accent); display: inline-flex; }
+  .cutoff-pill button {
+    margin-left: 4px; background: none; border: 0; color: var(--ink-3);
+    font-family: inherit; font-size: 11px; cursor: pointer; padding: 2px 6px;
+    border-radius: 4px; transition: all var(--dur) var(--ease);
+  }
+  .cutoff-pill button:hover { background: var(--paper-1); color: var(--ink-1); }
+
+  /* Top bar */
+  .tb { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; border-bottom: 1px solid var(--paper-2);
+    background: color-mix(in oklab, var(--paper-0) 85%, transparent);
+    backdrop-filter: saturate(140%) blur(12px);
+    font-family: var(--sans); height: 56px; box-sizing: border-box;
+    position: relative; z-index: 10;
+  }
+  .tb-left { display: flex; align-items: center; gap: 14px; color: var(--ink-1); }
+  .tb-title { font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--ink-0); letter-spacing: -.2px; }
+  .tb-sub { font-family: var(--sans); font-size: 12px; color: var(--ink-3); }
+
+  /* Sidebar */
+  .sb { width: 240px; border-right: 1px solid var(--paper-2); padding: 20px 0; font-family: var(--sans); }
+  .sb-h { padding: 6px 20px 14px; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink-3); }
+  .sb-row { padding: 9px 20px; display: grid; grid-template-columns: 22px 1fr auto; gap: 8px;
+    align-items: center; font-size: 13px; cursor: pointer; transition: background var(--dur) var(--ease); }
+  .sb-row:hover { background: var(--paper-1); }
+  .sb-row .n { font-family: var(--serif); font-style: italic; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .sb-row .t { color: var(--ink-0); font-size: 13px; letter-spacing: -.05px; }
+  .sb-row .ic { color: var(--ink-4); display: inline-flex; }
+  .sb-row.cur { background: var(--accent-softer); }
+  .sb-row.cur .n { color: var(--accent); }
+  .sb-row.cur .ic { color: var(--accent); }
+  .sb-row.done .t { color: var(--ink-2); }
+  .sb-row.done .ic { color: var(--ink-3); }
+  .sb-row.locked { cursor: not-allowed; }
+  .sb-row.locked .t { color: var(--ink-3); }
+  .sb-row.locked .n { color: var(--ink-4); }
+  .sb-row.locked .ic { color: var(--ink-4); }
+  .sb-note { padding: 18px 20px 0; margin-top: 8px; border-top: 1px solid var(--paper-2);
+    font-family: var(--serif); font-style: italic; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+  /* Progress pill in top bar */
+  .prog { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 11px;
+    background: var(--accent-softer); color: var(--accent-ink);
+    border-radius: 999px; font-family: var(--sans); font-size: 11.5px; font-weight: 500;
+    letter-spacing: .2px; font-variant-numeric: tabular-nums; }
+  .prog .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent); }
+
+  /* "Not set yet" state — a gentle hint at the bottom */
+  .setup-hint {
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 11px 18px;
+    background: var(--paper-00); color: var(--ink-1);
+    border: 1px dashed var(--paper-3);
+    border-radius: 999px;
+    font-family: var(--sans); font-size: 12.5px;
+    z-index: 5;
+  }
+  .setup-hint .kbd {
+    font-family: var(--mono); font-size: 10.5px; padding: 2px 6px;
+    background: var(--paper-1); border-radius: 4px; color: var(--ink-2);
+  }
+
+  .sb-toggle { cursor: pointer; color: var(--ink-2); display: inline-flex; padding: 4px; border-radius: 4px; transition: background var(--dur); }
+  .sb-toggle:hover { background: var(--paper-1); color: var(--ink-0); }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+
+  <script>
+    document.documentElement.dataset.paper = 'linen';
+    document.documentElement.dataset.accent = 'sage';
+    document.documentElement.dataset.radii = 'balanced';
+  </script>
+
+  <script type="text/babel">
+    // ── Chapter data: A Christmas Carol excerpts ──────────────────
+    const CHAPTERS = [
+      { n: 1, title: "Marley's Ghost", pct: '0–25%' },
+      { n: 2, title: "The First of the Three Spirits", pct: '25–48%' },
+      { n: 3, title: "The Second of the Three Spirits", pct: '48–72%' },
+      { n: 4, title: "The Last of the Spirits", pct: '72–92%' },
+      { n: 5, title: "The End of It", pct: '92–100%' },
+    ];
+
+    const PARAS = {
+      1: [
+        "Marley was dead, to begin with. There is no doubt whatever about that. The register of his burial was signed by the clergyman, the clerk, the undertaker, and the chief mourner. Scrooge signed it. And Scrooge's name was good upon 'Change for anything he chose to put his hand to.",
+        "Old Marley was as dead as a door-nail. Mind! I don't mean to say that I know, of my own knowledge, what there is particularly dead about a door-nail.",
+        "Scrooge knew he was dead? Of course he did. How could it be otherwise? Scrooge and he were partners for I don't know how many years. Scrooge was his sole executor, his sole administrator, his sole assign, his sole residuary legatee, his sole friend, and sole mourner.",
+      ],
+      2: [
+        "Oh! But he was a tight-fisted hand at the grindstone, Scrooge! a squeezing, wrenching, grasping, scraping, clutching, covetous, old sinner! Hard and sharp as flint, from which no steel had ever struck out generous fire; secret, and self-contained, and solitary as an oyster.",
+        "The cold within him froze his old features, nipped his pointed nose, shrivelled his cheek, stiffened his gait; made his eyes red, his thin lips blue, and spoke out shrewdly in his grating voice.",
+      ],
+      3: [
+        "External heat and cold had little influence on Scrooge. No warmth could warm, no wintry weather chill him. No wind that blew was bitterer than he, no falling snow was more intent upon its purpose, no pelting rain less open to entreaty.",
+        "Foul weather didn't know where to have him. The heaviest rain, and snow, and hail, and sleet, could boast of the advantage over him in only one respect.",
+        "They often 'came down' handsomely, and Scrooge never did. Nobody ever stopped him in the street to say, with gladsome looks, \"My dear Scrooge, how are you? When will you come to see me?\"",
+      ],
+    };
+
+    // ── Word tokenizer that preserves spacing and punctuation ─────
+    // Returns [{ word, suffix }] — each word followed by whatever spacing
+    // or punctuation came after. Clicking a "word" sets the cutoff there.
+    function tokenize(text) {
+      const out = [];
+      const re = /(\S+?)([\s.,;:!?"'’”“\-–—)(]+|$)/g;
+      let m;
+      while ((m = re.exec(text))) {
+        if (!m[1]) break;
+        out.push({ word: m[1], suffix: m[2] || '' });
+      }
+      return out;
+    }
+
+    // ── The reader column ─────────────────────────────────────────
+    // cutoff = { ch, pIdx, wIdx } | null
+    // Renders paragraphs; everything after cutoff gets a .fog container
+    // with progressively deeper blur as depth increases.
+    function Reader({ cutoff, onWordClick, hoverPreview, fogDepthOverride }) {
+      const chaptersToRender = [1, 2, 3]; // current chapter is 3
+      let fogStarted = cutoff == null; // if no cutoff, nothing is fogged
+      fogStarted = false;
+      // Walk through and emit chunks, splitting a paragraph at the cutoff word
+      // into "pre" (sharp) and "post" (fog).
+      const out = [];
+      let depth = 0; // in "fog steps" — 0 = sharp, 1 = light, 2 = deep, 3 = deepest
+
+      for (const chNum of chaptersToRender) {
+        const ch = CHAPTERS.find(c => c.n === chNum);
+        out.push(
+          <React.Fragment key={`ch-${chNum}`}>
+            <div className="chap-num">Stave {['','I','II','III','IV','V'][chNum]}</div>
+            <h2>{ch.title}</h2>
+          </React.Fragment>
+        );
+
+        const paras = PARAS[chNum] || [];
+        paras.forEach((text, pIdx) => {
+          const tokens = tokenize(text);
+
+          // Does cutoff land inside this paragraph?
+          const hitsHere = cutoff && cutoff.ch === chNum && cutoff.pIdx === pIdx;
+          // Has cutoff already been passed (we're in a later para)?
+          const afterCutoff = cutoff && (
+            chNum > cutoff.ch ||
+            (chNum === cutoff.ch && pIdx > cutoff.pIdx)
+          );
+
+          if (cutoff == null) {
+            // no cutoff — render entire paragraph sharp, all interactive
+            out.push(
+              <p key={`p-${chNum}-${pIdx}`}>
+                {tokens.map((tok, wIdx) => (
+                  <React.Fragment key={wIdx}>
+                    <span className="w" onClick={() => onWordClick(chNum, pIdx, wIdx)}>
+                      {tok.word}
+                    </span>{tok.suffix}
+                  </React.Fragment>
+                ))}
+              </p>
+            );
+          } else if (hitsHere) {
+            // split paragraph at cutoff word
+            const cutIdx = cutoff.wIdx;
+            const pre = tokens.slice(0, cutIdx);
+            const cutTok = tokens[cutIdx];
+            const post = tokens.slice(cutIdx + 1);
+            out.push(
+              <p key={`p-${chNum}-${pIdx}`}>
+                {pre.map((tok, wIdx) => (
+                  <React.Fragment key={wIdx}>
+                    <span className="w">{tok.word}</span>{tok.suffix}
+                  </React.Fragment>
+                ))}
+                <span className="w cutoff">{cutTok.word}</span>{cutTok.suffix}
+                {post.length > 0 && (
+                  <span className="fog" style={{ filter: `blur(${1 + depth * 2}px)` }}>
+                    {post.map((tok, wIdx) => (
+                      <React.Fragment key={wIdx}>
+                        <span>{tok.word}</span>{tok.suffix}
+                      </React.Fragment>
+                    ))}
+                  </span>
+                )}
+              </p>
+            );
+            depth = 1;
+          } else if (afterCutoff) {
+            // fully fogged paragraph; depth grows
+            const blurClass = depth <= 1 ? 'fog' : depth === 2 ? 'fog fog-deep' : 'fog fog-deepest';
+            out.push(
+              <p key={`p-${chNum}-${pIdx}`} className={blurClass}>
+                {tokens.map((tok, wIdx) => (
+                  <React.Fragment key={wIdx}>
+                    <span>{tok.word}</span>{tok.suffix}
+                  </React.Fragment>
+                ))}
+              </p>
+            );
+            depth = Math.min(3, depth + (pIdx === 0 ? 1 : 1));
+          } else {
+            // before cutoff, prior paragraph — sharp
+            out.push(
+              <p key={`p-${chNum}-${pIdx}`}>
+                {tokens.map((tok, wIdx) => (
+                  <React.Fragment key={wIdx}>
+                    <span className="w" onClick={() => onWordClick(chNum, pIdx, wIdx)}>
+                      {tok.word}
+                    </span>{tok.suffix}
+                  </React.Fragment>
+                ))}
+              </p>
+            );
+          }
+        });
+      }
+
+      // Future chapters — collapse each into a single "spoiler veil" row
+      const futureCh = chaptersToRender[chaptersToRender.length - 1];
+      const lastShown = cutoff && cutoff.ch > futureCh ? cutoff.ch : futureCh;
+      for (const c of CHAPTERS) {
+        if (c.n > lastShown) {
+          out.push(
+            <div className="chap-veil" key={`veil-${c.n}`}>
+              <IcLock size={12}/>
+              <span style={{ fontStyle: 'italic', fontFamily: 'var(--serif)', color: 'var(--ink-2)' }}>Stave {['','I','II','III','IV','V'][c.n]} · {c.title}</span>
+              <span style={{ color: 'var(--ink-4)' }}>·</span>
+              <span>Spoiler protection active</span>
+            </div>
+          );
+        }
+      }
+
+      return <div className="reader">{out}</div>;
+    }
+
+    // ── Sidebar ────────────────────────────────────────────────────
+    function Sidebar({ cutoffCh, currentCh }) {
+      return (
+        <aside className="sb">
+          <div className="sb-h">Contents</div>
+          {CHAPTERS.map((c) => {
+            // If no cutoff, first chapter is "current" (the starting point).
+            const beyond = cutoffCh != null ? c.n > cutoffCh : false;
+            const done = cutoffCh != null && c.n < cutoffCh;
+            const cur  = cutoffCh != null && c.n === cutoffCh;
+            const cls = cur ? 'sb-row cur' : beyond ? 'sb-row locked' : done ? 'sb-row done' : 'sb-row';
+            return (
+              <div key={c.n} className={cls}
+                title={beyond ? "You haven't read this yet." : ''}>
+                <span className="n">{['','I','II','III','IV','V'][c.n]}.</span>
+                <span className="t">{c.title}</span>
+                <span className="ic">
+                  {beyond ? <IcLock size={12}/> : cur ? <IcDot size={8}/> : done ? <IcCheck size={12}/> : null}
+                </span>
+              </div>
+            );
+          })}
+          <div className="sb-note">
+            Click the last word you've read to set your progress. Everything beyond it is hidden.
+          </div>
+        </aside>
+      );
+    }
+
+    // ── Top bar ────────────────────────────────────────────────────
+    function TopBar({ cutoff, onToggleSidebar }) {
+      const cur = cutoff ? CHAPTERS.find(c => c.n === cutoff.ch) : null;
+      // Rough pct — fake it based on chapter and paragraph
+      const pct = cutoff ? Math.round(((cutoff.ch - 1) / CHAPTERS.length + (cutoff.pIdx + 1) / 10) * 100) : null;
+      return (
+        <div className="tb">
+          <div className="tb-left">
+            <span className="sb-toggle" onClick={onToggleSidebar} title="Toggle contents">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 3h10M2 7h10M2 11h10"/></svg>
+            </span>
+            <span className="tb-title">A Christmas Carol</span>
+            <span className="tb-sub">Charles Dickens</span>
+          </div>
+          {cutoff ? (
+            <span className="prog">
+              <span className="dot"/> Reading up to: Chapter {cur.n} · ~{Math.min(99, Math.max(1, pct))}%
+            </span>
+          ) : (
+            <span className="prog" style={{ background: 'var(--paper-1)', color: 'var(--ink-3)', fontStyle: 'italic' }}>
+              Reading up to: <span style={{ textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}>click a word below</span>
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    // ── Cutoff pill (floating) ─────────────────────────────────────
+    function CutoffPill({ cutoff, onClear }) {
+      if (!cutoff) return null;
+      const cur = CHAPTERS.find(c => c.n === cutoff.ch);
+      const word = cutoff.word;
+      const pct = Math.round(((cutoff.ch - 1) / CHAPTERS.length + (cutoff.pIdx + 1) / 10) * 100);
+      return (
+        <div className="cutoff-pill">
+          <span style={{ color: 'var(--ink-3)' }}>Reading up to:</span>
+          <span className="word">“{word}”</span>
+          <span className="sep">·</span>
+          <span className="meta">Ch. {cur.n} · {Math.min(99, Math.max(1, pct))}%</span>
+          <span className="lock"><IcLock size={12}/></span>
+          <button onClick={onClear}>Clear</button>
+        </div>
+      );
+    }
+
+    function SetupHint() {
+      return (
+        <div className="setup-hint">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
+            <path d="M6 2.5L11 8l-2.5 1 1 2.5-1.5.6-1-2.5L5 11.5v-9z"/>
+          </svg>
+          <span style={{ color: 'var(--ink-1)' }}>
+            <strong style={{ fontWeight: 500, color: 'var(--ink-0)' }}>Click</strong> the last word you've read
+            <span style={{ color: 'var(--ink-3)' }}> — everything after it will blur.</span>
+          </span>
+        </div>
+      );
+    }
+
+    // ── The full visualizer — one screen ──────────────────────────
+    function Visualizer({ initialCutoff, showHover, frozenHover }) {
+      const [cutoff, setCutoff] = React.useState(initialCutoff || null);
+
+      const handleWord = (ch, pIdx, wIdx) => {
+        const tokens = tokenize(PARAS[ch][pIdx]);
+        setCutoff({ ch, pIdx, wIdx, word: tokens[wIdx].word });
+      };
+
+      // hover-preview state used in the "hover" artboard — render a faux hover
+      // class on a chosen word via effect
+      React.useEffect(() => {
+        if (!frozenHover) return;
+        const el = document.querySelector(frozenHover);
+        if (el) el.style.textDecoration = 'underline',
+                el.style.textDecorationColor = 'color-mix(in oklab, var(--accent) 55%, transparent)',
+                el.style.textDecorationThickness = '1px',
+                el.style.textUnderlineOffset = '3px';
+      }, [frozenHover]);
+
+      const cutoffCh = cutoff ? cutoff.ch : null;
+      return (
+        <div className="br" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--paper-0)' }}>
+          <TopBar cutoff={cutoff} onToggleSidebar={() => {}}/>
+          <div style={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
+            <Sidebar cutoffCh={cutoffCh} currentCh={3}/>
+            <main style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+              <div style={{ maxWidth: 680, margin: '0 auto', padding: '48px 40px 140px' }}>
+                <Reader cutoff={cutoff} onWordClick={handleWord}/>
+              </div>
+              {cutoff ? (
+                <CutoffPill cutoff={cutoff} onClear={() => setCutoff(null)}/>
+              ) : (
+                <SetupHint/>
+              )}
+            </main>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Canvas with 3 artboards (states) ───────────────────────────
+    const Frame = ({ children }) => (
+      <div style={{ width: '100%', height: '100%', background: 'var(--paper-0)', overflow: 'hidden' }}>
+        {children}
+      </div>
+    );
+
+    const App = () => (
+      <DesignCanvas>
+        <DCSection id="visualizer" title="EPUB Visualizer — three states"
+          subtitle="Click words in any artboard to set a cutoff live. Focus (expand) an artboard to use it fullscreen.">
+          <DCArtboard id="state-empty" label="A · No progress set" width={1280} height={860}>
+            <Frame><Visualizer initialCutoff={null}/></Frame>
+          </DCArtboard>
+
+          <DCArtboard id="state-set" label="B · Progress set, fog active" width={1280} height={860}>
+            <Frame>
+              <Visualizer initialCutoff={{ ch: 3, pIdx: 0, wIdx: 14, word: 'entreaty' }}/>
+            </Frame>
+          </DCArtboard>
+
+          <DCArtboard id="state-hover" label="C · Hover preview mid-read" width={1280} height={860}>
+            <Frame>
+              <Visualizer
+                initialCutoff={{ ch: 2, pIdx: 1, wIdx: 8, word: 'gait' }}
+                frozenHover={'.dc-card [data-dc-slot="state-hover"] .w-preview'}
+              />
+            </Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCPostIt top={20} left={60} rotate={-1.5} width={220}>
+          Words are plain DOM spans. epub.js handles CFI tracking; rendering + hover + blur happen in pure CSS+React.
+        </DCPostIt>
+      </DesignCanvas>
+    );
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

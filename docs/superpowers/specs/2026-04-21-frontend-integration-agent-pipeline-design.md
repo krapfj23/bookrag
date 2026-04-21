@@ -6,7 +6,7 @@
 
 ## Problem
 
-The BookRAG backend is complete through 7 pipeline stages and exposes a FastAPI surface (`/upload`, `/status`, `/query`, `/graph`, etc.). A Claude-designed frontend handoff exists at `/tmp/bookrag-handoff/bookrag/project/` as unbuilt React JSX + `tokens.css` with three screens (Library, Reading+Chat, Upload). No frontend scaffold exists in the repo. A thin set of new backend endpoints is also missing (`GET /books`, chapter serving).
+The BookRAG backend is complete through 7 pipeline stages and exposes a FastAPI surface (`/upload`, `/status`, `/query`, `/graph`, etc.). A Claude-designed frontend handoff lives in the repo at `design-handoff/project/` as unbuilt React JSX + `tokens.css` with three screens (Library, Reading+Chat, Upload); `design-handoff/README.md` is the handoff instructions from Claude Design (read pixel-perfect, don't render in browser unless asked). No frontend scaffold exists in the repo. A thin set of new backend endpoints is also missing (`GET /books`, chapter serving).
 
 The goal is to integrate the handoff into a working app, end-to-end, without accumulating scope drift or skipping verification.
 

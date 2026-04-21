@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · Reading · Notes · Queries</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; height: 100%; font-family: var(--sans); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* reading typography */
+  .reader { font-family: var(--serif); font-size: 18px; line-height: 1.75; color: var(--ink-0); }
+  .reader h2 { font-family: var(--serif); font-weight: 400; font-size: 28px; letter-spacing: -.5px; margin: 24px 0 20px; }
+  .reader p { margin: 0 0 20px; text-wrap: pretty; position: relative; }
+  .chap-num { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink-2); letter-spacing: .4px; margin-bottom: 4px; }
+
+  /* selection */
+  .sel { background: color-mix(in oklab, var(--accent-soft) 80%, transparent); padding: 0 1px; }
+
+  /* ask chip — two actions */
+  .ask-chip {
+    position: absolute; display: inline-flex; align-items: stretch;
+    background: var(--ink-0); color: var(--paper-00);
+    border-radius: 999px; font-family: var(--sans); font-size: 12.5px;
+    font-weight: 500; letter-spacing: .1px;
+    box-shadow: 0 4px 14px rgba(32,28,22,.22), 0 1px 3px rgba(0,0,0,.1);
+    animation: fadeUp 180ms var(--ease-out);
+    overflow: hidden;
+  }
+  .ask-chip::before {
+    content: ''; position: absolute; bottom: -4px; left: 24px;
+    width: 8px; height: 8px; background: var(--ink-0); transform: rotate(45deg);
+  }
+  .ask-chip button {
+    background: none; border: 0; color: inherit;
+    padding: 7px 12px; display: inline-flex; align-items: center; gap: 7px;
+    cursor: pointer; font: inherit; font-weight: 500;
+    transition: background var(--dur);
+  }
+  .ask-chip button:hover { background: rgba(255,255,255,.08); }
+  .ask-chip .div { width: 1px; background: rgba(255,255,255,.14); }
+  .ask-chip kbd { font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; background: rgba(255,255,255,.14); border-radius: 3px; color: rgba(255,255,255,.8); }
+
+  /* margin indicators */
+  .margin-mark {
+    position: absolute; left: -28px; top: 6px; width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 999px; cursor: pointer;
+    transition: all var(--dur);
+  }
+  .margin-mark.note {
+    color: color-mix(in oklab, var(--accent-ink) 70%, var(--ink-2));
+    background: var(--paper-00); border: 1px dashed color-mix(in oklab, var(--accent) 50%, var(--paper-3));
+  }
+  .margin-mark.note:hover { background: var(--accent-softer); border-color: var(--accent); }
+  .margin-mark.query { color: var(--accent); background: var(--accent-softer); }
+
+  /* veil — forward page during query */
+  .veil { filter: blur(6px); transition: filter var(--dur-slow) var(--ease); user-select: none; pointer-events: none; }
+
+  /* top bar */
+  .tb { display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 22px; border-bottom: 1px solid var(--paper-2);
+    background: color-mix(in oklab, var(--paper-0) 85%, transparent);
+    height: 52px; box-sizing: border-box; }
+  .tb-title { font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--ink-0); }
+  .tb-sub { font-size: 12px; color: var(--ink-3); margin-left: 10px; }
+  .prog { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 11px;
+    background: var(--accent-softer); color: var(--accent-ink);
+    border-radius: 999px; font-size: 11px; font-weight: 500; letter-spacing: .2px; font-variant-numeric: tabular-nums; }
+  .prog .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent); }
+
+  /* side panel */
+  .panel { display: flex; flex-direction: column; width: 400px; border-left: 1px solid var(--paper-2); background: color-mix(in oklab, var(--paper-0) 92%, var(--paper-1)); }
+  .panel-tabs { display: flex; border-bottom: 1px solid var(--paper-2); padding: 0 16px; gap: 2px; }
+  .panel-tabs button { background: none; border: 0; padding: 14px 14px 12px; font-family: var(--sans); font-size: 12.5px; font-weight: 500; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 6px; letter-spacing: .1px; }
+  .panel-tabs button.active { color: var(--ink-0); border-bottom-color: var(--ink-0); }
+  .panel-tabs .count { background: var(--paper-2); color: var(--ink-2); font-size: 10.5px; padding: 1px 6px; border-radius: 999px; font-weight: 500; }
+  .panel-tabs button.active .count { background: var(--ink-0); color: var(--paper-00); }
+
+  /* private chip — notes are not AI-readable */
+  .private-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 7px; background: var(--paper-1); color: var(--ink-2);
+    border-radius: 3px; font-family: var(--mono); font-size: 9.5px;
+    letter-spacing: .4px; text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* tag pills */
+  .tag {
+    display: inline-flex; align-items: center; padding: 1px 7px;
+    background: color-mix(in oklab, var(--accent-softer) 80%, var(--paper-0));
+    color: var(--accent-ink); border-radius: 3px;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    cursor: pointer; white-space: nowrap;
+  }
+  .tag:hover { background: var(--accent-soft); }
+  .tag.all { background: var(--paper-1); color: var(--ink-2); }
+  .tag.active { background: var(--ink-0); color: var(--paper-00); }
+
+  /* note card in panel */
+  .note-card {
+    background: var(--paper-00); border-radius: var(--r-lg);
+    border: 1px solid var(--paper-2);
+    padding: 14px 16px; margin-bottom: 10px;
+    position: relative;
+  }
+  .note-card .embed {
+    border-left: 2px solid var(--accent); padding: 2px 0 2px 10px;
+    font-family: var(--serif); font-style: italic; font-size: 12.5px;
+    color: var(--ink-2); line-height: 1.45; margin-bottom: 10px;
+  }
+  .note-card .body {
+    font-family: var(--serif); font-size: 14.5px; line-height: 1.55; color: var(--ink-0);
+    text-wrap: pretty;
+  }
+  .note-card .meta {
+    margin-top: 10px; display: flex; align-items: center; gap: 8px; justify-content: space-between;
+    font-family: var(--sans); font-size: 10.5px; color: var(--ink-3);
+  }
+  .note-card .meta .tags { display: flex; gap: 4px; flex-wrap: wrap; }
+
+  /* query bubble */
+  .q-bubble {
+    padding: 10px 14px; background: var(--paper-1); border-radius: var(--r-lg);
+    border-bottom-left-radius: 2px; font-family: var(--serif); font-size: 14.5px; color: var(--ink-0);
+    margin-bottom: 14px;
+  }
+
+  .close-x { width: 26px; height: 26px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink-2); transition: all var(--dur); }
+  .close-x:hover { background: var(--paper-1); color: var(--ink-0); }
+
+  /* composer */
+  .composer { border-top: 1px solid var(--paper-2); padding: 12px 16px 14px; background: var(--paper-00); }
+  .composer .field {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 10px 12px; background: var(--paper-0); border: 1px solid var(--paper-2);
+    border-radius: var(--r-lg); cursor: text;
+  }
+  .composer .field .input { flex: 1; font-family: var(--serif); font-size: 14px; color: var(--ink-0); outline: none; min-height: 20px; }
+  .composer .field .input.empty::before { content: attr(data-placeholder); color: var(--ink-3); }
+  .composer .toolbar { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+
+  /* tiny hover popover for margin note */
+  .note-peek {
+    position: absolute; left: -16px; top: 32px;
+    width: 280px; padding: 12px 14px;
+    background: var(--paper-00); border: 1px solid var(--paper-2);
+    border-radius: var(--r-lg);
+    box-shadow: 0 8px 24px rgba(32,28,22,.12);
+    font-family: var(--serif); font-size: 13.5px; line-height: 1.5; color: var(--ink-1);
+    font-style: italic;
+    animation: fadeIn 160ms var(--ease-out);
+    z-index: 5;
+  }
+  .note-peek::before {
+    content: ''; position: absolute; top: -5px; left: 18px;
+    width: 8px; height: 8px; background: var(--paper-00);
+    border-left: 1px solid var(--paper-2); border-top: 1px solid var(--paper-2);
+    transform: rotate(45deg);
+  }
+  .note-peek .peek-tags { margin-top: 8px; display: flex; gap: 4px; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+
+  <script>
+    document.documentElement.dataset.paper = 'linen';
+    document.documentElement.dataset.accent = 'sage';
+    document.documentElement.dataset.radii = 'balanced';
+  </script>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    // shared TopBar
+    const TopBar = ({ mode }) => (
+      <div className="tb">
+        <div style={{ display: 'flex', alignItems: 'baseline' }}>
+          <span className="tb-title">A Christmas Carol</span>
+          <span className="tb-sub">Charles Dickens</span>
+        </div>
+        {mode === 'query' ? (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px 4px 9px', background: 'var(--ink-0)', color: 'var(--paper-00)', borderRadius: 999, fontSize: 11, fontWeight: 500, letterSpacing: .3 }}>
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/></svg>
+            Asking about a passage
+          </div>
+        ) : (
+          <span className="prog">
+            <span className="dot"/> Reading up to: Ch. 3 · 54%
+          </span>
+        )}
+      </div>
+    );
+
+    // ============================================================
+    // The 2-action chip (entry point)
+    // ============================================================
+    const DualChip = ({ top, left }) => (
+      <span className="ask-chip" style={{ top, left }}>
+        <button><IcSpark size={12}/> Ask about this <kbd>↵</kbd></button>
+        <span className="div"/>
+        <button><IcEdit size={12}/> Add note <kbd>N</kbd></button>
+      </span>
+    );
+
+    // Inline Icon fallbacks if icons.jsx doesn't have these
+    const IcEdit = (p) => (
+      <svg width={p.size||14} height={p.size||14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={p.style}>
+        <path d="M11.5 2.5l2 2-7.5 7.5H4V10l7.5-7.5zM10 4l2 2"/>
+      </svg>
+    );
+    const IcHash = (p) => (
+      <svg width={p.size||14} height={p.size||14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={p.style}>
+        <path d="M3 6h10M3 10h10M6 2l-2 12M12 2l-2 12"/>
+      </svg>
+    );
+    const IcQuoteEmbed = (p) => (
+      <svg width={p.size||14} height={p.size||14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={p.style}>
+        <path d="M4 4v3H2v3h4V4H4zm6 0v3H8v3h4V4h-2z"/>
+      </svg>
+    );
+    const IcPrivate = (p) => (
+      <svg width={p.size||14} height={p.size||14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={p.style}>
+        <path d="M4.5 7.5h7v6h-7v-6zM6 7.5V5a2 2 0 0 1 4 0v2.5"/>
+      </svg>
+    );
+
+    // ============================================================
+    // Scene 1 · Selection with dual-action chip (entry)
+    // ============================================================
+    const Scene1 = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="read"/>
+        <div style={{ flex: 1, overflow: 'auto', display: 'flex' }}>
+          <div style={{ flex: 1, padding: '48px 32px 80px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ maxWidth: 560, width: '100%' }}>
+              <div className="reader">
+                <div className="chap-num">Stave III</div>
+                <h2>The Second of the Three Spirits</h2>
+                <p>Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.</p>
+                <p>The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened. The crisp leaves of holly, mistletoe, and ivy reflected back the light, as if so many little mirrors had been scattered there.</p>
+                <p>
+                  Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, <span className="sel">sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts</span>, juicy pears, immense twelfth-cakes.
+                  <DualChip top={46} left={100}/>
+                </p>
+                <p>In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ============================================================
+    // Scene 2 · Writing a note (composer open, Notes tab active)
+    // ============================================================
+    const Scene2 = () => {
+      const [body, setBody] = useState("Echoes of Eden — abundance as inheritance before the");
+      return (
+        <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+          <TopBar mode="read"/>
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflow: 'auto', padding: '36px 40px 80px', display: 'flex', justifyContent: 'center' }}>
+              <div style={{ maxWidth: 520, width: '100%' }}>
+                <div className="reader">
+                  <div className="chap-num">Stave III</div>
+                  <h2>The Second of the Three Spirits</h2>
+                  <p>Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.</p>
+                  <p>The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened.</p>
+                  <p>
+                    Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, <span className="sel">sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts</span>, juicy pears, immense twelfth-cakes.
+                  </p>
+                  <p>In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Side panel — Notes tab, composing */}
+            <div className="panel" style={{ width: 400 }}>
+              <div className="panel-tabs">
+                <button><IcSpark size={12}/> Thread <span className="count">2</span></button>
+                <button className="active"><IcEdit size={12}/> Notes <span className="count">5</span></button>
+                <div style={{ flex: 1 }}/>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span className="close-x"><IcClose size={13}/></span>
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflow: 'auto', padding: '14px 16px' }}>
+                {/* new note composer */}
+                <div style={{ background: 'var(--paper-00)', border: '1px solid var(--accent)', borderRadius: 'var(--r-lg)', padding: 14, animation: 'fadeUp 200ms var(--ease-out)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)' }}>New note · Ch. 3</div>
+                    <span className="private-chip" title="Notes are private — never sent to AI"><IcPrivate size={9}/> private</span>
+                  </div>
+
+                  {/* embedded quote */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, color: 'var(--ink-3)', letterSpacing: .8, textTransform: 'uppercase', fontFamily: 'var(--sans)', marginBottom: 4 }}>
+                      <IcQuoteEmbed size={9}/> embedded quote
+                    </div>
+                    <div style={{ borderLeft: '2px solid var(--accent)', padding: '2px 0 2px 10px', fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.45 }}>
+                      …sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters, red-hot chestnuts…
+                    </div>
+                  </div>
+
+                  {/* body */}
+                  <div style={{ fontFamily: 'var(--serif)', fontSize: 14.5, color: 'var(--ink-0)', lineHeight: 1.55, minHeight: 48 }}>
+                    {body}<span style={{ borderRight: '1.5px solid var(--ink-0)', marginLeft: 1, animation: 'fadeIn 1s infinite alternate' }}>&nbsp;</span>
+                  </div>
+
+                  {/* inline tag suggestions */}
+                  <div style={{ marginTop: 10, display: 'flex', gap: 5, alignItems: 'center' }}>
+                    <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontFamily: 'var(--mono)' }}>Tags:</span>
+                    <span className="tag">#theme-abundance</span>
+                    <span className="tag">#spirit-present</span>
+                    <button style={{ background: 'none', border: '1px dashed var(--paper-3)', borderRadius: 3, fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--ink-3)', padding: '1px 6px', cursor: 'pointer' }}>+ tag</button>
+                  </div>
+
+                  <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 10.5, color: 'var(--ink-3)' }}>
+                      <button title="Embed quote" style={{ width: 24, height: 24, background: 'var(--paper-1)', border: 0, borderRadius: 4, color: 'var(--ink-2)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><IcQuoteEmbed size={11}/></button>
+                      <button title="Add tag" style={{ width: 24, height: 24, background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><IcHash size={11}/></button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button style={{ padding: '5px 10px', background: 'none', border: 0, color: 'var(--ink-3)', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
+                      <button style={{ padding: '5px 12px', background: 'var(--ink-0)', color: 'var(--paper-00)', border: 0, borderRadius: 'var(--r-md)', fontSize: 11, fontWeight: 500, cursor: 'pointer' }}>Save note</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ margin: '16px 2px 8px', fontSize: 10.5, letterSpacing: 1.4, textTransform: 'uppercase', color: 'var(--ink-3)' }}>Earlier notes</div>
+
+                {[
+                  { body: "Marley's chain as self-forged — moral metallurgy.", tags: ['#character-marley','#theme-weight'], ch: 'Ch. 1' },
+                  { body: 'Time becomes spatial once the Spirits arrive.', tags: ['#theme-time'], ch: 'Ch. 2' },
+                ].map((n,i) => (
+                  <div className="note-card" key={i}>
+                    <div className="body">{n.body}</div>
+                    <div className="meta">
+                      <div className="tags">{n.tags.map(t => <span className="tag" key={t}>{t}</span>)}</div>
+                      <span>{n.ch}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ============================================================
+    // Scene 3 · Reading with margin indicators visible (note peek open)
+    // ============================================================
+    const Scene3 = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="read"/>
+        <div style={{ flex: 1, overflow: 'auto', display: 'flex' }}>
+          <div style={{ flex: 1, padding: '48px 32px 80px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ maxWidth: 560, width: '100%', position: 'relative' }}>
+              <div className="reader" style={{ paddingLeft: 40 }}>
+                <div className="chap-num">Stave III</div>
+                <h2>The Second of the Three Spirits</h2>
+                <p>
+                  <span className="margin-mark query" title="Query pinned here"><IcSpark size={9}/></span>
+                  Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers, attracted by a great light there, had undergone a surprising transformation.
+                </p>
+                <p>The walls and ceiling were so hung with living green, that it looked a perfect grove; from every part of which, bright gleaming berries glistened.</p>
+                <div style={{ position: 'relative' }}>
+                  <p style={{ margin: 0 }}>
+                    <span className="margin-mark note" title="Your note"><IcEdit size={9}/></span>
+                    Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters.
+                  </p>
+                  {/* peek popover — shown as if hovered */}
+                  <div className="note-peek" style={{ top: 34 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, fontFamily: 'var(--sans)', fontStyle: 'normal', fontSize: 10, color: 'var(--ink-3)', letterSpacing: .3, textTransform: 'uppercase' }}>
+                      <span>Your note</span>
+                      <span className="private-chip" style={{ fontSize: 8.5, padding: '1px 5px' }}><IcPrivate size={8}/> private</span>
+                    </div>
+                    Echoes of Eden — abundance as inheritance before the weighing begins.
+                    <div className="peek-tags">
+                      <span className="tag">#theme-abundance</span>
+                      <span className="tag">#spirit-present</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ height: 20 }}/>
+                <p>
+                  <span className="margin-mark note" title="Your note"><IcEdit size={9}/></span>
+                  In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn, and held it up, high up, to shed its light on Scrooge.
+                </p>
+                <p>"Come in!" exclaimed the Ghost. "Come in! and know me better, man!"</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ============================================================
+    // Scene 4 · Notes tab · filtered by tag, list view
+    // ============================================================
+    const Scene4 = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="read"/>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: '36px 40px 80px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ maxWidth: 520, width: '100%' }}>
+              <div className="reader">
+                <div className="chap-num">Stave III</div>
+                <h2>The Second of the Three Spirits</h2>
+                <p>Scrooge awoke in his own bedroom. There was no doubt about that. But it and his own adjoining sitting-room, into which he shuffled in his slippers.</p>
+                <p>The walls and ceiling were so hung with living green, that it looked a perfect grove.</p>
+                <p>Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat.</p>
+                <p>In easy state upon this couch, there sat a jolly Giant, glorious to see; who bore a glowing torch, in shape not unlike Plenty's horn.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-tabs">
+              <button><IcSpark size={12}/> Thread <span className="count">2</span></button>
+              <button className="active"><IcEdit size={12}/> Notes <span className="count">7</span></button>
+              <div style={{ flex: 1 }}/>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 8 }}>
+                <span style={{ width: 160, display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: 'var(--paper-0)', border: '1px solid var(--paper-2)', borderRadius: 999, fontSize: 11.5, color: 'var(--ink-3)' }}>
+                  <IcSearch size={10}/> Search notes
+                </span>
+              </div>
+            </div>
+
+            {/* tag filter row */}
+            <div style={{ padding: '12px 16px 8px', borderBottom: '1px solid var(--paper-2)', display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="tag all">all · 7</span>
+              <span className="tag active">#theme-abundance · 2</span>
+              <span className="tag">#character-marley · 1</span>
+              <span className="tag">#theme-time · 2</span>
+              <span className="tag">#spirit-present · 1</span>
+              <span className="tag">#theme-weight · 1</span>
+            </div>
+
+            <div style={{ flex: 1, overflow: 'auto', padding: '14px 16px' }}>
+              {[
+                {
+                  embed: '…sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings…',
+                  body: 'Echoes of Eden — abundance as inheritance before the weighing begins. Dickens stacks the nouns like offerings on an altar; the prose itself gets heavy.',
+                  tags: ['#theme-abundance','#spirit-present'],
+                  ch: 'Ch. 3 · today',
+                },
+                {
+                  embed: '…hung with living green, that it looked a perfect grove…',
+                  body: 'The indoor-turned-forest inversion. Scrooge\'s domestic space becomes pastoral — a thawing.',
+                  tags: ['#theme-abundance'],
+                  ch: 'Ch. 3 · today',
+                },
+              ].map((n,i) => (
+                <div className="note-card" key={i}>
+                  <div className="embed">{n.embed}</div>
+                  <div className="body">{n.body}</div>
+                  <div className="meta">
+                    <div className="tags">{n.tags.map(t => <span className="tag" key={t}>{t}</span>)}</div>
+                    <span>{n.ch}</span>
+                  </div>
+                </div>
+              ))}
+
+              <div style={{ marginTop: 10, padding: '16px 14px', border: '1px dashed var(--paper-3)', borderRadius: 'var(--r-lg)', textAlign: 'center', fontSize: 11.5, color: 'var(--ink-3)', fontFamily: 'var(--sans)' }}>
+                <span className="private-chip" style={{ marginBottom: 6 }}><IcPrivate size={9}/> all notes private</span>
+                <div style={{ marginTop: 6, fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12.5, color: 'var(--ink-3)' }}>
+                  Notes are yours — they're never sent to the AI when you ask questions.
+                </div>
+              </div>
+            </div>
+
+            <div className="composer">
+              <div className="field">
+                <IcEdit size={13} style={{ color: 'var(--ink-3)', marginTop: 3 }}/>
+                <div className="input empty" data-placeholder="Write a note…" contentEditable suppressContentEditableWarning></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ============================================================
+    // Scene 5 · Query mode active (the original Option B + notes still reachable)
+    // ============================================================
+    const Scene5 = () => (
+      <div style={{ height: '100%', background: 'var(--paper-0)', display: 'flex', flexDirection: 'column' }}>
+        <TopBar mode="query"/>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: '36px 40px 80px', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ maxWidth: 520, width: '100%' }}>
+              <div className="reader">
+                <div className="chap-num">Stave III</div>
+                <h2>The Second of the Three Spirits</h2>
+                <p>Scrooge awoke in his own bedroom. There was no doubt about that.</p>
+                <p>The walls and ceiling were so hung with living green.</p>
+                <p>
+                  Heaped up on the floor, to form a kind of throne, were turkeys, geese, game, poultry, brawn, great joints of meat, <span className="sel">sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters</span>, juicy pears, immense twelfth-cakes.
+                </p>
+                <div className="veil">
+                  <p>In easy state upon this couch, there sat a jolly Giant.</p>
+                  <p>"Come in!" exclaimed the Ghost. "Come in!"</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-tabs">
+              <button className="active"><IcSpark size={12}/> Thread <span className="count">2</span></button>
+              <button><IcEdit size={12}/> Notes <span className="count">7</span></button>
+              <div style={{ flex: 1 }}/>
+              <span className="close-x"><IcClose size={13}/></span>
+            </div>
+
+            <div style={{ flex: 1, overflow: 'auto', padding: 18 }}>
+              <div style={{ borderLeft: '2px solid var(--accent)', padding: '2px 0 2px 10px', fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 13.5, color: 'var(--ink-2)', marginBottom: 14 }}>
+                …sucking-pigs, long wreaths of sausages, mince-pies, plum-puddings, barrels of oysters…
+              </div>
+
+              <div className="q-bubble">Why so much food imagery here?</div>
+
+              <div style={{ display: 'flex', gap: 10, marginRight: 24 }}>
+                <div style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 999, background: 'var(--accent-softer)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12 }}>r</div>
+                <div style={{ flex: 1, fontFamily: 'var(--serif)', fontSize: 14.5, lineHeight: 1.6, color: 'var(--ink-0)' }}>
+                  The Ghost of Christmas Present arrives surrounded by <em>plenty</em>. Dickens piles up food as a moral argument — abundance set against Scrooge's miserliness and the cold streets outside.
+                  <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-3)' }}>
+                    <IcLock size={10}/> spoiler-safe through p. 54
+                  </div>
+                  <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
+                    <button style={{ padding: '4px 10px', background: 'var(--paper-00)', border: '1px solid var(--paper-2)', borderRadius: 999, fontSize: 11, color: 'var(--ink-2)', cursor: 'pointer' }}><IcBookmark size={10} style={{ verticalAlign: -1, marginRight: 4 }}/> Pin</button>
+                    <button style={{ padding: '4px 10px', background: 'var(--paper-00)', border: '1px solid var(--paper-2)', borderRadius: 999, fontSize: 11, color: 'var(--ink-2)', cursor: 'pointer' }}><IcEdit size={10} style={{ verticalAlign: -1, marginRight: 4 }}/> Save as note</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="composer">
+              <div className="field">
+                <IcSpark size={13} style={{ color: 'var(--ink-3)', marginTop: 3 }}/>
+                <div className="input empty" data-placeholder="Ask a follow-up…" contentEditable suppressContentEditableWarning></div>
+                <IcSend size={13} style={{ color: 'var(--ink-3)', marginTop: 3 }}/>
+              </div>
+              <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: .3 }}>
+                Queries see your reading progress · never your private notes
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ============================================================
+    // Canvas
+    // ============================================================
+    const Frame = ({ children }) => (
+      <div style={{ width: '100%', height: '100%', background: 'var(--paper-0)', overflow: 'hidden' }}>{children}</div>
+    );
+
+    const App = () => (
+      <DesignCanvas>
+        <DCSection id="entry" title="Entry · the selection chip gains a second action"
+          subtitle="Select text → chip offers both 'Ask about this' (AI) and 'Add note' (you). ⏎ for ask, N for note.">
+          <DCArtboard id="s1" label="1 · Dual-action chip" width={1100} height={720}>
+            <Frame><Scene1/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="write" title="Writing · composer lives in the side panel"
+          subtitle="Choosing 'Add note' opens the panel on its Notes tab with a fresh composer. The selected passage is auto-embedded as a quote; body is plain text; tags optional.">
+          <DCArtboard id="s2" label="2 · Writing a note" width={1280} height={800}>
+            <Frame><Scene2/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="margin" title="Surface · tiny margin indicators, hidden by default"
+          subtitle="A subtle mark appears beside paragraphs with notes. Hover reveals a peek; click opens the full note in the panel. Queries get a different mark so they stay visually distinct.">
+          <DCArtboard id="s3" label="3 · Margin peek (hover)" width={1100} height={760}>
+            <Frame><Scene3/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="browse" title="Browse · the Notes tab with tag filter"
+          subtitle="All your notes for this book, filterable by #tag. Search narrows further. A persistent reminder that notes stay private.">
+          <DCArtboard id="s4" label="4 · Notes tab, filtered by tag" width={1280} height={820}>
+            <Frame><Scene4/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="query" title="For comparison · query mode, unchanged"
+          subtitle="Thread tab is live when a query is active. Note the 'Save as note' action on answers — one-click to turn an AI answer into your own editable note (which then becomes private).">
+          <DCArtboard id="s5" label="5 · Query mode · Thread tab" width={1280} height={820}>
+            <Frame><Scene5/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCPostIt top={20} left={60} rotate={-1.5} width={260}>
+          Notes ≠ queries. Notes are yours; AI never sees them. The panel gains a <strong>Thread</strong> / <strong>Notes</strong> tab split; entry chip gains a second action.
+        </DCPostIt>
+        <DCPostIt top={20} left={360} rotate={1.5} width={240}>
+          Margin marks are tiny by default — book first, annotations second. Different shapes for notes vs queries keep them instantly distinguishable.
+        </DCPostIt>
+      </DesignCanvas>
+    );
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
