@@ -1,8 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { App } from "./App";
 
-describe("App", () => {
+describe("App router", () => {
   const originalFetch = globalThis.fetch;
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -14,9 +15,21 @@ describe("App", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("renders the Library screen at /", () => {
-    render(<App />);
+  it("renders LibraryScreen at /", () => {
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>
+    );
     expect(screen.getByText(/your shelf/i)).toBeInTheDocument();
-    expect(screen.getByText("Library")).toBeInTheDocument();
+  });
+
+  it("renders UploadScreen placeholder at /upload", () => {
+    render(
+      <MemoryRouter initialEntries={["/upload"]}>
+        <App />
+      </MemoryRouter>
+    );
+    expect(screen.getByText(/add a book/i)).toBeInTheDocument();
   });
 });

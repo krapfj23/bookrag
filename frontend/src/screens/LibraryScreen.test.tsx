@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { LibraryScreen } from "./LibraryScreen";
 
 const CC = {
@@ -10,6 +11,14 @@ const CC = {
   ready_for_query: true,
 };
 
+function renderLib() {
+  return render(
+    <MemoryRouter initialEntries={["/"]}>
+      <LibraryScreen />
+    </MemoryRouter>
+  );
+}
+
 describe("LibraryScreen", () => {
   const originalFetch = globalThis.fetch;
   afterEach(() => {
@@ -18,7 +27,7 @@ describe("LibraryScreen", () => {
 
   it("shows a loading state before the response arrives", () => {
     globalThis.fetch = vi.fn(() => new Promise(() => {})) as unknown as typeof fetch;
-    render(<LibraryScreen />);
+    renderLib();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
@@ -28,7 +37,7 @@ describe("LibraryScreen", () => {
       json: () => Promise.resolve([CC]),
     }) as unknown as typeof fetch;
 
-    render(<LibraryScreen />);
+    renderLib();
 
     await waitFor(() => {
       expect(screen.getAllByText("Christmas Carol").length).toBeGreaterThanOrEqual(1);
@@ -42,7 +51,7 @@ describe("LibraryScreen", () => {
       status: 500,
     }) as unknown as typeof fetch;
 
-    render(<LibraryScreen />);
+    renderLib();
 
     await waitFor(() => {
       expect(screen.getByText(/couldn.?t load your books/i)).toBeInTheDocument();
@@ -55,12 +64,32 @@ describe("LibraryScreen", () => {
       json: () => Promise.resolve([]),
     }) as unknown as typeof fetch;
 
-    render(<LibraryScreen />);
+    renderLib();
 
     expect(screen.getByText(/your shelf/i)).toBeInTheDocument();
-    // NavBar's three tabs
     expect(screen.getByText("Library")).toBeInTheDocument();
     expect(screen.getByText("Reading")).toBeInTheDocument();
     expect(screen.getByText("Upload")).toBeInTheDocument();
+  });
+
+  it("re-fetches /books when the route is re-entered (pathname changes)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/upload", "/"]} initialIndex={0}>
+        <LibraryScreen />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <LibraryScreen />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 });
