@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { NavBar } from "../components/NavBar";
 import { ChapterRow, type ChapterRowState } from "../components/ChapterRow";
@@ -8,11 +8,17 @@ import { LockState } from "../components/LockState";
 import { Button } from "../components/Button";
 import { Row } from "../components/layout";
 import { IcArrowL, IcArrowR, IcChat } from "../components/icons";
+import { UserBubble } from "../components/UserBubble";
+import { AssistantBubble, type AssistantSource } from "../components/AssistantBubble";
+import { ChatInput } from "../components/ChatInput";
 import {
   fetchBooks,
   fetchChapter,
   fetchChapters,
   setProgress,
+  queryBook,
+  QueryRateLimitError,
+  QueryError,
   type Book,
   type Chapter,
   type ChapterSummary,
@@ -23,6 +29,21 @@ type BodyState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "ok"; chapter: Chapter };
+
+type ChatMessage =
+  | { id: string; role: "user"; text: string }
+  | {
+      id: string;
+      role: "assistant";
+      status: "thinking" | "ok" | "error";
+      text: string;
+      sources?: AssistantSource[];
+    };
+
+const ERR_GENERIC = "Something went wrong. Try again.";
+const ERR_RATELIMIT = "Too many requests, slow down.";
+const EMPTY_RESULT_TEXT =
+  "I don't have anything in your read-so-far that answers that. Try rephrasing, or read further.";
 
 export function ReadingScreen() {
   const { bookId = "", chapterNum = "1" } = useParams<{
@@ -79,6 +100,99 @@ export function ReadingScreen() {
       cancelled = true;
     };
   }, [bookId, n, book?.current_chapter]);
+
+  // Chat transcript state (React-only; not persisted)
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll to the latest message after each state change
+  useEffect(() => {
+    const el = transcriptEndRef.current;
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ block: "end" });
+    }
+  }, [messages]);
+
+  async function handleChatSubmit() {
+    const trimmed = draft.trim();
+    if (!trimmed || !book || submitting) return;
+
+    const userId = crypto.randomUUID();
+    const thinkingId = crypto.randomUUID();
+    const maxChapter = book.current_chapter;
+
+    setMessages((prev) => [
+      ...prev,
+      { id: userId, role: "user", text: trimmed },
+      {
+        id: thinkingId,
+        role: "assistant",
+        status: "thinking",
+        text: "Thinking…",
+      },
+    ]);
+    setDraft("");
+    setSubmitting(true);
+
+    try {
+      const resp = await queryBook(bookId, trimmed, maxChapter);
+      const hasResults = resp.result_count > 0 && resp.results.length > 0;
+      const sources: AssistantSource[] = hasResults
+        ? resp.results
+            .filter((r): r is typeof r & { chapter: number } =>
+              r.chapter != null
+            )
+            .map((r) => ({ text: r.content, chapter: r.chapter }))
+        : [];
+      // Answer prose: prefer results without chapter context (raw synthesis);
+      // fall back to all results if every result has a chapter (entity-only response).
+      const proseResults = hasResults
+        ? resp.results.filter((r) => r.chapter == null)
+        : [];
+      const answerText = hasResults
+        ? (proseResults.length > 0
+            ? proseResults.map((r) => r.content).join("\n\n")
+            : resp.results.map((r) => r.content).join("\n\n"))
+        : EMPTY_RESULT_TEXT;
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === thinkingId
+            ? {
+                id: thinkingId,
+                role: "assistant",
+                status: "ok",
+                text: answerText,
+                sources: sources.length > 0 ? sources : undefined,
+              }
+            : m
+        )
+      );
+    } catch (err) {
+      const copy =
+        err instanceof QueryRateLimitError
+          ? ERR_RATELIMIT
+          : err instanceof QueryError
+          ? ERR_GENERIC
+          : ERR_GENERIC;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === thinkingId
+            ? {
+                id: thinkingId,
+                role: "assistant",
+                status: "error",
+                text: copy,
+              }
+            : m
+        )
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   function rowStateFor(num: number): ChapterRowState {
     if (!book) return "locked";
@@ -380,36 +494,49 @@ export function ReadingScreen() {
               padding: "24px",
               display: "flex",
               flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 16,
-              color: "var(--ink-3)",
-              fontFamily: "var(--sans)",
-              fontSize: 13,
+              gap: 24,
+              overflow: "auto",
             }}
           >
-            Chat coming soon — available in the next release.
+            {messages.length === 0 && (
+              <div
+                role="status"
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textAlign: "center",
+                  fontFamily: "var(--serif)",
+                  fontStyle: "italic",
+                  fontSize: 15,
+                  color: "var(--ink-3)",
+                  padding: "40px 24px",
+                }}
+              >
+                Ask about what you've read.
+              </div>
+            )}
+            {messages.map((m) =>
+              m.role === "user" ? (
+                <UserBubble key={m.id} text={m.text} />
+              ) : (
+                <AssistantBubble
+                  key={m.id}
+                  text={m.text}
+                  sources={m.status === "ok" ? m.sources : undefined}
+                  thinking={m.status === "thinking"}
+                />
+              )
+            )}
+            <div ref={transcriptEndRef} />
           </div>
           <div style={{ padding: "16px 20px 20px" }}>
-            <textarea
-              disabled
-              aria-disabled="true"
-              title="Available in the next release"
-              placeholder="Available in the next release"
-              rows={1}
-              style={{
-                width: "100%",
-                resize: "none",
-                padding: "10px 12px",
-                borderRadius: "var(--r-md)",
-                border: "1px solid var(--paper-2)",
-                background: "var(--paper-1)",
-                fontFamily: "var(--serif)",
-                fontSize: 14,
-                color: "var(--ink-3)",
-                cursor: "not-allowed",
-                boxSizing: "border-box",
-              }}
+            <ChatInput
+              value={draft}
+              onChange={setDraft}
+              onSubmit={handleChatSubmit}
+              disabled={submitting}
             />
           </div>
         </aside>
