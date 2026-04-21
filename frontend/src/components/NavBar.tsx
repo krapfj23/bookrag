@@ -1,3 +1,4 @@
+import { Link, useLocation } from "react-router-dom";
 import { Row } from "./layout";
 import { Wordmark } from "./Wordmark";
 import { IconBtn } from "./IconBtn";
@@ -6,22 +7,29 @@ import { IcMoon, IcSun, IcSettings } from "./icons";
 export type NavTab = "library" | "reading" | "upload";
 
 type NavBarProps = {
-  active?: NavTab;
   theme?: "light" | "dark";
   onThemeToggle?: () => void;
 };
 
-const ITEMS: Array<{ id: NavTab; label: string }> = [
-  { id: "library", label: "Library" },
-  { id: "reading", label: "Reading" },
-  { id: "upload", label: "Upload" },
+type Item =
+  | { id: NavTab; label: string; to: string; inert?: false }
+  | { id: NavTab; label: string; to?: undefined; inert: true };
+
+const ITEMS: Item[] = [
+  { id: "library", label: "Library", to: "/" },
+  { id: "reading", label: "Reading", inert: true },
+  { id: "upload", label: "Upload", to: "/upload" },
 ];
 
-export function NavBar({
-  active = "library",
-  theme = "light",
-  onThemeToggle,
-}: NavBarProps) {
+function tabForPath(pathname: string): NavTab {
+  if (pathname === "/upload" || pathname.startsWith("/upload/")) return "upload";
+  return "library";
+}
+
+export function NavBar({ theme = "light", onThemeToggle }: NavBarProps) {
+  const { pathname } = useLocation();
+  const active = tabForPath(pathname);
+
   return (
     <header
       style={{
@@ -42,28 +50,44 @@ export function NavBar({
         <nav style={{ display: "flex", gap: 4 }}>
           {ITEMS.map((it) => {
             const isActive = active === it.id;
+            const baseStyle: React.CSSProperties = {
+              padding: "6px 12px",
+              fontSize: "var(--t-sm)",
+              color: isActive ? "var(--ink-0)" : "var(--ink-2)",
+              borderRadius: "var(--r-sm)",
+              fontWeight: isActive ? 500 : 400,
+              background: isActive ? "var(--paper-1)" : "transparent",
+              textDecoration: "none",
+              cursor: it.inert ? "default" : "pointer",
+              transition:
+                "color var(--dur) var(--ease), background var(--dur) var(--ease)",
+            };
+
+            if (it.inert) {
+              return (
+                <a
+                  key={it.id}
+                  href="#"
+                  aria-disabled="true"
+                  data-active={isActive ? "true" : "false"}
+                  onClick={(e) => e.preventDefault()}
+                  style={baseStyle}
+                >
+                  {it.label}
+                </a>
+              );
+            }
+
             return (
-              <a
+              <Link
                 key={it.id}
-                href="#"
+                to={it.to}
                 aria-current={isActive ? "page" : undefined}
                 data-active={isActive ? "true" : "false"}
-                onClick={(e) => e.preventDefault()}
-                style={{
-                  padding: "6px 12px",
-                  fontSize: "var(--t-sm)",
-                  color: isActive ? "var(--ink-0)" : "var(--ink-2)",
-                  borderRadius: "var(--r-sm)",
-                  fontWeight: isActive ? 500 : 400,
-                  background: isActive ? "var(--paper-1)" : "transparent",
-                  textDecoration: "none",
-                  cursor: "pointer",
-                  transition:
-                    "color var(--dur) var(--ease), background var(--dur) var(--ease)",
-                }}
+                style={baseStyle}
               >
                 {it.label}
-              </a>
+              </Link>
             );
           })}
         </nav>

@@ -35,7 +35,7 @@ export function LibraryScreen() {
 
   return (
     <div className="br" style={{ minHeight: "100vh", background: "var(--paper-0)" }}>
-      <NavBar active="library" />
+      <NavBar />
       <div style={{ maxWidth: 1040, margin: "0 auto", padding: "48px 32px 80px" }}>
         <div
           style={{
