@@ -23,6 +23,7 @@ const ITEMS: Item[] = [
 
 function tabForPath(pathname: string): NavTab {
   if (pathname === "/upload" || pathname.startsWith("/upload/")) return "upload";
+  if (pathname.startsWith("/books/")) return "reading";
   return "library";
 }
 
