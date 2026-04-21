@@ -7,7 +7,7 @@ Canonical status tracker for the four slices defined in `specs/2026-04-21-fronte
 | 1 | Scaffold + Library screen | done | 2026-04-21 | [spec](specs/2026-04-21-slice-1-scaffold-library.md) | [plan](plans/2026-04-21-slice-1-scaffold-library-plan.md) | [review](reviews/2026-04-21-slice-1-review.md) |
 | 2 | Upload screen + pipeline status | done | 2026-04-21 | [spec](specs/2026-04-21-slice-2-upload-pipeline-status.md) | [plan](plans/2026-04-21-slice-2-upload-pipeline-status-plan.md) | [review](reviews/2026-04-21-slice-2-review.md) ([early](reviews/2026-04-21-slice-2-early-review.md)) |
 | 3 | Reading screen + chapter serving | done | 2026-04-21 | [spec](specs/2026-04-21-slice-3-reading-chapter-serving.md) | [plan](plans/2026-04-21-slice-3-reading-chapter-serving-plan.md) | [review](reviews/2026-04-21-slice-3-review.md) |
-| 4 | Chat + query wiring | plan | 2026-04-21 | [spec](specs/2026-04-21-slice-4-chat-query-wiring.md) | | |
+| 4 | Chat + query wiring | test | 2026-04-21 | [spec](specs/2026-04-21-slice-4-chat-query-wiring.md) | [plan](plans/2026-04-21-slice-4-chat-query-wiring-plan.md) | |
 
 ## Status values
 
