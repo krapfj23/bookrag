@@ -12,7 +12,7 @@ describe("BookCard", () => {
         current_chapter={1}
       />
     );
-    expect(screen.getByText("Christmas Carol")).toHaveLength;
+    expect(screen.getAllByText("Christmas Carol").length).toBeGreaterThanOrEqual(1);
     // the chapter-progress label "1 of 3"
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getByText(/of\s*3/i)).toBeInTheDocument();

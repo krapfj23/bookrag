@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { LibraryScreen } from "./LibraryScreen";
 
 const CC = {
@@ -31,7 +31,7 @@ describe("LibraryScreen", () => {
     render(<LibraryScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText("Christmas Carol")).toBeInTheDocument();
+      expect(screen.getAllByText("Christmas Carol").length).toBeGreaterThanOrEqual(1);
     });
     expect(screen.getByText(/of\s*3/i)).toBeInTheDocument();
   });

@@ -25,7 +25,7 @@ export function BookCard({
         width: 200,
       }}
     >
-      <BookCover book_id={book_id} title="" />
+      <BookCover book_id={book_id} title={title} />
       <div style={{ marginTop: 14 }}>
         <div
           style={{
