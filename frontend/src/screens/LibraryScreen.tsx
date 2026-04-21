@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { NavBar } from "../components/NavBar";
 import { BookCard } from "../components/BookCard";
 import { TextInput } from "../components/TextInput";
@@ -14,9 +15,11 @@ type State =
 
 export function LibraryScreen() {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const { pathname } = useLocation();
 
   useEffect(() => {
     let cancelled = false;
+    setState({ kind: "loading" });
     fetchBooks()
       .then((books) => {
         if (!cancelled) setState({ kind: "ok", books });
@@ -31,7 +34,7 @@ export function LibraryScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pathname]);
 
   return (
     <div className="br" style={{ minHeight: "100vh", background: "var(--paper-0)" }}>
