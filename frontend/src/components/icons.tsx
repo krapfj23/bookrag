@@ -67,3 +67,35 @@ export const IcCheck = (p: Props) => (
 export const IcClose = (p: Props) => (
   <Icon {...p} d="M4 4l8 8M12 4l-8 8" />
 );
+export const IcLock = (p: Props) => (
+  <Icon {...p}>
+    <path d="M4.5 7.5h7v6h-7v-6zM6 7.5V5a2 2 0 0 1 4 0v2.5" />
+    <circle cx="8" cy="10.5" r="0.7" fill="currentColor" stroke="none" />
+  </Icon>
+);
+export const IcUnlock = (p: Props) => (
+  <Icon {...p}>
+    <path d="M4.5 7.5h7v6h-7v-6zM6 7.5V5a2 2 0 0 1 3.8-.8" />
+  </Icon>
+);
+export const IcBookmark = (p: Props) => (
+  <Icon {...p}>
+    <path d="M4 2.5h8v11l-4-2.5-4 2.5v-11z" />
+  </Icon>
+);
+export const IcDot = (p: Props) => (
+  <Icon {...p}>
+    <circle cx="8" cy="8" r="3" fill="currentColor" stroke="none" />
+  </Icon>
+);
+export const IcChat = (p: Props) => (
+  <Icon {...p}>
+    <path d="M3 4a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 13 4v5a1.5 1.5 0 0 1-1.5 1.5H7l-3 3v-3h-1A1.5 1.5 0 0 1 3 9V4z" />
+  </Icon>
+);
+export const IcArrowL = (p: Props) => (
+  <Icon {...p} d="M12.5 8h-9m3-3l-3 3 3 3" />
+);
+export const IcArrowR = (p: Props) => (
+  <Icon {...p} d="M3.5 8h9m-3-3l3 3-3 3" />
+);
