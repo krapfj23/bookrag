@@ -1,0 +1,251 @@
+/* ─────────────────────────────────────────────────────────
+   BookRAG Design Tokens
+   Linen paper + sage accent · Lora body / Plex Sans UI
+   Light is primary. Dark is faithful counterpart.
+   ───────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Paper & Ink ── (light is default) */
+  --paper-00: #FBF9F4;  /* elevated surface — cards, popovers */
+  --paper-0:  #F4F1EA;  /* the base linen — app background */
+  --paper-1:  #EDE9E0;  /* subtle recess — hover, muted fill */
+  --paper-2:  #E3DED3;  /* divider / hairline */
+  --paper-3:  #CFC8BB;  /* strong divider, disabled */
+
+  --ink-0: #201C16;  /* primary text */
+  --ink-1: #3B352C;  /* secondary text */
+  --ink-2: #6B6256;  /* tertiary · captions · UI labels */
+  --ink-3: #968B7C;  /* placeholder · muted */
+  --ink-4: #B8AE9E;  /* subtle icon */
+
+  /* ── Accent (sage) — single family, varied by role ── */
+  --accent:        oklch(62% 0.045 145);   /* interactive, links, selection */
+  --accent-soft:   oklch(88% 0.025 145);   /* tint fill — chips, selection bg */
+  --accent-softer: oklch(94% 0.015 145);   /* barely-there wash */
+  --accent-deep:   oklch(46% 0.055 145);   /* hover / pressed */
+  --accent-ink:    oklch(28% 0.04 145);    /* text on soft accent */
+
+  /* ── Status — still warm, low-saturation, paper-compatible ── */
+  --ok:    oklch(62% 0.05 150);
+  --warn:  oklch(66% 0.07 75);
+  --err:   oklch(56% 0.09 28);
+  --info:  oklch(60% 0.04 230);
+
+  /* ── Typography ── */
+  --serif: "Lora", "Iowan Old Style", "Charter", Georgia, serif;
+  --sans:  "IBM Plex Sans", "Söhne", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono:  "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
+
+  /* Fluid type — generous, readable at midnight */
+  --t-xs:   12px;  /* labels, meta */
+  --t-sm:   13px;  /* UI small */
+  --t-base: 15px;  /* UI default */
+  --t-md:   17px;  /* reading default */
+  --t-lg:   19px;  /* reading comfortable */
+  --t-xl:   22px;
+  --t-2xl:  28px;
+  --t-3xl:  36px;
+  --t-4xl:  48px;
+  --t-5xl:  64px;
+
+  --lh-tight: 1.2;
+  --lh-snug:  1.35;
+  --lh-body:  1.55;
+  --lh-read:  1.7;   /* the reading column */
+
+  /* ── Spacing (4px base) ── */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  20px;
+  --s-6:  24px;
+  --s-8:  32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+  --s-20: 80px;
+  --s-24: 96px;
+
+  /* ── Radii — tweakable via [data-radii] ── */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  /* ── Elevation — paper, not plastic ── */
+  --shadow-0: 0 1px 0 rgba(32, 28, 22, 0.04);
+  --shadow-1: 0 1px 2px rgba(32, 28, 22, 0.05), 0 2px 8px rgba(32, 28, 22, 0.04);
+  --shadow-2: 0 2px 4px rgba(32, 28, 22, 0.06), 0 8px 24px rgba(32, 28, 22, 0.06);
+  --shadow-3: 0 4px 8px rgba(32, 28, 22, 0.08), 0 16px 48px rgba(32, 28, 22, 0.1);
+
+  --hairline: 1px solid var(--paper-2);
+
+  /* ── Motion ── */
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur: 180ms;
+  --dur-slow: 240ms;
+  --dur-slower: 300ms;
+
+  /* ── Density (tweakable) ── */
+  --density: 1;   /* 0.85 compact · 1 comfortable */
+
+  /* ── Layout ── */
+  --col-read: 620px;   /* the reading column */
+  --col-chat: 420px;
+  --col-lib:  1040px;
+}
+
+/* ── Dark mode — midnight, not black; keeps the paper metaphor ── */
+[data-theme="dark"] {
+  --paper-00: #262119;   /* elevated */
+  --paper-0:  #1C1813;   /* base */
+  --paper-1:  #242019;
+  --paper-2:  #332D24;
+  --paper-3:  #4A4235;
+
+  --ink-0: #EFE9DC;
+  --ink-1: #D3CBB9;
+  --ink-2: #9E9585;
+  --ink-3: #76705F;
+  --ink-4: #544E42;
+
+  --accent:        oklch(74% 0.05 145);
+  --accent-soft:   oklch(38% 0.05 145);
+  --accent-softer: oklch(30% 0.035 145);
+  --accent-deep:   oklch(82% 0.055 145);
+  --accent-ink:    oklch(92% 0.04 145);
+
+  --ok:    oklch(72% 0.06 150);
+  --warn:  oklch(76% 0.09 75);
+  --err:   oklch(68% 0.11 28);
+  --info:  oklch(72% 0.05 230);
+
+  --shadow-0: 0 1px 0 rgba(0, 0, 0, 0.3);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 4px 8px rgba(0, 0, 0, 0.5), 0 16px 48px rgba(0, 0, 0, 0.5);
+  --hairline: 1px solid var(--paper-2);
+}
+
+/* ── Accent variants (tweakable) ── */
+[data-accent="sage"] {
+  --accent:        oklch(62% 0.045 145);
+  --accent-soft:   oklch(88% 0.025 145);
+  --accent-softer: oklch(94% 0.015 145);
+  --accent-deep:   oklch(46% 0.055 145);
+  --accent-ink:    oklch(28% 0.04 145);
+}
+[data-theme="dark"][data-accent="sage"] {
+  --accent:        oklch(74% 0.05 145);
+  --accent-soft:   oklch(38% 0.05 145);
+  --accent-softer: oklch(30% 0.035 145);
+  --accent-deep:   oklch(82% 0.055 145);
+  --accent-ink:    oklch(92% 0.04 145);
+}
+[data-accent="amber"] {
+  --accent:        oklch(65% 0.08 65);
+  --accent-soft:   oklch(90% 0.04 65);
+  --accent-softer: oklch(95% 0.02 65);
+  --accent-deep:   oklch(50% 0.1 65);
+  --accent-ink:    oklch(32% 0.07 65);
+}
+[data-theme="dark"][data-accent="amber"] {
+  --accent:        oklch(76% 0.09 65);
+  --accent-soft:   oklch(40% 0.07 65);
+  --accent-softer: oklch(32% 0.05 65);
+  --accent-deep:   oklch(84% 0.1 65);
+  --accent-ink:    oklch(92% 0.06 65);
+}
+[data-accent="slate"] {
+  --accent:        oklch(58% 0.04 240);
+  --accent-soft:   oklch(88% 0.02 240);
+  --accent-softer: oklch(94% 0.012 240);
+  --accent-deep:   oklch(42% 0.05 240);
+  --accent-ink:    oklch(26% 0.04 240);
+}
+[data-theme="dark"][data-accent="slate"] {
+  --accent:        oklch(72% 0.05 240);
+  --accent-soft:   oklch(36% 0.05 240);
+  --accent-softer: oklch(28% 0.035 240);
+  --accent-deep:   oklch(80% 0.055 240);
+  --accent-ink:    oklch(90% 0.04 240);
+}
+[data-accent="terra"] {
+  --accent:        oklch(58% 0.08 40);
+  --accent-soft:   oklch(88% 0.04 40);
+  --accent-softer: oklch(94% 0.02 40);
+  --accent-deep:   oklch(44% 0.1 40);
+  --accent-ink:    oklch(28% 0.07 40);
+}
+[data-theme="dark"][data-accent="terra"] {
+  --accent:        oklch(72% 0.09 40);
+  --accent-soft:   oklch(38% 0.07 40);
+  --accent-softer: oklch(30% 0.05 40);
+  --accent-deep:   oklch(80% 0.1 40);
+  --accent-ink:    oklch(92% 0.06 40);
+}
+
+/* ── Paper temperature variants ── */
+[data-paper="warm"] {
+  --paper-00: #FDFAF3;
+  --paper-0:  #FAF7F1;
+  --paper-1:  #F3EFE6;
+  --paper-2:  #E8E1D2;
+  --paper-3:  #D2C9B6;
+}
+[data-paper="linen"] {
+  --paper-00: #FBF9F4;
+  --paper-0:  #F4F1EA;
+  --paper-1:  #EDE9E0;
+  --paper-2:  #E3DED3;
+  --paper-3:  #CFC8BB;
+}
+[data-paper="old"] {
+  --paper-00: #F8F4EB;
+  --paper-0:  #F0EBDE;
+  --paper-1:  #E8E2D2;
+  --paper-2:  #DCD4C1;
+  --paper-3:  #C5BBA5;
+}
+[data-paper="bone"] {
+  --paper-00: #FDFCF8;
+  --paper-0:  #FBFAF6;
+  --paper-1:  #F4F2EC;
+  --paper-2:  #EAE7DE;
+  --paper-3:  #D5D0C3;
+}
+
+/* ── Radii scale ── */
+[data-radii="sharp"] {
+  --r-xs: 0; --r-sm: 1px; --r-md: 2px; --r-lg: 3px; --r-xl: 4px;
+}
+[data-radii="soft"] {
+  --r-xs: 4px; --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px;
+}
+[data-radii="balanced"] {
+  --r-xs: 2px; --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-xl: 16px;
+}
+
+/* ── Density ── */
+[data-density="compact"]     { --density: 0.85; }
+[data-density="comfortable"] { --density: 1; }
+
+/* ── Base reset (scoped-ish) ── */
+.br {
+  font-family: var(--sans);
+  color: var(--ink-0);
+  background: var(--paper-0);
+  font-feature-settings: "ss01", "kern";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.br * { box-sizing: border-box; }
+.br button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.br a { color: inherit; text-decoration: none; cursor: pointer; }
+.br input, .br textarea { font: inherit; color: inherit; }
+.br ::selection { background: var(--accent-soft); color: var(--accent-ink); }
