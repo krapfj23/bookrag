@@ -3,3 +3,9 @@ dist
 .vite
 *.local
 coverage
+test-results
+playwright-report
+.playwright
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
