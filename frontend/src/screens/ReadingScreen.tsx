@@ -107,10 +107,11 @@ export function ReadingScreen() {
   const [submitting, setSubmitting] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll to the latest message after each state change
+  // Auto-scroll to the latest message after each state change.
+  // Guard against jsdom (no scrollIntoView) in tests.
   useEffect(() => {
     const el = transcriptEndRef.current;
-    if (el && typeof el.scrollIntoView === "function") {
+    if (el?.scrollIntoView) {
       el.scrollIntoView({ block: "end" });
     }
   }, [messages]);
