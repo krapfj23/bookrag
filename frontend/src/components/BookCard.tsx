@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { BookCover } from "./BookCover";
 import { ProgressPill } from "./ProgressPill";
 
@@ -6,7 +7,6 @@ export type BookCardProps = {
   title: string;
   total_chapters: number;
   current_chapter: number;
-  onClick?: () => void;
 };
 
 export function BookCard({
@@ -14,15 +14,22 @@ export function BookCard({
   title,
   total_chapters,
   current_chapter,
-  onClick,
 }: BookCardProps) {
+  const navigate = useNavigate();
   return (
-    <div
-      onClick={onClick}
+    <button
+      type="button"
+      onClick={() => navigate(`/books/${book_id}/read`)}
+      aria-label={`${title}, continue reading`}
       style={{
+        display: "block",
+        textAlign: "left",
         fontFamily: "var(--sans)",
-        cursor: onClick ? "pointer" : "default",
+        cursor: "pointer",
         width: 200,
+        padding: 0,
+        background: "transparent",
+        border: 0,
       }}
     >
       <BookCover book_id={book_id} title={title} />
@@ -43,6 +50,6 @@ export function BookCard({
           <ProgressPill current={current_chapter} total={total_chapters} />
         </div>
       </div>
-    </div>
+    </button>
   );
 }
