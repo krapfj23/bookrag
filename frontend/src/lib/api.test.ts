@@ -3,8 +3,13 @@ import {
   fetchBooks,
   uploadBook,
   fetchStatus,
+  fetchChapters,
+  fetchChapter,
+  setProgress,
   UploadError,
   type PipelineState,
+  type Chapter,
+  type ChapterSummary,
 } from "./api";
 
 describe("fetchBooks", () => {
@@ -200,5 +205,104 @@ describe("fetchStatus", () => {
       status: 404,
     }) as unknown as typeof fetch;
     await expect(fetchStatus("missing_book")).rejects.toThrow(/404/);
+  });
+});
+
+describe("fetchChapters", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("GETs /books/{id}/chapters and returns the JSON array", async () => {
+    const body: ChapterSummary[] = [
+      { num: 1, title: "Chapter 1", word_count: 3000 },
+      { num: 2, title: "The Last of the Spirits", word_count: 2000 },
+    ];
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(body),
+    });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+    const result = await fetchChapters("christmas_carol_e6ddcd76");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters"
+    );
+    expect(result).toEqual(body);
+  });
+
+  it("throws on 404", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+    }) as unknown as typeof fetch;
+    await expect(fetchChapters("missing")).rejects.toThrow(/404/);
+  });
+});
+
+describe("fetchChapter", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("GETs /books/{id}/chapters/{n} and returns Chapter", async () => {
+    const body: Chapter = {
+      num: 2,
+      title: "The Last of the Spirits",
+      paragraphs: ["Am I that man who lay upon the bed?", "The finger pointed..."],
+      has_prev: true,
+      has_next: true,
+      total_chapters: 3,
+    };
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(body),
+    });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+    const result = await fetchChapter("christmas_carol_e6ddcd76", 2);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters/2"
+    );
+    expect(result).toEqual(body);
+  });
+
+  it("throws on 404", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+    }) as unknown as typeof fetch;
+    await expect(fetchChapter("bk", 99)).rejects.toThrow(/404/);
+  });
+});
+
+describe("setProgress", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("POSTs {current_chapter: n} to /books/{id}/progress", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ book_id: "bk", current_chapter: 3 }),
+    });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+    const result = await setProgress("bk", 3);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://localhost:8000/books/bk/progress");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ "Content-Type": "application/json" });
+    expect(init.body).toBe(JSON.stringify({ current_chapter: 3 }));
+    expect(result).toEqual({ book_id: "bk", current_chapter: 3 });
+  });
+
+  it("throws on non-2xx", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+    }) as unknown as typeof fetch;
+    await expect(setProgress("bk", 0)).rejects.toThrow(/400/);
   });
 });

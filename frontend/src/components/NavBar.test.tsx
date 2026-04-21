@@ -47,4 +47,11 @@ describe("NavBar", () => {
     expect(screen.getByText("Library").closest("a")).toHaveAttribute("href", "/");
     expect(screen.getByText("Upload").closest("a")).toHaveAttribute("href", "/upload");
   });
+
+  it("marks Reading active on /books/:bookId/read/:n", () => {
+    renderAt("/books/christmas_carol_e6ddcd76/read/2");
+    expect(screen.getByText("Reading")).toHaveAttribute("data-active", "true");
+    expect(screen.getByText("Library")).toHaveAttribute("data-active", "false");
+    expect(screen.getByText("Upload")).toHaveAttribute("data-active", "false");
+  });
 });
