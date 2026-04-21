@@ -146,15 +146,13 @@ export function ReadingScreen() {
             )
             .map((r) => ({ text: r.content, chapter: r.chapter }))
         : [];
-      // Answer prose: prefer results without chapter context (raw synthesis);
-      // fall back to all results if every result has a chapter (entity-only response).
+      // Answer prose: only results without chapter context so the same content
+      // is not shown twice (sources already display chapter-cited results).
       const proseResults = hasResults
         ? resp.results.filter((r) => r.chapter == null)
         : [];
       const answerText = hasResults
-        ? (proseResults.length > 0
-            ? proseResults.map((r) => r.content).join("\n\n")
-            : resp.results.map((r) => r.content).join("\n\n"))
+        ? proseResults.map((r) => r.content).join("\n\n")
         : EMPTY_RESULT_TEXT;
 
       setMessages((prev) =>
