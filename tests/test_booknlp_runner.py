@@ -570,3 +570,67 @@ class TestParseBooknlpOutput:
         assert result.entity_count == 0
         assert result.quote_count == 0
         assert len(result.tokens) == 0
+
+
+class TestMalformedInputAndPaths:
+    """Slice 3: real BookNLP runs occasionally emit truncated or malformed
+    JSON; real filesystems contain spaces and non-ASCII characters. Verify
+    the parser produces clean errors or tolerates legitimate input."""
+
+    def test_parse_book_json_truncated_raises_clean_error(self, tmp_path):
+        """A truncated .book JSON must raise json.JSONDecodeError (not a
+        cryptic AttributeError) so callers can distinguish bad input from
+        bugs."""
+        p = tmp_path / "book.book"
+        p.write_text('{"characters": [{"id": 0, "names": {"Scroo')
+        with pytest.raises(json.JSONDecodeError):
+            _parse_book_json(p)
+
+    def test_parse_book_json_null_where_int_expected(self, tmp_path):
+        """A null id in place of an int must not crash the parser. Either
+        the character is accepted with id=None/default or skipped — either
+        way, other valid characters survive."""
+        p = tmp_path / "book.book"
+        p.write_text(json.dumps({
+            "characters": [
+                {"id": None, "names": {"Null": 1}},
+                {"id": 2, "names": {"Valid": 5}},
+            ],
+        }))
+        profiles = _parse_book_json(p)
+        # Parser must not crash. Must surface the valid character.
+        valid_names = [c.canonical_name for c in profiles]
+        assert "Valid" in valid_names
+
+    def test_parse_book_json_missing_characters_key(self, tmp_path):
+        """A .book JSON without a 'characters' key must return an empty
+        list, not raise KeyError."""
+        p = tmp_path / "book.book"
+        p.write_text(json.dumps({"other_key": "other_value"}))
+        profiles = _parse_book_json(p)
+        assert profiles == []
+
+    def test_parse_book_json_with_path_containing_spaces(self, tmp_path):
+        """Filesystem paths with spaces must not break the parser."""
+        subdir = tmp_path / "a directory with spaces"
+        subdir.mkdir()
+        p = subdir / "my book.book"
+        p.write_text(json.dumps({
+            "characters": [{"id": 1, "names": {"Scrooge": 10}}],
+        }))
+        profiles = _parse_book_json(p)
+        assert len(profiles) == 1
+        assert profiles[0].canonical_name == "Scrooge"
+
+    def test_parse_book_json_with_nonascii_path(self, tmp_path):
+        """Filesystem paths with non-ASCII characters (e.g. cyrillic) must
+        not break the parser."""
+        subdir = tmp_path / "книги"  # "books" in Russian
+        subdir.mkdir()
+        p = subdir / "война.book"  # "war" in Russian
+        p.write_text(json.dumps({
+            "characters": [{"id": 1, "names": {"Болконский": 10}}],
+        }), encoding="utf-8")
+        profiles = _parse_book_json(p)
+        assert len(profiles) == 1
+        assert profiles[0].canonical_name == "Болконский"

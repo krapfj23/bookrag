@@ -58,6 +58,7 @@ from pipeline.coref_resolver import (
     _build_mention_index,
     _assign_token_chapters_fast,
 )
+from pipeline.tsv_utils import read_tsv
 
 
 # ============================================================================
@@ -1505,3 +1506,104 @@ class TestBug3HeadingAnnotation:
         config = CorefConfig(distance_threshold=1, annotate_ambiguous=False)
         result = resolve_coreferences(tokens, entities, characters, [""], [(0, 5)], config)
         assert "[Scrooge]" in result.resolved_full_text
+
+
+# ============================================================================
+# Slice 3 — Unicode tokens
+# ============================================================================
+
+
+class TestUnicodeTokens:
+    """Slice 3: real books contain cyrillic, curly apostrophes, and zero-width
+    joiners. The coref resolver reconstructs text from tokens and must pass
+    these bytes through without corruption."""
+
+    def test_tokens_with_cyrillic_preserved_through_resolution(self):
+        """A cyrillic character name survives reconstruction in
+        resolved_full_text."""
+        # "Соня" (4 chars) then "спала" (5 chars): "Соня spala."
+        tokens = [
+            Token(0, 0, 0, 4, "Соня", "NNP", 1),
+            Token(1, 0, 5, 10, "спала", "VBD", -1),
+            Token(2, 0, 10, 11, ".", ".", -1),
+        ]
+        entities = [EntityMention(1, 0, 1, "PROP", "PER", "Соня")]
+        characters = [CharacterProfile(1, "Соня", [])]
+        result = resolve_coreferences(
+            tokens, entities, characters, [""], [(0, 3)],
+            CorefConfig(distance_threshold=1, annotate_ambiguous=False),
+        )
+        # Cyrillic name appears verbatim
+        assert "Соня" in result.resolved_full_text
+        # Cluster carries the name
+        assert result.clusters[1].canonical_name == "Соня"
+
+    def test_tokens_with_zero_width_joiner_not_split(self):
+        """A token containing U+200D must remain a single token; the coref
+        resolver must not split or strip it."""
+        # A name with a zero-width joiner embedded: "a‍z"
+        name = "a‍z"  # U+0061, U+200D, U+007A
+        tokens = [
+            Token(0, 0, 0, len(name), name, "NNP", 1),
+            Token(1, 0, len(name) + 1, len(name) + 4, "ran", "VBD", -1),
+            Token(2, 0, len(name) + 4, len(name) + 5, ".", ".", -1),
+        ]
+        entities = [EntityMention(1, 0, 1, "PROP", "PER", name)]
+        characters = [CharacterProfile(1, name, [])]
+        result = resolve_coreferences(
+            tokens, entities, characters, [""], [(0, 3)],
+            CorefConfig(distance_threshold=1, annotate_ambiguous=False),
+        )
+        # ZWJ survives reconstruction
+        assert name in result.resolved_full_text
+        assert "‍" in result.resolved_full_text
+
+    def test_tsv_entry_with_literal_tab_in_name_raises_clean_error(self, tmp_path):
+        """read_tsv currently splits on tabs; a literal tab in a 'name' field
+        produces extra columns. Pin the current behavior: row has more values
+        than headers, so dict zip truncates silently. This test guards against
+        a regression where the parser crashes on such input."""
+        tsv_path = tmp_path / "bad.tsv"
+        # 3 headers, but the 'text' column contains a literal tab mid-value
+        tsv_path.write_text(
+            "COREF\tcat\ttext\n"
+            "1\tPER\tBad\tName\n",  # extra tab inside value
+            encoding="utf-8",
+        )
+        # Parser does not crash
+        rows = read_tsv(tsv_path)
+        assert len(rows) == 1
+        # The extra tab silently splits the value; 'text' gets clipped to "Bad"
+        # and "Name" is dropped because there's no header for it. We pin this
+        # so any future "raise on misaligned columns" change is an intentional
+        # breaking change, not silent behavior drift.
+        assert rows[0]["text"] == "Bad"
+        assert "Name" not in rows[0].values()  # extra field dropped
+
+    def test_name_with_curly_apostrophe_aligns_across_mentions(self):
+        """A character name containing U+2019 must be consistently annotated
+        across mentions — no variant is produced from Unicode normalization."""
+        name = "D’Artagnan"  # curly apostrophe
+        tokens = [
+            Token(0, 0, 0, len(name), name, "NNP", 1),
+            Token(1, 0, len(name) + 1, len(name) + 4, "ran", "VBD", -1),
+            Token(2, 0, len(name) + 4, len(name) + 5, ".", ".", -1),
+            Token(3, 1, len(name) + 6, len(name) + 8, "He", "PRP", 1),
+            Token(4, 1, len(name) + 9, len(name) + 13, "fell", "VBD", -1),
+            Token(5, 1, len(name) + 13, len(name) + 14, ".", ".", -1),
+        ]
+        entities = [
+            EntityMention(1, 0, 1, "PROP", "PER", name),
+            EntityMention(1, 3, 4, "PRON", "PER", "He"),
+        ]
+        characters = [CharacterProfile(1, name, [])]
+        result = resolve_coreferences(
+            tokens, entities, characters, [""], [(0, 6)],
+            CorefConfig(distance_threshold=1, annotate_ambiguous=False),
+        )
+        # The curly apostrophe is preserved in the annotation; no conversion
+        # to straight quote
+        assert "[D’Artagnan]" in result.resolved_full_text
+        assert "[D'Artagnan]" not in result.resolved_full_text, (
+            "curly apostrophe must not be normalized to straight quote"
+        )

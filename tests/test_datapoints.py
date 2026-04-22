@@ -109,6 +109,8 @@ class TestExtractionModelsNotDataPoints:
 # ===================================================================
 
 class TestCharacterDataPoint:
+    """Covers the Character DataPoint schema."""
+
     def test_required_fields(self):
         c = Character(name="Scrooge", first_chapter=1)
         assert c.name == "Scrooge"
@@ -150,6 +152,8 @@ class TestCharacterDataPoint:
 # ===================================================================
 
 class TestLocationDataPoint:
+    """Covers the Location DataPoint schema."""
+
     def test_required_fields(self):
         loc = Location(name="London", first_chapter=1)
         assert loc.name == "London"
@@ -169,6 +173,8 @@ class TestLocationDataPoint:
 # ===================================================================
 
 class TestFactionDataPoint:
+    """Covers the Faction DataPoint schema."""
+
     def test_required_fields(self):
         f = Faction(name="The Golds", first_chapter=1)
         assert f.name == "The Golds"
@@ -193,6 +199,8 @@ class TestFactionDataPoint:
 # ===================================================================
 
 class TestPlotEventDataPoint:
+    """Covers the PlotEvent DataPoint schema."""
+
     def test_required_fields(self):
         e = PlotEvent(description="Scrooge sees a ghost", chapter=1)
         assert e.description == "Scrooge sees a ghost"
@@ -228,6 +236,8 @@ class TestPlotEventDataPoint:
 # ===================================================================
 
 class TestRelationshipDataPoint:
+    """Covers the Relationship DataPoint schema."""
+
     def test_required_fields(self):
         src = Character(name="Scrooge", first_chapter=1)
         tgt = Character(name="Bob Cratchit", first_chapter=1)
@@ -259,6 +269,8 @@ class TestRelationshipDataPoint:
 # ===================================================================
 
 class TestThemeDataPoint:
+    """Covers the Theme DataPoint schema."""
+
     def test_required_fields(self):
         t = Theme(name="Redemption", first_chapter=1)
         assert t.name == "Redemption"
@@ -306,6 +318,8 @@ class TestFirstChapterOnAllDataPoints:
 # ===================================================================
 
 class TestCharacterExtraction:
+    """Covers CharacterExtraction (pre-persistence model) schema."""
+
     def test_fields_match_datapoint(self):
         """Extraction model should have same data fields as DataPoint (minus id/metadata)."""
         ce = CharacterExtraction(
@@ -329,6 +343,8 @@ class TestCharacterExtraction:
 # ===================================================================
 
 class TestEventExtraction:
+    """Covers EventExtraction (pre-persistence model) schema."""
+
     def test_participant_names_are_strings(self):
         ee = EventExtraction(
             description="Ghost appears",
@@ -349,6 +365,8 @@ class TestEventExtraction:
 # ===================================================================
 
 class TestRelationshipExtraction:
+    """Covers RelationshipExtraction (pre-persistence model) schema."""
+
     def test_uses_source_name_target_name(self):
         re = RelationshipExtraction(
             source_name="Scrooge",
@@ -366,6 +384,8 @@ class TestRelationshipExtraction:
 # ===================================================================
 
 class TestFactionExtraction:
+    """Covers FactionExtraction (pre-persistence model) schema."""
+
     def test_member_names_are_strings(self):
         fe = FactionExtraction(
             name="Cratchit Family",
@@ -380,6 +400,8 @@ class TestFactionExtraction:
 # ===================================================================
 
 class TestExtractionResult:
+    """Covers the ExtractionResult aggregate model and round-trip."""
+
     def test_all_fields_default_empty(self):
         er = ExtractionResult()
         assert er.characters == []
@@ -415,6 +437,8 @@ class TestExtractionResult:
 # ===================================================================
 
 class TestToDatapoints:
+    """Covers ExtractionResult.to_datapoints cross-reference resolution."""
+
     @pytest.fixture
     def full_extraction(self) -> ExtractionResult:
         return ExtractionResult(
@@ -783,6 +807,8 @@ class TestExtractionLastKnownChapter:
 
 
 class TestToDatapointsPreservesLastKnownChapter:
+    """Asserts to_datapoints() copies last_known_chapter onto every persisted DataPoint."""
+
     def test_character_last_known_chapter_copied(self):
         from models.datapoints import ExtractionResult, CharacterExtraction
         result = ExtractionResult(characters=[
@@ -823,6 +849,8 @@ class TestToDatapointsPreservesLastKnownChapter:
 
 
 class TestRelationshipTypeEnum:
+    """Covers RelationshipType enum values and lowercase invariant."""
+
     def test_enum_has_ten_canonical_types(self):
         from models.datapoints import RelationshipType
         assert set(v.value for v in RelationshipType) == {
@@ -836,6 +864,8 @@ class TestRelationshipTypeEnum:
 
 
 class TestRelationshipValence:
+    """Covers signed valence range and confidence defaults on Relationship DataPoint."""
+
     def test_valence_default_zero(self):
         from models.datapoints import Relationship, Character
         src = Character(name="A", first_chapter=1)
@@ -879,6 +909,8 @@ class TestRelationshipValence:
 
 
 class TestRelationshipExtractionValence:
+    """Asserts RelationshipExtraction propagates valence/confidence into DataPoints."""
+
     def test_extraction_defaults(self):
         from models.datapoints import RelationshipExtraction
         r = RelationshipExtraction(
@@ -914,6 +946,8 @@ class TestRelationshipExtractionValence:
 
 
 class TestCharacterCorefId:
+    """Asserts Character carries the BookNLP coref cluster id through extraction."""
+
     def test_character_has_booknlp_coref_id_field(self):
         from models.datapoints import Character
         c = Character(name="Scrooge", first_chapter=1, booknlp_coref_id=42)
@@ -944,6 +978,8 @@ class TestCharacterCorefId:
 
 
 class TestExtractionResultMetadata:
+    """Covers ExtractionResult provenance fields (extractor_version, prompt_hash, etc.)."""
+
     def test_metadata_defaults_empty(self):
         from models.datapoints import ExtractionResult
         er = ExtractionResult()
@@ -992,6 +1028,8 @@ class TestExtractionResultMetadata:
 
 
 class TestPlotEventRealis:
+    """Covers PlotEvent.realis enum (actual/generic/other) and extraction propagation."""
+
     def test_realis_defaults_to_actual(self):
         from models.datapoints import PlotEvent
         ev = PlotEvent(description="Scrooge slammed the door.", chapter=1)
@@ -1021,3 +1059,91 @@ class TestPlotEventRealis:
         dps = ex.to_datapoints()
         ev = next(d for d in dps if isinstance(d, PlotEvent))
         assert ev.realis == "other"
+
+
+# ===========================================================================
+# Slice 3 — Unicode + path edges
+# ===========================================================================
+
+
+class TestUnicodeAndPathEdges:
+    """Slice 3: real books contain curly apostrophes, em dashes, cyrillic,
+    zero-width joiners. Datapoints must preserve these bytes through
+    construction and JSON round-trips."""
+
+    def test_character_name_curly_apostrophe(self):
+        """U+2019 RIGHT SINGLE QUOTATION MARK must survive model construction
+        and JSON dump."""
+        name = "D’Artagnan"  # curly apostrophe
+        c = CharacterExtraction(name=name, description="", first_chapter=1)
+        assert c.name == name
+        dumped = c.model_dump_json()
+        assert "’" in dumped or "\\u2019" in dumped
+
+    def test_character_name_em_dash(self):
+        """U+2014 EM DASH must survive on both name and description."""
+        name = "Mr. X—the stranger"
+        c = CharacterExtraction(name=name, description="A man—mysterious.", first_chapter=1)
+        assert "—" in c.name
+        assert "—" in c.description
+
+    def test_location_name_cyrillic(self):
+        """Non-ASCII (cyrillic) must pass through Location construction unchanged."""
+        loc = LocationExtraction(name="Соня", first_chapter=1)  # Соня
+        assert loc.name == "Соня"
+        # Round-trip through JSON to confirm no mojibake
+        restored = LocationExtraction.model_validate_json(loc.model_dump_json())
+        assert restored.name == "Соня"
+
+    def test_character_name_zero_width_joiner_preserved(self):
+        """U+200D ZERO WIDTH JOINER must not be stripped — emoji sequences and
+        some complex scripts rely on it."""
+        name = "a‍z"  # two letters joined by ZWJ
+        c = CharacterExtraction(name=name, description="", first_chapter=1)
+        assert c.name == name
+        assert "‍" in c.name
+        # Round-trip preserves exact byte content
+        restored = CharacterExtraction.model_validate_json(c.model_dump_json())
+        assert restored.name == name
+
+    def test_extraction_result_json_roundtrip_preserves_unicode(self):
+        """Full ExtractionResult round-trip preserves curly apostrophe, em dash,
+        cyrillic, and ZWJ on every field that contains them."""
+        er = ExtractionResult(
+            characters=[CharacterExtraction(
+                name="D’Artagnan",
+                description="A Gascon—young and bold.",
+                first_chapter=1,
+            )],
+            locations=[LocationExtraction(
+                name="Соня",
+                first_chapter=1,
+            )],
+            themes=[ThemeExtraction(
+                name="family a‍z",
+                first_chapter=1,
+            )],
+        )
+        restored = ExtractionResult.model_validate_json(er.model_dump_json())
+        assert restored.characters[0].name == "D’Artagnan"
+        assert "—" in restored.characters[0].description
+        assert restored.locations[0].name == "Соня"
+        assert "‍" in restored.themes[0].name
+
+    def test_extraction_result_json_roundtrip_idempotent(self):
+        """Dumping an ExtractionResult, loading it back, and dumping again
+        must yield byte-identical JSON."""
+        er = ExtractionResult(
+            characters=[CharacterExtraction(
+                name="D’Artagnan",
+                description="A Gascon.",
+                first_chapter=1,
+            )],
+        )
+        first = er.model_dump_json()
+        restored = ExtractionResult.model_validate_json(first)
+        second = restored.model_dump_json()
+        assert first == second, (
+            "round-trip must be idempotent; dump→load→dump should produce "
+            "byte-identical output"
+        )

@@ -110,6 +110,8 @@ def client(tmp_config, monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestHealthEndpoint:
+    """Covers GET /health."""
+
     def test_health_returns_ok(self, client):
         test_client, _, _ = client
         resp = test_client.get("/health")
@@ -124,6 +126,8 @@ class TestHealthEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestUploadEndpoint:
+    """Covers POST /books/upload shape and pipeline kickoff."""
+
     def test_upload_epub(self, client):
         """Plan: 'POST /books/upload — multipart EPUB file → { book_id, status }'."""
         test_client, mock_orch, config = client
@@ -251,6 +255,8 @@ class TestUploadEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestStatusEndpoint:
+    """Covers GET /books/{id}/status stage reporting."""
+
     def test_status_found(self, client):
         test_client, mock_orch, _ = client
         state = PipelineState.new("testbook", ["parse_epub", "validate"])
@@ -301,6 +307,8 @@ class TestStatusEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestValidationEndpoint:
+    """Covers GET /books/{id}/validation JSON shape."""
+
     def test_validation_found(self, client):
         test_client, _, config = client
         val_dir = Path(config.processed_dir) / "valbook" / "validation"
@@ -324,6 +332,8 @@ class TestValidationEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestProgressEndpoint:
+    """Covers POST /books/{id}/progress writes reading_progress.json."""
+
     def test_set_progress(self, client):
         """Plan: 'POST /books/{id}/progress — Set reading progress'."""
         test_client, mock_orch, config = client
@@ -384,6 +394,8 @@ class TestProgressEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestCORS:
+    """Asserts the configured dev-origin allowlist."""
+
     def test_cors_allowed_origin(self, client):
         """Vuln fix: CORS restricted to localhost origins only."""
         test_client, _, _ = client
@@ -406,6 +418,8 @@ class TestCORS:
 
 
 class TestExtractChapterUsesEffectiveLatest:
+    """Verifies chapter-extraction respects effective_latest_chapter."""
+
     def test_prefers_last_known_over_first(self):
         from main import _extract_chapter
 
@@ -835,6 +849,8 @@ class TestQueryEndpointParagraphGate:
 
 
 class TestQueryResponseIncludesParagraph:
+    """Covers /query JSON returning paragraph-cursor metadata."""
+
     def _real_orch(self, monkeypatch, main_mod, cfg):
         from pipeline.orchestrator import PipelineOrchestrator
         monkeypatch.setattr(main_mod, "orchestrator", PipelineOrchestrator(cfg))
@@ -879,3 +895,41 @@ class TestQueryResponseIncludesParagraph:
         })
         assert resp.status_code == 200
         assert resp.json()["current_paragraph"] is None
+
+
+class TestGraphHTMLEndpoint:
+    """Smoke test for GET /books/{id}/graph HTML response."""
+
+    def _seed_ready_book(self, tmp_path, book_id="bk"):
+        """Build a minimal 'ready' book with a batch containing one DataPoint
+        so the HTML endpoint renders a non-empty graph (exercises the vis.js
+        template path, not the early-return 'no data' branch)."""
+        from models.pipeline_state import PipelineState, save_state
+        root = tmp_path / book_id
+        (root / "batches" / "batch_01").mkdir(parents=True)
+        (root / "batches" / "batch_01" / "extracted_datapoints.json").write_text(json.dumps([
+            {"type": "Character", "name": "Scrooge", "first_chapter": 1},
+        ]))
+        state = PipelineState(book_id=book_id)
+        state.ready_for_query = True
+        save_state(state, root / "pipeline_state.json")
+        (root / "reading_progress.json").write_text(
+            json.dumps({"book_id": book_id, "current_chapter": 1})
+        )
+        return root
+
+    def test_graph_html_smoke(self, tmp_path, monkeypatch):
+        """The HTML endpoint returns 200 with text/html and embeds a vis
+        network script so the client can render the knowledge graph."""
+        from fastapi.testclient import TestClient
+        import main
+        self._seed_ready_book(tmp_path, "bk")
+        monkeypatch.setattr(main.config, "processed_dir", str(tmp_path))
+
+        client = TestClient(main.app)
+        response = client.get("/books/bk/graph?full=true")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        body = response.text
+        assert "<script" in body
+        assert ("vis.js" in body) or ("vis-network" in body)

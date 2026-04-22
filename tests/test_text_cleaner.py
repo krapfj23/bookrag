@@ -677,3 +677,59 @@ class TestCleanChapters:
         result = clean_chapters(chapters)
         assert "Copyright" not in result[0]
         assert "Story two continues." in result[1]
+
+
+# ============================================================================
+# Slice 3 — Extreme inputs
+# ============================================================================
+
+
+class TestExtremeInputs:
+    """Slice 3: real-world edge cases that weren't covered by the
+    ASCII-focused fixtures above — megabyte paragraphs, embedded null bytes,
+    unbalanced HTML, NBSP-only content, all-whitespace chapters."""
+
+    def test_clean_text_handles_megabyte_paragraph(self):
+        """A >1 MiB single-paragraph block must not hang or OOM; content
+        survives intact."""
+        big = "Scrooge sat in his counting-house. " * 30_000  # ~1.08 MiB
+        out = clean_text(big)
+        assert len(out) > 0
+        assert "Scrooge" in out
+        # Ratio check: the cleaner must not delete the whole block
+        assert len(out) > len(big) // 2
+
+    def test_clean_text_strips_or_preserves_null_byte(self):
+        """Null bytes are rare but some EPUBs carry them. Pin the current
+        behavior: clean_text does not crash, and surrounding content
+        survives (null either passes through or gets dropped)."""
+        text = "Before.\x00After."
+        out = clean_text(text)
+        # Content either side of the null byte must survive regardless of
+        # whether the null itself is stripped.
+        assert "Before" in out
+        assert "After" in out
+
+    def test_clean_text_malformed_html_nesting(self):
+        """Unbalanced HTML tags must not crash the cleaner. The textual
+        content survives regardless of tag balance (the cleaner focuses on
+        entity unescaping, not full tag stripping)."""
+        text = "<p>First <b>bold <i>italic</b> unclosed</p> <span>"
+        out = clean_text(text)
+        assert "First" in out
+        assert "bold" in out
+        assert "italic" in out
+
+    def test_clean_text_all_whitespace_chapter_returns_empty(self):
+        """A chapter containing only spaces, tabs, and newlines cleans down
+        to an effectively empty string."""
+        text = "   \t\n\n  \n\t\t  \n"
+        out = clean_text(text)
+        assert out.strip() == ""
+
+    def test_clean_text_nbsp_only_chapter_returns_empty(self):
+        """A chapter that is all NBSP runs (U+00A0) cleans to empty — NBSPs
+        are normalized to regular spaces, then stripped."""
+        text = "   \n  \n "
+        out = clean_text(text)
+        assert out.strip() == ""
