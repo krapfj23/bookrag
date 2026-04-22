@@ -30,7 +30,7 @@ Driven by `design_handoff_bookrag_reader/README.md` (V3 Inline margin cards, amb
 | R1b | Reader fit-and-finish (fixed spread, current-spread cards, chapter advance) | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R1b-fit-and-finish.md) | [plan](plans/2026-04-22-slice-R1b-fit-and-finish-plan.md) | [review](reviews/2026-04-22-slice-R1b-review.md) |
 | R2 | V3 Inline margin cards + selection→ask + notes | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R2-cards-and-selection.md) | [plan](plans/2026-04-22-slice-R2-cards-and-selection-plan.md) | [review](reviews/2026-04-22-slice-R2-review.md) |
 | R3 | Card states (S1–S7) + O2 overflow | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R3-card-states-and-overflow.md) | [plan](plans/2026-04-22-slice-R3-card-states-and-overflow-plan.md) | [review](reviews/2026-04-22-slice-R3-review.md) |
-| R4 | Ambitious reading mode | not started | — | — | — | — |
+| R4 | Ambitious reading mode | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R4-reading-mode.md) | [plan](plans/2026-04-22-slice-R4-reading-mode-plan.md) | [review](reviews/2026-04-22-slice-R4-review.md) |
 | R5 | Card detail (edit/delete) | blocked | — | — | — | — |
 
 R5 is blocked pending a design pass (README §2 "Edit/delete cards" flagged as undesigned).
