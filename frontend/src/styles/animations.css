@@ -29,3 +29,30 @@
     opacity: 1;
   }
 }
+
+/* ── Card enter animation (T12) ── */
+@keyframes rr-card-enter {
+  from { opacity: 0; transform: translateX(-12px) rotate(-0.2deg); }
+  to   { opacity: 1; transform: translateX(0) rotate(-0.2deg); }
+}
+.rr-card-enter {
+  animation: rr-card-enter 520ms cubic-bezier(.2,.7,.2,1) both;
+}
+
+/* ── Toolbar enter animation (T5) ── */
+@keyframes rr-toolbar-enter {
+  from { opacity: 0; transform: translate(-50%, -100%) translateY(-2px); }
+  to   { opacity: 1; transform: translate(-50%, -100%) translateY(-6px); }
+}
+.rr-toolbar-enter {
+  animation: rr-toolbar-enter 180ms ease;
+}
+
+/* ── Highlight pulse on anchor phrase (T12) ── */
+@keyframes rr-highlight-pulse {
+  0%   { background: var(--accent-soft); }
+  100% { background: transparent; }
+}
+.rr-highlight-pulse {
+  animation: rr-highlight-pulse 600ms ease-out;
+}

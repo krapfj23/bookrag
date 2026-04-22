@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AskCard as AskCardT } from "../../lib/reader/cards";
 import { SkeletonAskCard } from "./SkeletonAskCard";
 import { BlinkingCursor } from "./BlinkingCursor";
@@ -8,6 +8,7 @@ import { JumpToAnchorCTA } from "./JumpToAnchorCTA";
 export function AskCard({
   card,
   flash,
+  enterDelay,
   offscreen,
   crossPage,
   onJump,
@@ -16,6 +17,7 @@ export function AskCard({
 }: {
   card: AskCardT;
   flash: boolean;
+  enterDelay?: number;
   offscreen?: { direction: "up" | "down" };
   crossPage?: { direction: "left" | "right"; folio: number };
   onJump?: () => void;
@@ -23,6 +25,16 @@ export function AskCard({
   composerRef?: React.Ref<HTMLInputElement>;
 }) {
   const answerRef = useRef<HTMLDivElement | null>(null);
+  // Gate: only play the enter animation on first mount (not on re-renders).
+  const didMount = useRef(false);
+  const enterClass = useMemo(() => {
+    if (!didMount.current) {
+      didMount.current = true;
+      return "rr-card-enter";
+    }
+    return "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [isLong, setIsLong] = useState(false);
 
   // Local cursor visibility state — mirrors card.streaming but stays true for
@@ -84,7 +96,11 @@ export function AskCard({
       data-card-id={card.id}
       data-card-kind="ask"
       data-card-anchor={card.anchor}
-      className={flash ? "rr-card rr-card-flash" : "rr-card"}
+      className={[
+        "rr-card",
+        enterClass,
+        flash ? "rr-card-flash" : "",
+      ].filter(Boolean).join(" ")}
       style={{
         background: "var(--paper-00)",
         border: "1px solid var(--paper-2)",
@@ -94,6 +110,7 @@ export function AskCard({
         boxShadow: "0 4px 12px -4px rgba(28,24,18,.08)",
         transform: "rotate(-0.2deg)",
         fontFamily: "var(--serif)",
+        ...(enterDelay != null ? { animationDelay: `${enterDelay}ms` } : {}),
       }}
     >
       <header
