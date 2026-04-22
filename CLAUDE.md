@@ -95,6 +95,16 @@ frontend/src/
 
 BookNLP does NOT produce resolved text. We reconstruct it from `.entities` + `.tokens` + `.book` files. Format: `"he [Scrooge] muttered to his [Scrooge] clerk [Bob Cratchit]"`. Reversible (strip brackets to recover original), and LLMs parse it well during Phase 2 extraction.
 
+### Fog-of-War Retrieval (Phase 0)
+
+Reader progress is persisted per book in `reading_progress.json` (chapter-granular). At query time, `pipeline/spoiler_filter.py` walks `data/processed/{book_id}/batches/*.json` and builds an allowlist of nodes whose `effective_latest_chapter` (= max of `first_chapter`, `last_known_chapter`, `chapter`) is ≤ the reader's cursor. Retrieval runs ONLY over this allowlist — Cognee's default graph search is bypassed because it retrieves over the full dataset before filtering, which leaks spoilers through graph-completion reasoning.
+
+For `GRAPH_COMPLETION` queries, the top-K allowed nodes are passed as context to the LLM via `_complete_over_context`. The LLM never sees post-progress content.
+
+Limitations (addressed in later phases):
+- Progress is chapter-granular, not paragraph-granular (Phase 1).
+- Each entity has one DataPoint with a single `last_known_chapter`. If the entity's description was written from chapter-5 evidence, a reader at chapter-5 sees the full description; we can't rewind to a "chapter-3 snapshot" of the same entity (Phase 2).
+
 ## Testing
 
 - **Backend**: 23 test files in `tests/`, 923 tests collected. ~1 test file per pipeline module plus cross-module quality/validation suites.
