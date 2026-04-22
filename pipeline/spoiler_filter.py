@@ -27,3 +27,50 @@ def effective_latest_chapter(obj: Any) -> int | None:
     values = [_get(obj, f) for f in _CHAPTER_FIELDS]
     ints = [int(v) for v in values if v is not None]
     return max(ints) if ints else None
+
+
+import json
+from pathlib import Path
+
+# Every key in a batch JSON file that holds temporally-scoped nodes.
+# Values are the node-type label we attach when merging.
+_NODE_COLLECTIONS = {
+    "characters": "Character",
+    "locations": "Location",
+    "factions": "Faction",
+    "themes": "Theme",
+    "events": "PlotEvent",
+    "relationships": "Relationship",
+}
+
+
+def load_allowed_nodes(
+    book_id: str,
+    cursor: int,
+    processed_dir: Path | str,
+) -> list[dict]:
+    """Return every node in `book_id`'s batch JSONs whose effective latest
+    chapter is <= cursor. Each returned dict has an added "_type" field.
+
+    Missing book directory returns []. Nodes with no chapter info are dropped
+    (safer to hide an uncategorized node than leak one).
+    """
+    batches_dir = Path(processed_dir) / book_id / "batches"
+    if not batches_dir.exists():
+        return []
+
+    allowed: list[dict] = []
+    for batch_file in sorted(batches_dir.glob("*.json")):
+        try:
+            payload = json.loads(batch_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for collection, type_label in _NODE_COLLECTIONS.items():
+            for node in payload.get(collection, []) or []:
+                ch = effective_latest_chapter(node)
+                if ch is None or ch > cursor:
+                    continue
+                enriched = dict(node)
+                enriched["_type"] = type_label
+                allowed.append(enriched)
+    return allowed
