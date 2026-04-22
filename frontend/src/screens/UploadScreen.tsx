@@ -4,6 +4,7 @@ import { NavBar } from "../components/NavBar";
 import { Dropzone, type DropzoneState } from "../components/Dropzone";
 import { PipelineRow } from "../components/PipelineRow";
 import { Button } from "../components/Button";
+import { ConnectionBanner } from "../components/ConnectionBanner";
 import {
   uploadBook,
   fetchStatus,
@@ -108,6 +109,8 @@ function firstFailedStage(
 export function UploadScreen() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const stopPolling = useRef(false);
+  const pollFailures = useRef(0);
+  const [connectionLost, setConnectionLost] = useState(false);
 
   // Upload effect — fires when phase transitions to "uploading"
   useEffect(() => {
@@ -152,6 +155,9 @@ export function UploadScreen() {
       fetchStatus(book_id)
         .then((next) => {
           if (cancelled) return;
+          // Reset the failure counter + dismiss the banner on any success.
+          pollFailures.current = 0;
+          setConnectionLost(false);
           setPhase((prev) => {
             if (prev.kind !== "tracking" || prev.book_id !== book_id) return prev;
             return { ...prev, pipelineState: next };
@@ -163,8 +169,14 @@ export function UploadScreen() {
             stopPolling.current = true;
           }
         })
-        .catch(() => {
-          // transient failure — keep polling
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          // Log every failure so outages are visible in devtools. Only
+          // surface the banner after 3 consecutive misses so transient
+          // blips don't flash an alert at the user.
+          console.error("pipeline status poll failed", err);
+          pollFailures.current += 1;
+          if (pollFailures.current >= 3) setConnectionLost(true);
         });
     };
 
@@ -188,6 +200,8 @@ export function UploadScreen() {
 
   function handleFile(file: File) {
     stopPolling.current = false;
+    pollFailures.current = 0;
+    setConnectionLost(false);
     setPhase({ kind: "uploading", filename: file.name, file });
   }
 
@@ -249,6 +263,7 @@ export function UploadScreen() {
 
         {phase.kind === "tracking" && (
           <>
+            <ConnectionBanner visible={connectionLost} />
             {failed && (
               <div
                 role="alert"

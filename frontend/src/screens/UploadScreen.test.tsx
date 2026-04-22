@@ -238,4 +238,42 @@ describe("UploadScreen", () => {
       );
     });
   });
+
+  it("surfaces a connection banner after 3 consecutive status-poll failures", async () => {
+    vi.spyOn(api, "uploadBook").mockResolvedValue({
+      book_id: BOOK_ID,
+      message: "Pipeline started",
+    });
+    const statusSpy = vi
+      .spyOn(api, "fetchStatus")
+      .mockRejectedValue(new Error("network"));
+    // Silence the intentional console.error during the retry sequence
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    renderScreen();
+    const zone = screen.getByTestId("dropzone");
+    await act(async () => {
+      fireEvent.drop(zone, { dataTransfer: { files: [makeEpub()] } });
+    });
+    // Three consecutive failures
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+    }
+    expect(
+      await screen.findByRole("alert", { name: /connection lost/i }),
+    ).toBeInTheDocument();
+
+    // Next poll succeeds → banner dismissed
+    statusSpy.mockResolvedValueOnce(mkState());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(
+      screen.queryByRole("alert", { name: /connection lost/i }),
+    ).not.toBeInTheDocument();
+
+    errSpy.mockRestore();
+  });
 });

@@ -270,3 +270,17 @@
   color: var(--ink-0);
   background: var(--paper-1);
 }
+
+/* Polling connection-lost banner — surfaces after N consecutive failures
+ * from a poll loop (UploadScreen status poll). Subtle, non-modal; the
+ * loop keeps retrying and dismisses the banner on next success. */
+.connection-banner {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--err);
+  background: color-mix(in oklab, var(--err) 8%, var(--paper-0));
+  color: var(--err);
+  border-radius: var(--r-md);
+  font-family: var(--sans);
+  font-size: 13px;
+}

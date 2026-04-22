@@ -81,8 +81,10 @@ export function ReadingScreen() {
         setBook(books.find((b) => b.book_id === bookId) ?? null);
         setChapterList(chapters);
       })
-      .catch(() => {
-        // sidebar stays empty; center column error-states will show separately
+      .catch((err: unknown) => {
+        // One-shot load, not a poll loop — log and leave the sidebar empty.
+        // Center column's own fetch+error path handles user-facing surface.
+        console.error("reading sidebar load failed", err);
       });
     return () => {
       cancelled = true;
