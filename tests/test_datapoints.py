@@ -735,6 +735,31 @@ class TestLastKnownChapter:
         assert r.last_known_chapter == 2
 
 
+class TestSourceChunkOrdinal:
+    """Test source_chunk_ordinal field on DataPoints and propagation through to_datapoints."""
+
+    def test_character_accepts_source_chunk_ordinal(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1, source_chunk_ordinal=7)
+        assert c.source_chunk_ordinal == 7
+
+    def test_character_source_chunk_ordinal_defaults_to_none(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1)
+        assert c.source_chunk_ordinal is None
+
+    def test_plotevent_accepts_source_chunk_ordinal(self):
+        from models.datapoints import PlotEvent
+        e = PlotEvent(description="x", chapter=1, source_chunk_ordinal=3)
+        assert e.source_chunk_ordinal == 3
+
+    def test_extraction_result_to_datapoints_stamps_ordinal(self):
+        from models.datapoints import ExtractionResult, CharacterExtraction
+        r = ExtractionResult(characters=[CharacterExtraction(name="A", first_chapter=1)])
+        dps = r.to_datapoints(source_chunk_ordinal=12)
+        assert all(getattr(dp, "source_chunk_ordinal", None) == 12 for dp in dps)
+
+
 class TestExtractionLastKnownChapter:
     """LLM extraction models accept last_known_chapter and default to first_chapter."""
 

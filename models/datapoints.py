@@ -30,6 +30,7 @@ class Character(DataPoint):
     first_chapter: int
     last_known_chapter: int | None = None
     chapters_present: list[int] = []
+    source_chunk_ordinal: int | None = None
     metadata: dict = {"index_fields": ["name", "description"]}
 
     @model_validator(mode="after")
@@ -44,6 +45,7 @@ class Location(DataPoint):
     description: str | None = None
     first_chapter: int
     last_known_chapter: int | None = None
+    source_chunk_ordinal: int | None = None
     metadata: dict = {"index_fields": ["name", "description"]}
 
     @model_validator(mode="after")
@@ -59,6 +61,7 @@ class Faction(DataPoint):
     first_chapter: int
     last_known_chapter: int | None = None
     members: list[Character] = []
+    source_chunk_ordinal: int | None = None
     metadata: dict = {"index_fields": ["name"]}
 
     @model_validator(mode="after")
@@ -73,6 +76,7 @@ class PlotEvent(DataPoint):
     chapter: int
     participants: list[Character] = []
     location: Location | None = None
+    source_chunk_ordinal: int | None = None
     metadata: dict = {"index_fields": ["description"]}
 
 
@@ -83,6 +87,7 @@ class Relationship(DataPoint):
     description: str | None = None
     first_chapter: int
     last_known_chapter: int | None = None
+    source_chunk_ordinal: int | None = None
     metadata: dict = {"index_fields": ["relation_type", "description"]}
 
     @model_validator(mode="after")
@@ -98,6 +103,7 @@ class Theme(DataPoint):
     first_chapter: int
     last_known_chapter: int | None = None
     related_characters: list[Character] = []
+    source_chunk_ordinal: int | None = None
     metadata: dict = {"index_fields": ["name", "description"]}
 
     @model_validator(mode="after")
@@ -240,7 +246,7 @@ class ExtractionResult(BaseModel):
     themes: list[ThemeExtraction] = []
     factions: list[FactionExtraction] = []
 
-    def to_datapoints(self) -> list[DataPoint]:
+    def to_datapoints(self, source_chunk_ordinal: int | None = None) -> list[DataPoint]:
         """
         Convert the flat LLM extraction output into interconnected DataPoints.
 
@@ -261,6 +267,7 @@ class ExtractionResult(BaseModel):
                 first_chapter=c.first_chapter,
                 last_known_chapter=c.last_known_chapter,
                 chapters_present=c.chapters_present,
+                source_chunk_ordinal=source_chunk_ordinal,
             )
             char_map[c.name] = dp
             datapoints.append(dp)
@@ -274,6 +281,7 @@ class ExtractionResult(BaseModel):
                 description=loc.description,
                 first_chapter=loc.first_chapter,
                 last_known_chapter=loc.last_known_chapter,
+                source_chunk_ordinal=source_chunk_ordinal,
             )
             loc_map[loc.name] = dp
             datapoints.append(dp)
@@ -288,6 +296,7 @@ class ExtractionResult(BaseModel):
                 first_chapter=f.first_chapter,
                 last_known_chapter=f.last_known_chapter,
                 members=members,
+                source_chunk_ordinal=source_chunk_ordinal,
             )
             datapoints.append(dp)
 
@@ -302,6 +311,7 @@ class ExtractionResult(BaseModel):
                 chapter=ev.chapter,
                 participants=participants,
                 location=location,
+                source_chunk_ordinal=source_chunk_ordinal,
             )
             datapoints.append(dp)
 
@@ -322,6 +332,7 @@ class ExtractionResult(BaseModel):
                 description=rel.description,
                 first_chapter=rel.first_chapter,
                 last_known_chapter=rel.last_known_chapter,
+                source_chunk_ordinal=source_chunk_ordinal,
             )
             datapoints.append(dp)
 
@@ -335,6 +346,7 @@ class ExtractionResult(BaseModel):
                 first_chapter=th.first_chapter,
                 last_known_chapter=th.last_known_chapter,
                 related_characters=related,
+                source_chunk_ordinal=source_chunk_ordinal,
             )
             datapoints.append(dp)
 
