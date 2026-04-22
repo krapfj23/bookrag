@@ -3,6 +3,14 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Tell esbuild to parse JSX in .ts files (needed for pageSide.test.ts).
+  esbuild: {
+    jsx: "automatic",
+    jsxImportSource: "react",
+    include: /\.tsx?$/,
+    exclude: [],
+    loader: "tsx",
+  },
   server: { port: 5173, strictPort: true },
   test: {
     environment: "jsdom",
