@@ -56,6 +56,11 @@ class BookRAGConfig(BaseSettings):
     # triplets, enabling semantic retrieval over relationships instead of
     # keyword match on relation_type descriptions.
     embed_triplets: bool = True
+    # Plan 3 — entity consolidation: merge duplicate same-bucket entity
+    # descriptions via a per-group LLM call before persistence. Costs
+    # one extra LLM call per multi-member group at ingestion time;
+    # improves retrieval-card uniqueness in the chat.
+    consolidate_entities: bool = True
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 

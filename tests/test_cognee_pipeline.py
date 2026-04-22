@@ -777,6 +777,198 @@ class TestValidateRelationships:
         assert len(result.characters) == 1, "validator must not touch characters"
 
 
+class TestEntityConsolidation:
+    """Plan 3 — entity consolidation post-pass.
+
+    Groups extracted Characters/Locations/Factions/Themes by
+    (type, name, last_known_chapter). Multi-member groups get their
+    descriptions consolidated into one canonical record via an LLM call.
+    Single-member groups are no-ops.
+
+    Spoiler invariant (load-bearing): NEVER merge across chapter buckets.
+    A ch.1 record and a ch.3 record for the same entity remain distinct.
+    """
+
+    def _make_char(self, name, first_ch=1, last_ch=1, desc=""):
+        from models.datapoints import CharacterExtraction
+        return CharacterExtraction(
+            name=name, description=desc,
+            first_chapter=first_ch, last_known_chapter=last_ch,
+        )
+
+    def test_group_single_entity_is_noop_key(self):
+        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from models.datapoints import ExtractionResult
+        ext = ExtractionResult(characters=[self._make_char("Scrooge")])
+        groups = _group_entities_for_consolidation(ext)
+        assert ("Character", "Scrooge", 1) in groups
+        assert len(groups[("Character", "Scrooge", 1)]) == 1
+
+    def test_group_two_same_bucket_keys_together(self):
+        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from models.datapoints import ExtractionResult
+        ext = ExtractionResult(characters=[
+            self._make_char("Scrooge", desc="A"),
+            self._make_char("Scrooge", desc="B"),
+        ])
+        groups = _group_entities_for_consolidation(ext)
+        key = ("Character", "Scrooge", 1)
+        assert len(groups[key]) == 2
+
+    def test_group_different_last_chapter_never_merges(self):
+        """Spoiler invariant: ch.1 Scrooge and ch.3 Scrooge are separate keys."""
+        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from models.datapoints import ExtractionResult
+        ext = ExtractionResult(characters=[
+            self._make_char("Scrooge", first_ch=1, last_ch=1, desc="A"),
+            self._make_char("Scrooge", first_ch=1, last_ch=3, desc="B"),
+        ])
+        groups = _group_entities_for_consolidation(ext)
+        assert ("Character", "Scrooge", 1) in groups
+        assert ("Character", "Scrooge", 3) in groups
+        assert len(groups[("Character", "Scrooge", 1)]) == 1
+        assert len(groups[("Character", "Scrooge", 3)]) == 1
+
+    def test_merge_group_preserves_first_chapter_min(self):
+        """After merging, first_chapter = min across members; last_known_chapter
+        = the group key's chapter (shared)."""
+        from pipeline.cognee_pipeline import _merge_group
+
+        members = [
+            self._make_char("Scrooge", first_ch=1, last_ch=3, desc="A"),
+            self._make_char("Scrooge", first_ch=2, last_ch=3, desc="B"),
+        ]
+        merged = _merge_group(members, "A miserly man (consolidated)")
+        assert merged.first_chapter == 1
+        assert merged.last_known_chapter == 3
+        assert merged.description == "A miserly man (consolidated)"
+        assert merged.name == "Scrooge"
+
+    def test_no_relationships_touched(self):
+        """Validator only groups entity types; relationships pass through
+        untouched."""
+        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from models.datapoints import ExtractionResult, RelationshipExtraction
+
+        ext = ExtractionResult(
+            characters=[self._make_char("A"), self._make_char("B")],
+            relationships=[RelationshipExtraction(
+                source_name="A", target_name="B", relation_type="knows",
+                first_chapter=1,
+            )],
+        )
+        groups = _group_entities_for_consolidation(ext)
+        # No relationship key in groups
+        assert not any(k[0] == "Relationship" for k in groups)
+
+    def test_locations_factions_themes_all_grouped(self):
+        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from models.datapoints import (
+            ExtractionResult, LocationExtraction, FactionExtraction, ThemeExtraction,
+        )
+        ext = ExtractionResult(
+            locations=[
+                LocationExtraction(name="London", first_chapter=1),
+                LocationExtraction(name="London", first_chapter=1, description="City"),
+            ],
+            factions=[FactionExtraction(name="Scrooge&Marley", first_chapter=1)],
+            themes=[ThemeExtraction(name="Greed", first_chapter=1)],
+        )
+        groups = _group_entities_for_consolidation(ext)
+        assert ("Location", "London", 1) in groups
+        assert len(groups[("Location", "London", 1)]) == 2
+        assert ("Faction", "Scrooge&Marley", 1) in groups
+        assert ("Theme", "Greed", 1) in groups
+
+    # --- orchestrator tests ----------------------------------------
+
+    def test_consolidate_entities_single_member_is_noop(self):
+        """Single-member groups incur no LLM call — nothing to merge."""
+        import asyncio
+        from pipeline.cognee_pipeline import consolidate_entities
+        from models.datapoints import ExtractionResult
+
+        ext = ExtractionResult(characters=[self._make_char("Scrooge", desc="A miser.")])
+
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(
+                return_value=MagicMock(answer="should not be called")
+            )
+            asyncio.run(consolidate_entities(ext))
+            mock_llm.acreate_structured_output.assert_not_called()
+        # The single member's description is untouched
+        assert ext.characters[0].description == "A miser."
+
+    def test_consolidate_entities_multi_member_merges(self):
+        """Two descriptions for same (type, name, last_known_chapter) get
+        merged into one via a single LLM call. Description field is replaced;
+        the group collapses to a single entity."""
+        import asyncio
+        from pipeline.cognee_pipeline import consolidate_entities
+        from models.datapoints import ExtractionResult
+
+        ext = ExtractionResult(characters=[
+            self._make_char("Scrooge", desc="A miser."),
+            self._make_char("Scrooge", desc="Cold-hearted businessman."),
+        ])
+
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(
+                return_value=MagicMock(answer="A cold-hearted miserly businessman.")
+            )
+            asyncio.run(consolidate_entities(ext))
+            assert mock_llm.acreate_structured_output.call_count == 1
+
+        assert len(ext.characters) == 1, "group must collapse to one record"
+        assert ext.characters[0].description == "A cold-hearted miserly businessman."
+
+    def test_consolidate_preserves_different_chapter_buckets(self):
+        """Spoiler-safety: merging must not cross chapter-bucket boundaries."""
+        import asyncio
+        from pipeline.cognee_pipeline import consolidate_entities
+        from models.datapoints import ExtractionResult
+
+        ext = ExtractionResult(characters=[
+            self._make_char("Scrooge", last_ch=1, desc="Early Scrooge."),
+            self._make_char("Scrooge", last_ch=3, desc="Changed Scrooge."),
+        ])
+
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(
+                return_value=MagicMock(answer="should not be called")
+            )
+            asyncio.run(consolidate_entities(ext))
+            # Different buckets = no merging = no LLM call
+            mock_llm.acreate_structured_output.assert_not_called()
+
+        # Both records survive, separate
+        assert len(ext.characters) == 2
+        descs = {c.description for c in ext.characters}
+        assert descs == {"Early Scrooge.", "Changed Scrooge."}
+
+    def test_consolidate_llm_failure_falls_back_to_first_description(self):
+        """If the LLM call raises, keep the first member's description
+        unchanged (and log); never fail the whole extraction."""
+        import asyncio
+        from pipeline.cognee_pipeline import consolidate_entities
+        from models.datapoints import ExtractionResult
+
+        ext = ExtractionResult(characters=[
+            self._make_char("Scrooge", desc="First description."),
+            self._make_char("Scrooge", desc="Second description."),
+        ])
+
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(
+                side_effect=RuntimeError("LLM down")
+            )
+            asyncio.run(consolidate_entities(ext))
+
+        # Group still collapsed to one, description is the first member's
+        assert len(ext.characters) == 1
+        assert ext.characters[0].description == "First description."
+
+
 class TestRunBookragPipeline:
     @pytest.fixture
     def mock_everything(self, sample_extraction_result):
@@ -920,6 +1112,81 @@ class TestRunBookragPipeline:
 
             call_args = mock_task.call_args
             assert call_args.kwargs.get("embed_triplets") is False
+
+    def test_consolidate_param_exists_and_defaults_false(self):
+        """Plan 3: run_bookrag_pipeline accepts consolidate and it defaults
+        to False so existing callers remain backward compatible. The
+        orchestrator flips the default via BookRAGConfig.consolidate_entities."""
+        import inspect
+        sig = inspect.signature(run_bookrag_pipeline)
+        assert "consolidate" in sig.parameters
+        assert sig.parameters["consolidate"].default is False
+
+    def test_consolidate_true_triggers_consolidation_in_extract(
+        self, sample_extraction_result, sample_batch, sample_booknlp,
+        sample_ontology, tmp_path
+    ):
+        """When consolidate=True is passed, extract_enriched_graph must
+        invoke consolidate_entities before to_datapoints() runs.
+
+        Verified by patching consolidate_entities and asserting it was
+        awaited at least once during pipeline execution."""
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+             patch("pipeline.cognee_pipeline.render_prompt", return_value=("sys", "text")), \
+             patch("pipeline.cognee_pipeline.run_pipeline") as mock_pipeline, \
+             patch("pipeline.cognee_pipeline.Task"), \
+             patch("pipeline.cognee_pipeline.consolidate_entities",
+                   new=AsyncMock(side_effect=lambda ext: ext)) as mock_cons:
+            mock_llm.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
+
+            async def empty_pipeline(**kwargs):
+                return
+                yield
+            mock_pipeline.return_value = empty_pipeline()
+
+            asyncio.run(
+                run_bookrag_pipeline(
+                    batch=sample_batch, booknlp_output=sample_booknlp,
+                    ontology=sample_ontology, book_id="christmas_carol",
+                    output_dir=tmp_path / "batches",
+                    consolidate=True,
+                )
+            )
+
+            assert mock_cons.await_count >= 1, (
+                "consolidate_entities must be awaited when consolidate=True"
+            )
+
+    def test_consolidate_false_skips_consolidation_in_extract(
+        self, sample_extraction_result, sample_batch, sample_booknlp,
+        sample_ontology, tmp_path
+    ):
+        """Default behaviour: when consolidate is omitted, the extra LLM
+        call is skipped entirely — consolidate_entities must not be awaited."""
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+             patch("pipeline.cognee_pipeline.render_prompt", return_value=("sys", "text")), \
+             patch("pipeline.cognee_pipeline.run_pipeline") as mock_pipeline, \
+             patch("pipeline.cognee_pipeline.Task"), \
+             patch("pipeline.cognee_pipeline.consolidate_entities",
+                   new=AsyncMock(side_effect=lambda ext: ext)) as mock_cons:
+            mock_llm.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
+
+            async def empty_pipeline(**kwargs):
+                return
+                yield
+            mock_pipeline.return_value = empty_pipeline()
+
+            asyncio.run(
+                run_bookrag_pipeline(
+                    batch=sample_batch, booknlp_output=sample_booknlp,
+                    ontology=sample_ontology, book_id="christmas_carol",
+                    output_dir=tmp_path / "batches",
+                )
+            )
+
+            assert mock_cons.await_count == 0, (
+                "consolidate_entities must not be awaited when consolidate=False"
+            )
 
 
 # ===================================================================

@@ -476,3 +476,67 @@ class TestRelationLabelQuality:
                 "only extract semantic relationships",
             )
         ), "prompt must direct the LLM to skip trivial/dialogue-only relationships"
+
+
+# ===================================================================
+# Plan 3 — entity consolidation prompt
+# ===================================================================
+
+
+class TestConsolidationPrompt:
+    """prompts/consolidate_entity_prompt.txt is the Plan 3 LLM prompt for
+    merging multiple descriptions of the same (type, name) entity within
+    one chapter bucket. Spoiler safety is load-bearing: the prompt must
+    forbid mentioning events after the bucket's last_known_chapter."""
+
+    @pytest.fixture
+    def prompt_text(self):
+        path = Path(__file__).parent.parent / "prompts" / "consolidate_entity_prompt.txt"
+        return path.read_text(encoding="utf-8")
+
+    def test_prompt_file_exists(self, prompt_text):
+        assert len(prompt_text) > 100, "prompt file must contain real instructions"
+
+    def test_required_jinja_placeholders(self, prompt_text):
+        """Every input the consolidation call needs must be a placeholder."""
+        for required in (
+            "{{ entity_name }}",
+            "{{ entity_type }}",
+            "{{ last_known_chapter }}",
+        ):
+            assert required in prompt_text, f"missing placeholder: {required}"
+        # descriptions is iterated via Jinja's {% for %}
+        assert "{% for" in prompt_text and "descriptions" in prompt_text
+
+    def test_forbids_future_events(self, prompt_text):
+        """Spoiler-safety invariant: prompt must tell LLM to drop
+        foreshadowing and post-chapter events."""
+        text = prompt_text.lower()
+        assert "after chapter" in text or "do not mention events" in text
+        # At least one future-tense indicator must be named for the LLM to
+        # recognize what to drop.
+        indicators = ["future tense", "will later", "eventually", "would go on", "foreshadow"]
+        assert any(i in text for i in indicators), (
+            "prompt must name future-tense indicators to suppress"
+        )
+
+    def test_forbids_introducing_new_facts(self, prompt_text):
+        """Prompt must prevent the LLM from inventing facts not in any
+        candidate — otherwise consolidation becomes a hallucination vector."""
+        text = prompt_text.lower()
+        assert any(p in text for p in (
+            "do not introduce facts",
+            "do not introduce",
+            "not present in the candidates",
+        )), "prompt must forbid introducing new facts"
+
+    def test_output_is_plain_text_not_json(self, prompt_text):
+        """The consolidation call returns a plain string, not JSON.
+        Prompt must say so explicitly."""
+        text = prompt_text.lower()
+        assert "no json" in text or "not json" in text or "plain paragraph" in text or "single paragraph" in text
+
+    def test_length_bound(self, prompt_text):
+        """Output should be 1-3 sentences; prompt must say so."""
+        text = prompt_text.lower()
+        assert "1 to 3 sentences" in text or "1-3 sentences" in text or "one to three sentences" in text

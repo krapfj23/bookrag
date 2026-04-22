@@ -79,6 +79,12 @@ class TestBookRAGConfigDefaults:
         the extra embedding cost."""
         assert BookRAGConfig().embed_triplets is True
 
+    def test_consolidate_entities_defaults_to_true(self):
+        """Plan 3: entity consolidation is on by default; disable via
+        BOOKRAG_CONSOLIDATE_ENTITIES=false to skip the extra LLM calls
+        during re-ingest."""
+        assert BookRAGConfig().consolidate_entities is True
+
     def test_graph_db(self):
         """Plan: 'graph_db: kuzu'. CLAUDE.md: 'Cognee defaults: Kuzu + LanceDB + SQLite'."""
         assert BookRAGConfig().graph_db == "kuzu"

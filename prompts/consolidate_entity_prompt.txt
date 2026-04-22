@@ -1,0 +1,19 @@
+You are consolidating multiple descriptions of the same entity extracted from adjacent chunks of a single book. Produce ONE clean description that keeps every important detail from the candidates without duplicating information.
+
+Entity: {{ entity_type }} named "{{ entity_name }}"
+Visible through chapter: {{ last_known_chapter }}
+
+Candidate descriptions (from the same chapter bucket):
+{% for d in descriptions %}
+{{ loop.index }}. {{ d }}
+{% endfor %}
+
+Rules:
+- Output exactly ONE consolidated description — 1 to 3 sentences.
+- Preserve every factual detail mentioned in any candidate.
+- Do NOT introduce facts not present in the candidates. If two candidates disagree, prefer the more specific claim; if you cannot reconcile them, include both without editorializing.
+- Do NOT mention events that happen AFTER chapter {{ last_known_chapter }}. If any candidate uses future tense or foreshadows ("will later", "eventually", "would go on to"), drop that clause from your output.
+- Write in neutral present tense. No narrative voice. No meta-commentary ("the text describes…", "this entity is…").
+- Paraphrase into your own words. Do not copy long verbatim phrases from a single candidate when the underlying fact is clear.
+
+Return ONLY the consolidated description text. No quotes, no JSON, no headers, no explanation — just the single paragraph.

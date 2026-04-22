@@ -553,6 +553,7 @@ class PipelineOrchestrator:
                         chunk_size=chunk_size,
                         max_retries=max_retries,
                         embed_triplets=getattr(self.config, "embed_triplets", False),
+                        consolidate=getattr(self.config, "consolidate_entities", False),
                     )
                     success = True
                     break

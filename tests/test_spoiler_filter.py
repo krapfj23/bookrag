@@ -380,3 +380,128 @@ class TestLoadAllowedRelationships:
         rels = load_allowed_relationships("bk", cursor=3, processed_dir=tmp_path)
         assert len(rels) == 1
         assert rels[0]["relation_type"] == "partner"
+
+
+class TestConsolidationDoesNotLeak:
+    """Plan 3 regression: entity consolidation must never cross chapter
+    buckets. If ch.1 and ch.3 Scrooge snapshots get merged, a ch.1 reader
+    would see ch.3 text — spoiler violation.
+
+    The guarantee comes from the grouping key (_group_entities_for_consolidation
+    keys on (type, name, last_known_chapter)). Different last_known_chapter
+    → different groups → never merged. This test pins that invariant by
+    running a full extract→consolidate→serialize→load_allowed_nodes
+    round-trip and asserting the ch.3-only words ("ghost", "haunted") do
+    not appear in the ch.1 snapshot's description.
+    """
+
+    def _write_batch(self, tmp_path, book_id, name, payload):
+        batch_dir = tmp_path / book_id / "batches"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / name).write_text(__import__("json").dumps(payload))
+
+    def test_ch1_reader_never_sees_ch3_text_after_consolidation(self, tmp_path):
+        """End-to-end: two ch.1 Scrooges (same bucket) get merged, a ch.3
+        Scrooge (separate bucket) is preserved. Spoiler filter at cursor=1
+        returns only the merged ch.1 record — the ch.3 description (which
+        mentions Marley's ghost) must not contaminate it.
+        """
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from models.datapoints import CharacterExtraction, ExtractionResult
+        from pipeline.cognee_pipeline import consolidate_entities
+
+        ch1_a = CharacterExtraction(
+            name="Scrooge",
+            description="a miserly old man counting coins",
+            first_chapter=1,
+            last_known_chapter=1,
+        )
+        ch1_b = CharacterExtraction(
+            name="Scrooge",
+            description="a tight-fisted London moneylender",
+            first_chapter=1,
+            last_known_chapter=1,
+        )
+        ch3_spoiler = CharacterExtraction(
+            name="Scrooge",
+            description="a terrified man haunted by Marley's ghost",
+            first_chapter=1,
+            last_known_chapter=3,
+        )
+        extraction = ExtractionResult(
+            characters=[ch1_a, ch1_b, ch3_spoiler],
+            locations=[], events=[], relationships=[], themes=[], factions=[],
+        )
+
+        # The LLM call should only fire for the 2-member ch.1 bucket.
+        # Mock its return to a clean ch.1-only canonical description.
+        clean_ch1 = "a miserly London moneylender counting coins"
+
+        class _MockConsolidated:
+            answer = clean_ch1
+
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+            mock_llm.acreate_structured_output = AsyncMock(return_value=_MockConsolidated())
+            consolidated = asyncio.run(consolidate_entities(extraction))
+
+        # Sanity: three inputs → two outputs (ch.1 pair merged, ch.3 preserved)
+        assert len(consolidated.characters) == 2
+        by_lc = {c.last_known_chapter: c for c in consolidated.characters}
+        assert by_lc[1].description == clean_ch1
+        assert "ghost" in by_lc[3].description  # ch.3 untouched
+
+        # Persist both records to a batches/*.json file (collection-keyed shape)
+        payload = {
+            "characters": [
+                {
+                    "name": c.name,
+                    "description": c.description,
+                    "first_chapter": c.first_chapter,
+                    "last_known_chapter": c.last_known_chapter,
+                }
+                for c in consolidated.characters
+            ]
+        }
+        self._write_batch(tmp_path, "bk", "batch_01.json", payload)
+
+        from pipeline.spoiler_filter import load_allowed_nodes
+
+        # Cursor=1: only the merged ch.1 record survives filtering.
+        # (ch.3 record has effective_latest_chapter=3 > 1 → dropped.)
+        allowed = load_allowed_nodes("bk", cursor=1, processed_dir=tmp_path)
+        assert len(allowed) == 1, f"cursor=1 should return exactly the ch.1 snapshot; got {allowed}"
+        ch1_desc = allowed[0]["description"]
+        assert ch1_desc == clean_ch1
+        for forbidden in ("ghost", "haunted", "Marley"):
+            assert forbidden not in ch1_desc, (
+                f"Spoiler leak: ch.3-only word '{forbidden}' appeared in ch.1 description: {ch1_desc!r}"
+            )
+
+    def test_grouping_key_includes_last_known_chapter(self):
+        """White-box guard: the grouping key must contain last_known_chapter.
+        If a future refactor drops it, same-name entities from different
+        chapter buckets would merge — catastrophic for spoiler safety.
+        """
+        from models.datapoints import CharacterExtraction, ExtractionResult
+        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+
+        ch1 = CharacterExtraction(name="Scrooge",
+                                  description="miser", first_chapter=1, last_known_chapter=1)
+        ch3 = CharacterExtraction(name="Scrooge",
+                                  description="haunted by Marley", first_chapter=1, last_known_chapter=3)
+        extraction = ExtractionResult(
+            characters=[ch1, ch3],
+            locations=[], events=[], relationships=[], themes=[], factions=[],
+        )
+
+        groups = _group_entities_for_consolidation(extraction)
+        # Two distinct groups: same name but different last_known_chapter.
+        assert len(groups) == 2, (
+            f"Scrooge@lc=1 and Scrooge@lc=3 must never share a group; got {len(groups)} group(s)"
+        )
+        for group_key in groups:
+            assert 1 in group_key or 3 in group_key, (
+                f"Group key {group_key} must encode last_known_chapter"
+            )
