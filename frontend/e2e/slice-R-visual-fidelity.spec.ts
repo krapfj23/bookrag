@@ -209,7 +209,8 @@ test.describe("AC-SelectionToolbarMotion — toolbar animation", () => {
       const el = document.querySelector('[data-testid="selection-toolbar"]') as HTMLElement;
       return getComputedStyle(el).animationDuration;
     });
-    expect(animDuration).toBe("180ms");
+    // Browser may return "180ms" or "0.18s" — accept either
+    expect(["180ms", "0.18s"]).toContain(animDuration);
   });
 });
 
@@ -375,15 +376,16 @@ test.describe("AC-ChatOpenAnim — card enter animation", () => {
     await page.waitForSelector('[data-sid="p1.s1"]');
     await selectInSid(page, "p1.s1");
     await page.waitForSelector('[data-testid="selection-toolbar"]');
-    await page.click('[aria-label="Ask"]');
-    // Card should appear with enter animation class
-    await page.waitForSelector('[data-card-kind="ask"]');
+    await page.click('[data-testid="selection-toolbar"] [aria-label="Ask"]');
+    // Card appears as skeleton first, then resolves to ask card
+    await page.waitForSelector('[data-testid="skeleton-ask-card"], [data-card-kind="ask"]', { timeout: 10000 });
+    // Wait for skeleton to resolve to actual ask card
+    await page.waitForFunction(() => !!document.querySelector('[data-card-kind="ask"]'), { timeout: 15000 });
     const hasEnterClass = await page.evaluate(() => {
       const card = document.querySelector('[data-card-kind="ask"]') as HTMLElement;
       return card?.className?.includes("rr-card-enter") ?? false;
     });
-    // The animation class may have already completed, so we just verify it was set
-    // (the class stays on the element throughout)
+    // The animation class stays on the element (applied on mount, not removed)
     expect(hasEnterClass).toBe(true);
   });
 });
@@ -410,9 +412,10 @@ test.describe("T21 — Full reader flow validation", () => {
 
     // 1. Navigate to library → click first book → lands on /books/:id/read/1
     await page.goto("/");
-    await page.waitForSelector('[data-testid="book-card"]');
-    await page.click('[data-testid="book-card"]');
-    await page.waitForURL(/\/books\/[^/]+\/read\/\d+/);
+    const bookCard = page.getByRole("button", { name: /christmas carol/i }).first();
+    await expect(bookCard).toBeVisible({ timeout: 10000 });
+    await bookCard.click();
+    await page.waitForURL(/\/books\/[^/]+\/read\/\d+/, { timeout: 10000 });
 
     // 2. Assert reader top bar (AC 1-2)
     await page.waitForSelector('[data-testid="reader-topbar"]');
@@ -437,7 +440,9 @@ test.describe("T21 — Full reader flow validation", () => {
 
     // 5. Click Ask → card flips in with enter animation (AC 16)
     await page.click('[data-testid="selection-toolbar"] [aria-label="Ask"]');
-    await page.waitForSelector('[data-card-kind="ask"]', { timeout: 5000 });
+    // Wait for skeleton or resolved card
+    await page.waitForSelector('[data-testid="skeleton-ask-card"], [data-card-kind="ask"]', { timeout: 10000 });
+    await page.waitForFunction(() => !!document.querySelector('[data-card-kind="ask"]'), { timeout: 15000 });
     const cardHasEnter = await page.evaluate(() => {
       const card = document.querySelector('[data-card-kind="ask"]') as HTMLElement;
       return card?.className?.includes("rr-card-enter") ?? false;
