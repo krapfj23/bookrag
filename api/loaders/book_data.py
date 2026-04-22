@@ -15,6 +15,15 @@ from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel
 
+from api.loaders.sentence_anchors import (
+    AnchoredParagraph,
+    build_paragraphs_anchored,
+    find_chapter_offsets,
+    load_cleaned_full_text,
+    load_tokens_for_book,
+    regex_fallback_paragraphs,
+)
+
 
 # ---------------------------------------------------------------------------
 # Pydantic response models
@@ -38,6 +47,8 @@ class Chapter(BaseModel):
     num: int
     title: str
     paragraphs: list[str]
+    paragraphs_anchored: list[AnchoredParagraph] = []
+    anchors_fallback: bool = True
     has_prev: bool
     has_next: bool
     total_chapters: int
@@ -159,10 +170,27 @@ def load_chapter(book_id: str, n: int, processed_dir: Path) -> Chapter | None:
     raw_text = files[n - 1].read_text(encoding="utf-8")
     paragraphs = [p.strip() for p in raw_text.split("\n\n") if p.strip()]
     title = _derive_chapter_title(raw_text, n)
+
+    anchored: list[AnchoredParagraph] = []
+    fallback = True
+    tokens = load_tokens_for_book(book_id, processed_dir)
+    full_text = load_cleaned_full_text(book_id, processed_dir)
+    if tokens and full_text:
+        offsets = find_chapter_offsets(full_text, raw_text)
+        if offsets is not None:
+            start, end = offsets
+            anchored, ok = build_paragraphs_anchored(raw_text, tokens, start, end)
+            if ok:
+                fallback = False
+    if fallback:
+        anchored = regex_fallback_paragraphs(paragraphs)
+
     return Chapter(
         num=n,
         title=title,
         paragraphs=paragraphs,
+        paragraphs_anchored=anchored,
+        anchors_fallback=fallback,
         has_prev=n > 1,
         has_next=n < len(files),
         total_chapters=len(files),
