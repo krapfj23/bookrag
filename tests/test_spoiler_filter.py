@@ -115,3 +115,63 @@ class TestIdentityKey:
         c = {"_type": "PlotEvent", "chapter": 2, "description": "Different event"}
         assert _identity_key(a) == _identity_key(b)
         assert _identity_key(a) != _identity_key(c)
+
+
+class TestLoadAllowedNodesDedup:
+    """When the same identity appears in multiple batches, return the latest allowed snapshot."""
+
+    def _write_batch(self, tmp_path, book_id, name, payload):
+        batch_dir = tmp_path / book_id / "batches"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / name).write_text(json.dumps(payload))
+
+    def test_takes_latest_snapshot_within_bound(self, tmp_path):
+        from pipeline.spoiler_filter import load_allowed_nodes
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "characters": [{"name": "Scrooge", "description": "a miser",
+                            "first_chapter": 1, "last_known_chapter": 1}],
+        })
+        self._write_batch(tmp_path, "bk", "b2.json", {
+            "characters": [{"name": "Scrooge", "description": "a miser haunted by Marley",
+                            "first_chapter": 1, "last_known_chapter": 3}],
+        })
+        self._write_batch(tmp_path, "bk", "b3.json", {
+            "characters": [{"name": "Scrooge", "description": "a reformed miser",
+                            "first_chapter": 1, "last_known_chapter": 5}],
+        })
+
+        allowed = load_allowed_nodes("bk", cursor=2, processed_dir=tmp_path)
+        assert len(allowed) == 1
+        assert allowed[0]["description"] == "a miser"
+
+        allowed = load_allowed_nodes("bk", cursor=4, processed_dir=tmp_path)
+        assert len(allowed) == 1
+        assert allowed[0]["description"] == "a miser haunted by Marley"
+
+        allowed = load_allowed_nodes("bk", cursor=9, processed_dir=tmp_path)
+        assert len(allowed) == 1
+        assert allowed[0]["description"] == "a reformed miser"
+
+    def test_distinct_entities_all_return(self, tmp_path):
+        from pipeline.spoiler_filter import load_allowed_nodes
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "characters": [
+                {"name": "Scrooge", "description": "miser", "first_chapter": 1, "last_known_chapter": 1},
+                {"name": "Marley", "description": "ghost", "first_chapter": 1, "last_known_chapter": 1},
+            ],
+        })
+        allowed = load_allowed_nodes("bk", cursor=5, processed_dir=tmp_path)
+        names = {n["name"] for n in allowed}
+        assert names == {"Scrooge", "Marley"}
+
+    def test_plot_events_not_deduped_across_chapters(self, tmp_path):
+        """Identical event descriptions in different chapters are distinct."""
+        from pipeline.spoiler_filter import load_allowed_nodes
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "events": [
+                {"description": "Scrooge wakes", "chapter": 1},
+                {"description": "Scrooge wakes", "chapter": 4},
+            ],
+        })
+        allowed = load_allowed_nodes("bk", cursor=5, processed_dir=tmp_path)
+        assert len(allowed) == 2
