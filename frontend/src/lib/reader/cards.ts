@@ -13,6 +13,10 @@ export interface AskCard extends BaseCard {
   question: string;
   answer: string;
   followups: { question: string; answer: string }[];
+  // Transient runtime flags — stripped before persisting to localStorage.
+  loading?: boolean;
+  streaming?: boolean;
+  followupLoading?: boolean;
 }
 
 export interface NoteCard extends BaseCard {
@@ -45,7 +49,16 @@ export function readStoredCards(bookId: string): Card[] {
 
 export function writeStoredCards(bookId: string, cards: Card[]): void {
   try {
-    const store: CardStore = { version: 1, cards };
+    // Deep-clone so we don't mutate the caller's objects.
+    const stripped: Card[] = JSON.parse(JSON.stringify(cards));
+    for (const card of stripped) {
+      if (card.kind === "ask") {
+        delete (card as AskCard & { loading?: boolean }).loading;
+        delete (card as AskCard & { streaming?: boolean }).streaming;
+        delete (card as AskCard & { followupLoading?: boolean }).followupLoading;
+      }
+    }
+    const store: CardStore = { version: 1, cards: stripped };
     window.localStorage.setItem(CARDS_KEY(bookId), JSON.stringify(store));
   } catch {
     /* ignore quota */
