@@ -23,6 +23,7 @@ from loguru import logger
 
 import os
 
+import cognee
 from cognee.infrastructure.engine import DataPoint
 from cognee.infrastructure.llm.LLMGateway import LLMGateway
 from cognee.modules.pipelines import run_pipeline
@@ -363,6 +364,7 @@ async def extract_enriched_graph(
 
     all_datapoints: list[DataPoint] = []
     per_chunk_extractions: list[ExtractionResult] = []
+    batch_chunk_ordinals: list[int] = []
     extraction_stats = {"characters": 0, "locations": 0, "events": 0,
                         "relationships": 0, "themes": 0, "factions": 0}
 
@@ -414,6 +416,8 @@ async def extract_enriched_graph(
         extraction_stats["factions"] += len(extraction.factions)
 
         per_chunk_extractions.append(extraction)
+        if getattr(chunk, "ordinal", None) is not None:
+            batch_chunk_ordinals.append(chunk.ordinal)
 
         logger.info(
             "  Chunk {}: extracted {} characters, {} events, {} relationships",
@@ -429,7 +433,13 @@ async def extract_enriched_graph(
     if consolidate:
         batch_extraction = await consolidate_entities(batch_extraction)
 
-    all_datapoints.extend(batch_extraction.to_datapoints())
+    # Stamp the batch's latest chunk ordinal on every DataPoint. After
+    # consolidation we've merged across chunks, so per-chunk identity is
+    # lost — use max-in-batch as the conservative "known by" marker. This
+    # matches the existing per-identity snapshot semantics (load_allowed_nodes
+    # picks the latest snapshot <= cursor).
+    batch_max_ordinal = max(batch_chunk_ordinals) if batch_chunk_ordinals else None
+    all_datapoints.extend(batch_extraction.to_datapoints(source_chunk_ordinal=batch_max_ordinal))
 
     logger.info(
         "Extraction complete: {} total DataPoints from {} chunks ({})",
@@ -746,42 +756,20 @@ async def run_bookrag_pipeline(
     output_dir: Path | None = None,
     embed_triplets: bool = False,
     consolidate: bool = False,
-) -> list[DataPoint]:
+    chunk_ordinal_start: int = 0,
+) -> tuple[list[DataPoint], int]:
     """Run the full BookRAG Cognee pipeline for a single batch.
 
-    Pipeline stages:
-      1. chunk_with_chapter_awareness — split into paragraph-respecting chunks
-      2. extract_enriched_graph — LLM extraction with BookNLP + ontology context
-      3. add_data_points — persist to Cognee's graph/vector stores (Kuzu + LanceDB)
+    Returns ``(datapoints, next_chunk_ordinal_start)`` where the second
+    element is ``chunk_ordinal_start + len(chunks)`` — the orchestrator
+    threads it into the next batch for a monotonic book-wide counter.
 
     Also saves batch artifacts (input_text.txt, annotations.json,
     extracted_datapoints.json) to data/processed/{book_id}/batches/.
-
-    Args:
-        batch: A Batch of chapters to process.
-        booknlp_output: BookNLP annotations dict (book_json, entities_tsv, quotes).
-        ontology: Ontology dict from OntologyResult or discovery JSON.
-        book_id: Book identifier for dataset naming and output paths.
-        chunk_size: Target tokens per chunk (default 1500).
-        max_retries: LLM retry count per chunk (default 3, per CLAUDE.md).
-        output_dir: Override output directory. Defaults to data/processed/{book_id}/batches.
-        embed_triplets: Plan 2 — when True, Cognee's add_data_points also
-            builds triplet (source→relation→target) vector embeddings for
-            semantic retrieval over relationships. Default False to keep
-            this call-site backward compatible; orchestrator threads
-            config.embed_triplets through to flip it on by default.
-        consolidate: Plan 3 — when True, duplicate same-bucket entity
-            descriptions within the batch are merged via a per-group LLM
-            call before to_datapoints(). Default False for call-site
-            compatibility; orchestrator threads config.consolidate_entities
-            through to flip it on by default.
-
-    Returns:
-        List of DataPoint objects that were extracted and stored.
     """
     logger.info(
-        "Starting BookRAG pipeline for batch (chapters {}, book_id='{}')",
-        batch.chapter_numbers, book_id,
+        "Starting BookRAG pipeline for batch (chapters {}, book_id='{}', ordinal_start={})",
+        batch.chapter_numbers, book_id, chunk_ordinal_start,
     )
 
     # Stage 1: Chunk
@@ -791,7 +779,26 @@ async def run_bookrag_pipeline(
         chapter_numbers=batch.chapter_numbers,
     )
 
-    # Stage 2: Extract
+    # Assign ordinals + chunk_ids
+    for i, c in enumerate(chunks):
+        c.ordinal = chunk_ordinal_start + i
+        c.chunk_id = f"{book_id}::chunk_{c.ordinal:04d}"
+
+    # Index chunk text in cognee so CHUNKS / RAG_COMPLETION can find it later.
+    for c in chunks:
+        try:
+            await cognee.add(
+                data=c.text,
+                dataset_name=book_id,
+                node_set=[c.chunk_id],
+            )
+        except Exception as exc:
+            logger.warning(
+                "cognee.add failed for {} (chunk text not indexed): {}",
+                c.chunk_id, exc,
+            )
+
+    # Stage 2: Extract (stamps source_chunk_ordinal inside extract_enriched_graph)
     datapoints = await extract_enriched_graph(
         chunks=chunks,
         booknlp=booknlp_output,
@@ -800,12 +807,11 @@ async def run_bookrag_pipeline(
         consolidate=consolidate,
     )
 
-    # Save batch artifacts to disk first (before Cognee persistence which may fail)
     if output_dir is None:
         output_dir = Path("data/processed") / book_id / "batches"
     _save_batch_artifacts(batch, booknlp_output, datapoints, output_dir)
 
-    # Stage 3: Persist via Cognee (best-effort — extraction data is already saved)
+    # Stage 3: Persist DataPoints (best-effort)
     if datapoints:
         logger.info(
             "Persisting {} DataPoints via Cognee add_data_points (embed_triplets={})...",
@@ -828,13 +834,14 @@ async def run_bookrag_pipeline(
                 logger.debug("Cognee pipeline status: {}", status)
         except Exception as exc:
             logger.warning(
-                "Cognee add_data_points failed (extraction data saved to disk): {}", exc
+                "Cognee add_data_points failed (extraction data saved to disk): {}", exc,
             )
     else:
         logger.warning("No DataPoints extracted for batch chapters {}", batch.chapter_numbers)
 
+    next_ordinal = chunk_ordinal_start + len(chunks)
     logger.info(
-        "Pipeline complete for batch chapters {} — {} DataPoints",
-        batch.chapter_numbers, len(datapoints),
+        "Pipeline complete for batch chapters {} — {} DataPoints, next ordinal {}",
+        batch.chapter_numbers, len(datapoints), next_ordinal,
     )
-    return datapoints
+    return datapoints, next_ordinal

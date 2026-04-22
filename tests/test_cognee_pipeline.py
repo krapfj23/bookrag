@@ -998,7 +998,7 @@ class TestRunBookragPipeline:
             mock_pipeline.return_value = empty_pipeline()
             yield {"llm": mock_llm, "pipeline": mock_pipeline}
 
-    def test_returns_datapoints(self, mock_everything, sample_batch, sample_booknlp, sample_ontology, tmp_path):
+    def test_returns_next_ordinal(self, mock_everything, sample_batch, sample_booknlp, sample_ontology, tmp_path):
         result = asyncio.run(
             run_bookrag_pipeline(
                 batch=sample_batch, booknlp_output=sample_booknlp,
@@ -1006,8 +1006,8 @@ class TestRunBookragPipeline:
                 output_dir=tmp_path / "batches",
             )
         )
-        assert isinstance(result, list)
-        assert len(result) > 0
+        assert isinstance(result, int)
+        assert result >= 1
 
     def test_saves_batch_artifacts(self, mock_everything, sample_batch, sample_booknlp, sample_ontology, tmp_path):
         asyncio.run(
@@ -1264,3 +1264,67 @@ class TestConfigureCogneeRuntimeGuard:
         cognee.config.set_llm_config.reset_mock()
         configure_cognee(load_config())
         assert cognee.config.set_llm_config.called
+
+
+def test_run_bookrag_pipeline_assigns_ordinals_and_calls_cognee_add(tmp_path):
+    from pipeline.cognee_pipeline import run_bookrag_pipeline
+    from pipeline.batcher import Batch
+
+    combined = ("p1 " * 100) + "\n\n" + ("p2 " * 100)
+    batch = Batch(
+        chapter_numbers=[1],
+        texts=[combined],
+        combined_text=combined,
+    )
+
+    with patch("pipeline.cognee_pipeline.extract_enriched_graph", new=AsyncMock(return_value=[])), \
+         patch("pipeline.cognee_pipeline.cognee") as mock_cognee, \
+         patch("pipeline.cognee_pipeline.add_data_points"), \
+         patch("pipeline.cognee_pipeline.run_pipeline", new=AsyncMock()):
+        mock_cognee.add = AsyncMock()
+
+        datapoints, next_ord = asyncio.run(run_bookrag_pipeline(
+            batch=batch,
+            booknlp_output={},
+            ontology={},
+            book_id="book",
+            chunk_size=50,
+            chunk_ordinal_start=5,
+            output_dir=tmp_path,
+        ))
+
+        assert next_ord >= 6
+        assert mock_cognee.add.await_count >= 1
+        call_kwargs = [c.kwargs for c in mock_cognee.add.await_args_list]
+        for kw in call_kwargs:
+            assert "node_set" in kw
+            assert kw["node_set"][0].startswith("book::chunk_")
+            assert kw["dataset_name"] == "book"
+
+
+def test_run_bookrag_pipeline_stamps_ordinal_on_datapoints(tmp_path):
+    from pipeline.cognee_pipeline import run_bookrag_pipeline
+    from pipeline.batcher import Batch
+    from models.datapoints import Character
+
+    dp = Character(name="X", first_chapter=1)
+
+    async def fake_extract(chunks, **kw):
+        for c in chunks:
+            dp.source_chunk_ordinal = c.ordinal
+        return [dp]
+
+    batch = Batch(chapter_numbers=[1], texts=["hello world"], combined_text="hello world")
+
+    with patch("pipeline.cognee_pipeline.extract_enriched_graph", new=fake_extract), \
+         patch("pipeline.cognee_pipeline.cognee") as mock_cognee, \
+         patch("pipeline.cognee_pipeline.add_data_points"), \
+         patch("pipeline.cognee_pipeline.run_pipeline", new=AsyncMock()):
+        mock_cognee.add = AsyncMock()
+
+        asyncio.run(run_bookrag_pipeline(
+            batch=batch, booknlp_output={}, ontology={}, book_id="book",
+            chunk_size=1500, chunk_ordinal_start=0, output_dir=tmp_path,
+        ))
+
+        assert dp.source_chunk_ordinal == 0
