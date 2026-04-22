@@ -672,10 +672,13 @@ def _answer_from_allowed_nodes(
 
 @app.post("/books/{book_id}/query", response_model=QueryResponse)
 async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
-    """Query the knowledge graph with spoiler filtering.
+    """Query the knowledge graph with reader-progress fog-of-war.
 
-    Results are limited to chapters at or before the reader's current progress.
-    Set progress first via POST /books/{book_id}/progress.
+    Retrieval is PRE-FILTERED: a node allowlist is computed from disk based
+    on the reader's current chapter, and only allowed nodes are ever
+    considered. No Cognee default search is run, because it retrieves over
+    the full dataset before we can filter and may leak spoilers through
+    graph-completion reasoning.
     """
     if req.search_type not in _ALLOWED_SEARCH_TYPES:
         raise HTTPException(
@@ -692,67 +695,14 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
         min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
     )
 
-    # Cognee GraphRAG flow:
-    #   1. Synthesis call: cognee.search() without only_context runs the LLM
-    #      over the retrieved graph context and returns a coherent answer.
-    #   2. Context call: only_context=True returns the raw graph chunks we
-    #      render as source citations in the UI.
-    # Both calls are needed — the first produces the prose answer, the
-    # second gives us the attributable sources with chapter metadata.
-    results: list[QueryResultItem] = []
-    answer = ""
-
-    if COGNEE_AVAILABLE and req.search_type in _ALLOWED_SEARCH_TYPES:
-        search_type = SearchType(req.search_type)
-        # Step 1 — synthesis. LLM produces a natural-language answer
-        # grounded in the graph context.
-        try:
-            synthesis = await cognee.search(
-                query_text=req.question,
-                query_type=search_type,
-                datasets=[book_id],
-            )
-            answer = _synthesis_to_text(synthesis)
-        except Exception as exc:
-            logger.warning("Cognee synthesis unavailable: {}", exc)
-
-        # Step 2 — raw context for source citations.
-        try:
-            raw_results = await cognee.search(
-                query_text=req.question,
-                query_type=search_type,
-                datasets=[book_id],
-                only_context=True,
-            )
-            for item in raw_results or []:
-                ch = _extract_chapter(item)
-                if ch is not None and ch > current_chapter:
-                    continue
-                results.append(QueryResultItem(
-                    content=_result_to_text(item),
-                    entity_type=_result_entity_type(item),
-                    chapter=ch,
-                ))
-        except Exception as exc:
-            logger.warning("Cognee context fetch unavailable: {}", exc)
-
-    # Fall back to disk-based keyword search if Cognee returned nothing
-    if not results:
-        results = _search_datapoints_on_disk(book_id, req.question, current_chapter)
-
-    # If Cognee synthesis failed (e.g., database not initialised) but we
-    # have sources on disk, run a local LLM synthesis step via OpenAI
-    # directly. This keeps the GraphRAG shape — prose answer + source
-    # citations — even when Cognee is unavailable at runtime.
-    if not answer and results:
-        answer = await _local_synthesis(req.question, results, current_chapter)
+    results = _answer_from_allowed_nodes(book_id, req.question, current_chapter)
 
     return QueryResponse(
         book_id=book_id,
         question=req.question,
         search_type=req.search_type,
         current_chapter=current_chapter,
-        answer=answer,
+        answer="",
         results=results,
         result_count=len(results),
     )

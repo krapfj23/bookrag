@@ -467,3 +467,43 @@ class TestAnswerFromAllowedNodes:
 
         items = _answer_from_allowed_nodes("bk", question="dies", cursor=5)
         assert any("dies" in i.content.lower() for i in items)
+
+
+class TestQueryEndpointFogOfWar:
+    """End-to-end: /books/{id}/query never returns content past the cursor."""
+
+    def _seed(self, tmp_path, book_id):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Marley", "description": "dead partner",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c2", "name": "Tiny Tim", "description": "dies in stave 4",
+                 "first_chapter": 1, "last_known_chapter": 4},
+            ],
+        }))
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True, "current_stage": "complete",
+            "stages": {},
+        }))
+        (tmp_path / book_id / "reading_progress.json").write_text(json.dumps({
+            "book_id": book_id, "current_chapter": 2,
+        }))
+
+    def test_query_hides_future_character_description(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path, "carol")
+
+        client = TestClient(app)
+        resp = client.post("/books/carol/query", json={
+            "question": "Tiny Tim",
+            "search_type": "GRAPH_COMPLETION",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["current_chapter"] == 2
+        for r in body["results"]:
+            assert "dies in stave 4" not in r["content"], f"SPOILER: {r}"
