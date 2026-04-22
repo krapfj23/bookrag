@@ -1,0 +1,59 @@
+/* Composer row for the Thread tab. Border + shadow switch into an
+ * accent-colored focus treatment whenever the inner <textarea> has
+ * focus, replacing the previous useState+inline-style flash. */
+.chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 10px 10px 16px;
+  background: var(--paper-00);
+  border: 1px solid var(--paper-2);
+  box-shadow: var(--shadow-1);
+  border-radius: var(--r-lg);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+  font-family: var(--serif);
+}
+.chat-input:focus-within {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px var(--accent-softer),
+    var(--shadow-1);
+}
+
+.chat-input-textarea {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  resize: none;
+  font-family: var(--serif);
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--ink-0);
+  padding: 6px 0;
+  min-height: 24px;
+  max-height: 160px;
+}
+
+.chat-input-send {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  background: var(--paper-1);
+  color: var(--ink-3);
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: not-allowed;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.chat-input-send.can-send {
+  background: var(--accent);
+  color: var(--paper-00);
+  cursor: pointer;
+}

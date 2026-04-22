@@ -724,13 +724,7 @@ export function ReadingScreen() {
                       );
                     })}
                     {cutoff && (
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "center",
-                          marginTop: 40,
-                        }}
-                      >
+                      <div className="reading-cutoff-pill-row">
                         <div className="reading-up-to">
                           <span style={{ opacity: 0.7 }}>Reading up to:</span>
                           <span className="excerpt">"{cutoff.excerpt}"</span>
