@@ -394,10 +394,19 @@ export function ReadingScreen() {
     spreadIdx === body.spreads.length - 1 &&
     body.chapter.num === body.chapter.total_chapters;
 
+  const rootBackground =
+    mode === "on"
+      ? "radial-gradient(ellipse 80% 60% at center 40%, oklch(96% 0.012 85), oklch(93% 0.015 80) 80%)"
+      : "var(--paper-0)";
+
   return (
     <div
       className="br"
-      style={{ minHeight: "100vh", background: "var(--paper-0)" }}
+      style={{
+        minHeight: "100vh",
+        background: rootBackground,
+        transition: "background 420ms cubic-bezier(.2,.7,.2,1)",
+      }}
       data-testid="reading-screen"
       data-reading-mode={mode}
     >
