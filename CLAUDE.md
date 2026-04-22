@@ -95,7 +95,7 @@ frontend/src/
 
 BookNLP does NOT produce resolved text. We reconstruct it from `.entities` + `.tokens` + `.book` files. Format: `"he [Scrooge] muttered to his [Scrooge] clerk [Bob Cratchit]"`. Reversible (strip brackets to recover original), and LLMs parse it well during Phase 2 extraction.
 
-### Fog-of-War Retrieval (Phases 0 + 1)
+### Fog-of-War Retrieval (Phases 0 + 1 + 2)
 
 Reader progress is persisted per book in `reading_progress.json` as `{current_chapter, current_paragraph?}`. Paragraph is 0-indexed and optional — clients that send only `current_chapter` get Phase-0-compatible chapter-inclusive filtering.
 
@@ -105,8 +105,10 @@ At query time, `pipeline/spoiler_filter.py` walks `data/processed/{book_id}/batc
 
 When a paragraph cursor is set, `_load_paragraphs_up_to(book_id, current_chapter, current_paragraph)` loads paragraphs 0..cursor from `raw/chapters/chapter_NN.txt` and, for `GRAPH_COMPLETION`, those paragraphs are concatenated with the allowed-node context and passed to the LLM via `_complete_over_context`.
 
-Limitations (addressed in Phase 2):
-- Node descriptions are still chapter-granular. A Character with `last_known_chapter=4` may have had its description influenced by chapter-5 content the LLM saw during batch extraction, even if the reader is at chapter-4 paragraph-3. Phase 2 introduces per-paragraph node snapshots.
+**Phase 2 — Per-identity snapshot selection.** When the same entity is extracted by multiple batches, `load_allowed_nodes` returns the latest snapshot per identity within the cursor bound. For the strictest fidelity, set `batch_size: 1` in `config.yaml` before ingesting a book — each chapter becomes its own snapshot window, and retrieval can surface the description that reflects only what the reader has seen. Larger batch sizes still work (existing books don't need re-ingestion) but the `last_known_chapter` signal is coarser.
+
+Limitations (not addressed by this phase series):
+- True per-paragraph extraction is still future work. Today, the LLM sees the entire batch window during extraction, so a node's description reflects everything the LLM saw in that batch — a `batch_size=1` book's chapter-4 snapshot is still influenced by the full chapter-4 text, not just paragraphs before the reader's cursor. Phase 1 raw-text injection compensates for within-chapter reads.
 
 ## Testing
 
