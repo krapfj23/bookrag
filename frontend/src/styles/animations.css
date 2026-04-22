@@ -10,6 +10,11 @@
   animation: rr-card-flash-kf 600ms ease-out;
 }
 
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
 @keyframes brPulse {
   0% {
     box-shadow: 0 0 0 0 currentColor;
