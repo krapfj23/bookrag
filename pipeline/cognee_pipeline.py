@@ -413,12 +413,67 @@ def render_prompt(
 # Task 2: Enriched graph extraction
 # ---------------------------------------------------------------------------
 
+def _format_prior_extraction_for_gleaning(extraction: "ExtractionResult") -> str:
+    """Compact summary of a prior extraction pass used as a 'don't repeat' hint
+    in the gleaning continuation prompt. Keeps token cost down by emitting only
+    entity names/types, not full descriptions or provenance.
+    """
+    lines: list[str] = []
+    if extraction.characters:
+        lines.append("Characters: " + ", ".join(c.name for c in extraction.characters))
+    if extraction.locations:
+        lines.append("Locations: " + ", ".join(l.name for l in extraction.locations))
+    if extraction.factions:
+        lines.append("Factions: " + ", ".join(f.name for f in extraction.factions))
+    if extraction.events:
+        lines.append("Events: " + "; ".join(e.description[:60] for e in extraction.events))
+    if extraction.relationships:
+        lines.append("Relationships: " + ", ".join(
+            f"{r.source_name}->{r.target_name} ({r.relation_type})"
+            for r in extraction.relationships
+        ))
+    if extraction.themes:
+        lines.append("Themes: " + ", ".join(t.name for t in extraction.themes))
+    return "\n".join(lines) if lines else "(nothing yet)"
+
+
+def _merge_glean_extractions(
+    first: "ExtractionResult", extra: "ExtractionResult"
+) -> "ExtractionResult":
+    """Merge a gleaning pass into the first pass, deduping on entity key.
+
+    Keys:
+    - Character/Location/Faction/Theme: name
+    - PlotEvent: (chapter, description)
+    - Relationship: (source_name, target_name, relation_type)
+    """
+    def _merge_by_name(a, b):
+        seen = {x.name for x in a}
+        return a + [x for x in b if x.name not in seen]
+
+    first.characters = _merge_by_name(first.characters, extra.characters)
+    first.locations = _merge_by_name(first.locations, extra.locations)
+    first.factions = _merge_by_name(first.factions, extra.factions)
+    first.themes = _merge_by_name(first.themes, extra.themes)
+
+    seen_events = {(e.chapter, e.description) for e in first.events}
+    first.events += [e for e in extra.events if (e.chapter, e.description) not in seen_events]
+
+    seen_rels = {(r.source_name, r.target_name, r.relation_type) for r in first.relationships}
+    first.relationships += [
+        r for r in extra.relationships
+        if (r.source_name, r.target_name, r.relation_type) not in seen_rels
+    ]
+    return first
+
+
 async def extract_enriched_graph(
     chunks: list[ChapterChunk],
     booknlp: dict[str, Any] | None = None,
     ontology: dict[str, Any] | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     consolidate: bool = False,
+    max_gleanings: int = 0,
 ) -> list[DataPoint]:
     """Extract knowledge graph DataPoints from chunks using Claude via LLMGateway.
 
@@ -461,6 +516,7 @@ async def extract_enriched_graph(
             )
             system_prompt, text_input = render_prompt(chunk, booknlp, ontology)
             last_error: Exception | None = None
+            extraction: ExtractionResult | None = None
             for attempt in range(1, max_retries + 1):
                 try:
                     extraction = await LLMGateway.acreate_structured_output(
@@ -468,7 +524,7 @@ async def extract_enriched_graph(
                         system_prompt=system_prompt,
                         response_model=ExtractionResult,
                     )
-                    return i, chunk, extraction
+                    break
                 except Exception as exc:
                     last_error = exc
                     logger.warning(
@@ -477,11 +533,53 @@ async def extract_enriched_graph(
                     )
                     if attempt < max_retries:
                         await asyncio.sleep(2 ** attempt)
-            logger.error(
-                "All {} attempts failed for chunk {}. Last error: {}",
-                max_retries, i + 1, last_error,
-            )
-            return i, chunk, None
+            if extraction is None:
+                logger.error(
+                    "All {} attempts failed for chunk {}. Last error: {}",
+                    max_retries, i + 1, last_error,
+                )
+                return i, chunk, None
+
+            # Item 1 (Phase A Stage 2): gleaning loop. For each gleaning pass,
+            # append a "do not repeat" summary of what we've extracted so far
+            # and ask for anything missed. Retries within a gleaning pass reuse
+            # the outer max_retries budget but don't nest — a gleaning failure
+            # just skips that pass. Dedupes on entity key when merging.
+            for glean_idx in range(max_gleanings):
+                glean_system = (
+                    system_prompt
+                    + "\n\n## Gleaning Pass — Find Missed Entities\n\n"
+                    + "The following entities were already extracted from this exact chunk:\n\n"
+                    + _format_prior_extraction_for_gleaning(extraction)
+                    + "\n\nDo NOT repeat any of the above. Emit ONLY entities, "
+                      "events, relationships, themes, or factions that the prior "
+                      "pass missed. If you cannot find any new items, return empty "
+                      "arrays — do not re-emit the prior items. Provenance rules "
+                      "still apply: every new item must carry a verbatim quote."
+                )
+                try:
+                    glean_extraction = await LLMGateway.acreate_structured_output(
+                        text_input=text_input,
+                        system_prompt=glean_system,
+                        response_model=ExtractionResult,
+                    )
+                    extraction = _merge_glean_extractions(extraction, glean_extraction)
+                    logger.debug(
+                        "Gleaning pass {}/{} for chunk {}: added {} characters, "
+                        "{} events, {} relationships",
+                        glean_idx + 1, max_gleanings, i + 1,
+                        len(glean_extraction.characters),
+                        len(glean_extraction.events),
+                        len(glean_extraction.relationships),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Gleaning pass {}/{} failed for chunk {}: {} — "
+                        "continuing with prior extraction",
+                        glean_idx + 1, max_gleanings, i + 1, exc,
+                    )
+
+            return i, chunk, extraction
 
     results = await asyncio.gather(*[_extract_one(i, c) for i, c in enumerate(chunks)])
 
@@ -614,6 +712,7 @@ async def run_bookrag_pipeline(
     embed_triplets: bool = False,
     consolidate: bool = False,
     chunk_ordinal_start: int = 0,
+    max_gleanings: int = 0,
 ) -> int:
     """Run the full BookRAG Cognee pipeline for a single batch.
 
@@ -670,6 +769,7 @@ async def run_bookrag_pipeline(
         ontology=ontology,
         max_retries=max_retries,
         consolidate=consolidate,
+        max_gleanings=max_gleanings,
     )
 
     if output_dir is None:

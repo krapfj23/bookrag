@@ -576,6 +576,7 @@ class PipelineOrchestrator:
                         embed_triplets=getattr(self.config, "embed_triplets", False),
                         consolidate=getattr(self.config, "consolidate_entities", False),
                         chunk_ordinal_start=chunk_ordinal_counter,
+                        max_gleanings=getattr(self.config, "max_gleanings", 0),
                     )
                     success = True
                     break

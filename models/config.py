@@ -66,6 +66,12 @@ class BookRAGConfig(BaseSettings):
     # dead weight unless Slice 2 (cognee-search-types) is live and needs raw-doc
     # retrieval via cognee.search(CHUNKS|RAG_COMPLETION).
     persist_raw_to_cognee_docstore: bool = False
+    # Item 1 (Phase A Stage 2): gleaning loop. After the first extraction pass,
+    # N additional passes prompt the LLM to find entities missed on the prior
+    # pass. Each pass is a full LLM call. 1 gleaning (= 2 total passes/chunk)
+    # is the GraphRAG default and typically recovers 30-50% more relationships
+    # at modest cost (OpenAI applies 50% cache hit to the stable system prefix).
+    max_gleanings: int = 1
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 

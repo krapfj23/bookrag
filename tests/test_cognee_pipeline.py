@@ -216,6 +216,8 @@ class TestConfigureCognee:
 
 
 class TestChapterChunk:
+    """Covers the ChapterChunk DataPoint shape and chapter metadata."""
+
     def test_construction(self):
         c = ChapterChunk(text="Hello world", chapter_numbers=[1, 2], start_char=0, end_char=11)
         assert c.text == "Hello world"
@@ -248,6 +250,8 @@ class TestChapterChunk:
 # ===================================================================
 
 class TestChunkWithChapterAwareness:
+    """Verifies chunker preserves chapter boundaries and last-known-chapter tagging."""
+
     def test_single_paragraph(self):
         chunks = chunk_with_chapter_awareness("One paragraph.", chunk_size=1500)
         assert len(chunks) == 1
@@ -309,6 +313,8 @@ class TestChunkWithChapterAwareness:
 # ===================================================================
 
 class TestFormatBookNLPEntities:
+    """Asserts BookNLP entity rows render into the extraction prompt block."""
+
     def test_filters_to_prop_and_nom(self):
         entities = [
             {"prop": "PROP", "cat": "PER", "text": "Scrooge"},
@@ -344,6 +350,8 @@ class TestFormatBookNLPEntities:
 
 
 class TestFormatBookNLPQuotes:
+    """Asserts BookNLP quote rows render with speaker attribution."""
+
     def test_formats_speaker_and_text(self):
         quotes = [{"speaker": "Scrooge", "text": "Bah! Humbug!"}]
         result = _format_booknlp_quotes(quotes)
@@ -373,6 +381,8 @@ class TestFormatBookNLPQuotes:
 
 
 class TestFormatOntologyClasses:
+    """Verifies discovered ontology classes serialize into the prompt."""
+
     def test_from_discovered_entities(self, sample_ontology):
         result = _format_ontology_classes(sample_ontology)
         assert "Character" in result
@@ -396,6 +406,8 @@ class TestFormatOntologyClasses:
 
 
 class TestFormatOntologyRelations:
+    """Verifies discovered relation labels serialize into the prompt."""
+
     def test_from_discovered_relations(self, sample_ontology):
         result = _format_ontology_relations(sample_ontology)
         assert "employs" in result
@@ -419,6 +431,8 @@ class TestFormatOntologyRelations:
 # ===================================================================
 
 class TestRenderPrompt:
+    """Covers render_prompt placeholder substitution and guardrails."""
+
     def test_returns_tuple(self, prompt_file, sample_booknlp, sample_ontology):
         chunk = ChapterChunk(text="The book text.", chapter_numbers=[1, 2], start_char=0, end_char=14)
         result = render_prompt(chunk, sample_booknlp, sample_ontology, prompt_path=str(prompt_file))
@@ -488,6 +502,8 @@ class TestRenderPrompt:
 # ===================================================================
 
 class TestExtractEnrichedGraph:
+    """Covers single-batch extraction with mocked LLMGateway."""
+
     @pytest.fixture
     def mock_llm(self, sample_extraction_result):
         with patch("pipeline.cognee_pipeline.LLMGateway") as mock:
@@ -609,6 +625,8 @@ class TestExtractEnrichedGraph:
 # ===================================================================
 
 class TestSaveBatchArtifacts:
+    """Asserts per-batch JSON artifacts are written under data/processed."""
+
     def test_saves_input_text(self, sample_batch, tmp_path):
         _save_batch_artifacts(sample_batch, {}, [], tmp_path)
         input_path = tmp_path / "batch_01" / "input_text.txt"
@@ -1006,7 +1024,140 @@ class TestEntityConsolidation:
         assert ext.characters[0].description == "First description."
 
 
+class TestEntityConsolidationBehavior:
+    """Plan 3 — behavior-level coverage of consolidate_entities.
+
+    Complements TestEntityConsolidation (which pins mock call shape) with
+    tests that assert on the returned ExtractionResult's content: merged
+    descriptions, first_chapter min invariant, and multi-bucket fan-out.
+    """
+
+    def _make_char(self, name, first_ch=1, last_ch=1, desc=""):
+        from models.datapoints import CharacterExtraction
+        return CharacterExtraction(
+            name=name, description=desc,
+            first_chapter=first_ch, last_known_chapter=last_ch,
+        )
+
+    @pytest.mark.asyncio
+    async def test_consolidate_merges_descriptions_from_every_member(self, monkeypatch):
+        """The returned character's description carries content from every input
+        member — not just the first one."""
+        from models.datapoints import ExtractionResult
+        from pipeline import consolidation
+
+        inp = ExtractionResult(
+            characters=[
+                self._make_char(
+                    "Scrooge", first_ch=1, last_ch=1,
+                    desc="A miser in a counting-house.",
+                ),
+                self._make_char(
+                    "Scrooge", first_ch=1, last_ch=1,
+                    desc="Haunted by Marley's ghost.",
+                ),
+            ],
+        )
+
+        # Capture the members passed to the LLM call and return a
+        # description that concatenates every input member's text.
+        async def fake_acreate(**kwargs):
+            # The prompt embeds the descriptions list; reconstruct a joined
+            # answer from the input's descriptions to prove consolidation
+            # actually reaches every member.
+            joined = " ".join(m.description for m in inp.characters)
+            return consolidation._ConsolidatedDescription(answer=joined)
+
+        mock_gateway = MagicMock()
+        mock_gateway.acreate_structured_output = AsyncMock(side_effect=fake_acreate)
+        monkeypatch.setattr(consolidation, "LLMGateway", mock_gateway)
+
+        result = await consolidation.consolidate_entities(inp)
+
+        assert len(result.characters) == 1, "duplicate Scrooges must collapse to one"
+        merged = result.characters[0].description
+        assert "counting-house" in merged, (
+            f"merged description must include first member's content; got {merged!r}"
+        )
+        assert "Marley" in merged, (
+            f"merged description must include second member's content; got {merged!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_consolidate_preserves_first_chapter_min_invariant(self, monkeypatch):
+        """After merging, first_chapter is the min across members — the entity
+        was grounded at its earliest appearance, not the first list index."""
+        from models.datapoints import ExtractionResult
+        from pipeline import consolidation
+
+        inp = ExtractionResult(
+            characters=[
+                # First member has a LATER first_chapter than the second —
+                # if merge just copied first.first_chapter we'd get 3.
+                self._make_char("Scrooge", first_ch=3, last_ch=5, desc="later-seen"),
+                self._make_char("Scrooge", first_ch=1, last_ch=5, desc="earlier-seen"),
+            ],
+        )
+
+        mock_gateway = MagicMock()
+        mock_gateway.acreate_structured_output = AsyncMock(
+            return_value=consolidation._ConsolidatedDescription(answer="merged desc"),
+        )
+        monkeypatch.setattr(consolidation, "LLMGateway", mock_gateway)
+
+        result = await consolidation.consolidate_entities(inp)
+
+        assert len(result.characters) == 1
+        assert result.characters[0].first_chapter == 1, (
+            "first_chapter must be min across members (1), not the first member's 3"
+        )
+        assert result.characters[0].last_known_chapter == 5
+        assert result.characters[0].description == "merged desc"
+
+    @pytest.mark.asyncio
+    async def test_consolidate_multi_bucket_yields_one_output_per_bucket(self, monkeypatch):
+        """Four Characters across two chapter buckets must return exactly two
+        canonical records — bucket-level fan-out is preserved."""
+        from models.datapoints import ExtractionResult
+        from pipeline import consolidation
+
+        inp = ExtractionResult(
+            characters=[
+                # Bucket 1: last_known_chapter=1
+                self._make_char("Scrooge", first_ch=1, last_ch=1, desc="early A"),
+                self._make_char("Scrooge", first_ch=1, last_ch=1, desc="early B"),
+                # Bucket 2: last_known_chapter=4
+                self._make_char("Scrooge", first_ch=2, last_ch=4, desc="late A"),
+                self._make_char("Scrooge", first_ch=2, last_ch=4, desc="late B"),
+            ],
+        )
+
+        # Return a distinguishable answer per bucket so we can verify both
+        # are materialized, not one collapsed into the other.
+        async def fake_acreate(**kwargs):
+            text_input = kwargs.get("text_input", "")
+            answer = "bucket1-merged" if "early A" in text_input else "bucket4-merged"
+            return consolidation._ConsolidatedDescription(answer=answer)
+
+        mock_gateway = MagicMock()
+        mock_gateway.acreate_structured_output = AsyncMock(side_effect=fake_acreate)
+        monkeypatch.setattr(consolidation, "LLMGateway", mock_gateway)
+
+        result = await consolidation.consolidate_entities(inp)
+
+        assert len(result.characters) == 2, (
+            f"two chapter buckets must yield two outputs; got "
+            f"{[(c.description, c.last_known_chapter) for c in result.characters]}"
+        )
+        buckets = {c.last_known_chapter for c in result.characters}
+        assert buckets == {1, 4}, f"both buckets must survive; got {buckets}"
+        descriptions = {c.description for c in result.characters}
+        assert descriptions == {"bucket1-merged", "bucket4-merged"}
+
+
 class TestRunBookragPipeline:
+    """Covers the orchestrated run over multiple batches."""
+
     @pytest.fixture
     def mock_everything(self, sample_extraction_result):
         with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
@@ -1225,12 +1376,80 @@ class TestRunBookragPipeline:
                 "consolidate_entities must not be awaited when consolidate=False"
             )
 
+    def test_run_bookrag_pipeline_collapses_duplicates_end_to_end(
+        self, sample_batch, sample_booknlp, sample_ontology, tmp_path,
+    ):
+        """End-to-end: feed multiple chunks whose LLM each returns a Scrooge,
+        then run the full pipeline with consolidate=True. The final datapoints
+        persisted to extracted_datapoints.json must contain exactly one
+        Character named "Scrooge" — not one per chunk."""
+        # Force the batch into multiple chunks so consolidation has duplicates
+        # to collapse. chunk_size=30 chars splits the sample_batch into 2+
+        # chunks at paragraph boundaries.
+        scrooge_a = ExtractionResult(
+            characters=[CharacterExtraction(
+                name="Scrooge", description="miser A",
+                first_chapter=1, last_known_chapter=1,
+            )],
+        )
+        scrooge_b = ExtractionResult(
+            characters=[CharacterExtraction(
+                name="Scrooge", description="miser B",
+                first_chapter=1, last_known_chapter=1,
+            )],
+        )
+
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+             patch("pipeline.cognee_pipeline.render_prompt", return_value=("sys", "text")), \
+             patch("pipeline.cognee_pipeline.run_pipeline") as mock_pipeline, \
+             patch("pipeline.cognee_pipeline.Task"):
+            mock_llm.acreate_structured_output = AsyncMock(
+                side_effect=[scrooge_a, scrooge_b, scrooge_a, scrooge_b, scrooge_a],
+            )
+
+            async def empty_pipeline(**kwargs):
+                return
+                yield
+            mock_pipeline.return_value = empty_pipeline()
+
+            # Patch consolidation's LLM so the merge actually runs (vs being
+            # no-op via the orchestrator-level AsyncMock used by other tests).
+            with patch("pipeline.consolidation.LLMGateway") as mock_cons_llm:
+                from pipeline.consolidation import _ConsolidatedDescription
+                mock_cons_llm.acreate_structured_output = AsyncMock(
+                    return_value=_ConsolidatedDescription(answer="consolidated Scrooge"),
+                )
+
+                asyncio.run(
+                    run_bookrag_pipeline(
+                        batch=sample_batch,
+                        booknlp_output=sample_booknlp,
+                        ontology=sample_ontology,
+                        book_id="xmas",
+                        output_dir=tmp_path / "batches",
+                        chunk_size=30,  # force multiple chunks → multiple LLM calls
+                        consolidate=True,
+                    )
+                )
+
+        # Read the persisted DataPoints from disk and verify dedup.
+        dp_file = tmp_path / "batches" / "batch_01" / "extracted_datapoints.json"
+        assert dp_file.exists(), f"pipeline must persist artifacts at {dp_file}"
+        records = json.loads(dp_file.read_text())
+        scrooges = [r for r in records if r.get("name") == "Scrooge"]
+        assert len(scrooges) == 1, (
+            f"consolidate=True must collapse duplicate Scrooges to 1; "
+            f"got {len(scrooges)}: {scrooges}"
+        )
+
 
 # ===================================================================
 # Spec alignment
 # ===================================================================
 
 class TestSpecAlignment:
+    """Asserts implementation still matches bookrag_pipeline_plan.md decisions."""
+
     def test_uses_models_datapoints_extraction_result(self):
         """Must use ExtractionResult from models/datapoints.py, not a local one."""
         from pipeline.cognee_pipeline import ExtractionResult as PipelineER
@@ -1455,3 +1674,168 @@ def test_run_bookrag_pipeline_calls_cognee_add_when_flag_enabled(tmp_path):
             chunk_size=1500, chunk_ordinal_start=0, output_dir=tmp_path,
         ))
         assert mock_cognee.add.await_count >= 1
+
+
+# ===========================================================================
+# Item 1 (Phase A Stage 2): gleaning loop
+# ===========================================================================
+
+
+def test_gleaning_disabled_runs_one_llm_call_per_chunk():
+    """max_gleanings=0 preserves pre-Stage-2 behavior."""
+    from pipeline.cognee_pipeline import extract_enriched_graph, ChapterChunk
+    from models.datapoints import ExtractionResult, CharacterExtraction
+
+    chunks = [
+        ChapterChunk(text="c1", chapter_numbers=[1], start_char=0, end_char=2, ordinal=0),
+        ChapterChunk(text="c2", chapter_numbers=[1], start_char=2, end_char=4, ordinal=1),
+    ]
+    call_count = 0
+
+    async def fake_llm(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return ExtractionResult(
+            characters=[CharacterExtraction(name="A", first_chapter=1)],
+        )
+
+    with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+         patch("pipeline.cognee_pipeline.render_prompt",
+               return_value=("sys", "user")):
+        mock_llm.acreate_structured_output = fake_llm
+        asyncio.run(extract_enriched_graph(
+            chunks=chunks, booknlp={}, ontology={}, max_gleanings=0,
+        ))
+
+    assert call_count == 2, f"expected 2 calls (one per chunk), got {call_count}"
+
+
+def test_gleaning_adds_one_llm_call_per_chunk_per_pass():
+    """max_gleanings=1 doubles the call count (first + 1 gleaning)."""
+    from pipeline.cognee_pipeline import extract_enriched_graph, ChapterChunk
+    from models.datapoints import ExtractionResult
+
+    chunks = [
+        ChapterChunk(text="c1", chapter_numbers=[1], start_char=0, end_char=2, ordinal=0),
+    ]
+    call_count = 0
+
+    async def fake_llm(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return ExtractionResult()
+
+    with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+         patch("pipeline.cognee_pipeline.render_prompt",
+               return_value=("sys", "user")):
+        mock_llm.acreate_structured_output = fake_llm
+        asyncio.run(extract_enriched_graph(
+            chunks=chunks, booknlp={}, ontology={}, max_gleanings=1,
+        ))
+
+    assert call_count == 2  # one first pass + one gleaning
+
+
+def test_gleaning_merges_new_entities():
+    """Second pass should add entities missing from the first."""
+    from pipeline.cognee_pipeline import extract_enriched_graph, ChapterChunk
+    from models.datapoints import (
+        ExtractionResult, CharacterExtraction, Character,
+    )
+
+    chunks = [
+        ChapterChunk(text="c1", chapter_numbers=[1], start_char=0, end_char=2, ordinal=0),
+    ]
+    responses = [
+        ExtractionResult(characters=[CharacterExtraction(name="Scrooge", first_chapter=1)]),
+        ExtractionResult(characters=[CharacterExtraction(name="Marley", first_chapter=1)]),
+    ]
+    idx = 0
+
+    async def fake_llm(*args, **kwargs):
+        nonlocal idx
+        r = responses[idx]
+        idx += 1
+        return r
+
+    with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+         patch("pipeline.cognee_pipeline.render_prompt",
+               return_value=("sys", "user")):
+        mock_llm.acreate_structured_output = fake_llm
+        datapoints = asyncio.run(extract_enriched_graph(
+            chunks=chunks, booknlp={}, ontology={}, max_gleanings=1,
+        ))
+
+    names = sorted(dp.name for dp in datapoints if isinstance(dp, Character))
+    assert names == ["Marley", "Scrooge"]
+
+
+def test_gleaning_dedupes_repeated_entities():
+    """Gleaning pass that re-emits prior entities should not produce duplicates."""
+    from pipeline.cognee_pipeline import extract_enriched_graph, ChapterChunk
+    from models.datapoints import (
+        ExtractionResult, CharacterExtraction, Character,
+    )
+
+    chunks = [
+        ChapterChunk(text="c1", chapter_numbers=[1], start_char=0, end_char=2, ordinal=0),
+    ]
+    responses = [
+        ExtractionResult(characters=[CharacterExtraction(name="Scrooge", first_chapter=1)]),
+        ExtractionResult(characters=[
+            CharacterExtraction(name="Scrooge", first_chapter=1),
+            CharacterExtraction(name="Marley", first_chapter=1),
+        ]),
+    ]
+    idx = 0
+
+    async def fake_llm(*args, **kwargs):
+        nonlocal idx
+        r = responses[idx]
+        idx += 1
+        return r
+
+    with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+         patch("pipeline.cognee_pipeline.render_prompt",
+               return_value=("sys", "user")):
+        mock_llm.acreate_structured_output = fake_llm
+        datapoints = asyncio.run(extract_enriched_graph(
+            chunks=chunks, booknlp={}, ontology={}, max_gleanings=1,
+        ))
+
+    characters = [dp for dp in datapoints if isinstance(dp, Character)]
+    names = sorted(c.name for c in characters)
+    assert names == ["Marley", "Scrooge"]
+
+
+def test_gleaning_pass_failure_keeps_first_extraction():
+    """If the gleaning LLM call errors, the first-pass extraction survives."""
+    from pipeline.cognee_pipeline import extract_enriched_graph, ChapterChunk
+    from models.datapoints import (
+        ExtractionResult, CharacterExtraction, Character,
+    )
+
+    chunks = [
+        ChapterChunk(text="c1", chapter_numbers=[1], start_char=0, end_char=2, ordinal=0),
+    ]
+    calls = 0
+
+    async def fake_llm(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return ExtractionResult(
+                characters=[CharacterExtraction(name="Scrooge", first_chapter=1)],
+            )
+        raise RuntimeError("gleaning pass boom")
+
+    with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+         patch("pipeline.cognee_pipeline.render_prompt",
+               return_value=("sys", "user")):
+        mock_llm.acreate_structured_output = fake_llm
+        datapoints = asyncio.run(extract_enriched_graph(
+            chunks=chunks, booknlp={}, ontology={}, max_gleanings=1,
+        ))
+
+    names = [dp.name for dp in datapoints if isinstance(dp, Character)]
+    assert names == ["Scrooge"]
