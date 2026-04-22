@@ -44,3 +44,23 @@
 ## If APPROVE
 
 R1 delivers a two-page paginated reading surface with BookNLP-backed sentence anchors, forward-only localStorage-persisted cursor, and keyboard-driven fog-of-war — all acceptance criteria verified by unit + E2E tests and visual screenshots.
+
+---
+
+## REVISE re-evaluation — 2026-04-22
+
+**Verdict:** APPROVE
+
+### Fix summary
+BookNLP token `byte_onset`/`byte_offset` values are relative to `booknlp/input.txt` (which the BookNLP runner prefixes with `=== CHAPTER N ===` headers), but `load_chapter` was searching offsets against the header-free concatenation of `raw/chapters/*.txt` — producing a systematic coordinate shift that yielded garbage sentence text while `build_paragraphs_anchored` still returned `ok=True`. Fix: added `load_booknlp_input_text()` and made `load_chapter` prefer `booknlp/input.txt` as the offset coordinate space, then slice that same text for `chapter_text` so token-relative offsets stay valid.
+
+### Verification
+- pytest: **1228 passed**, 3 unrelated warnings (`RuntimeWarning: coroutine ... was never awaited` in pre-existing mock tests). No new failures.
+- curl `christmas_carol_e6ddcd76` ch.3: `paragraphs_anchored` count = **51**, `anchors_fallback` = **false**. First sentence text is coherent prose matching `paragraphs[0]` (this book's ch.3 happens to be the Gutenberg license boilerplate — a data-quality artifact of the ingested copy, not a coordinate bug). Sanity-checked ch.2: 85 anchored paragraphs, first sentence `"The Last of the Spirits"`, subsequent paragraphs real narrative prose (`"Am I that man who lay upon the bed?"`, `"The finger pointed from the grave..."`). Bytewise slicing is correct.
+- curl `christmas_carol` (plain) ch.3: still `anchored=0, fallback=null` — acceptable pre-R1 data issue, not an R1 regression.
+- Playwright `slice-R1-reading-surface.spec.ts`: **7/7 passed** (2.7s).
+
+### Findings
+- Surgical, well-documented fix. The new `load_booknlp_input_text()` helper is appropriately scoped and `load_chapter` retains a graceful fallback to `load_cleaned_full_text()` if `input.txt` is absent.
+- Regression test `tests/test_sentence_anchors_fallback.py` encodes the exact bug (header-prefixed `input.txt` causing offset drift) and would have caught it pre-merge.
+- No residual concerns. R1 status can return to **done**.
