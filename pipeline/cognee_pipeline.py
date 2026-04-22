@@ -83,7 +83,14 @@ def configure_cognee(config: Any) -> None:
         "llm_temperature": temperature,
     }
 
-    cognee.config.set_llm_config(llm_config)
+    try:
+        cognee.config.set_llm_config(llm_config)
+    except AttributeError as exc:
+        logger.warning(
+            "cognee.config.set_llm_config unavailable — continuing without LLM config override: {}",
+            exc,
+        )
+        return
 
     logger.info("Cognee LLM configured: provider={}, model={}", provider, model)
 

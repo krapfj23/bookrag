@@ -72,6 +72,12 @@ def _install_cognee_mock():
 
         cognee.search = AsyncMock(return_value=[])
 
+        # cognee.config — mocked so configure_cognee exercises the real code path
+        cognee_config = types.ModuleType("cognee.config")
+        cognee_config.set_llm_config = MagicMock()
+        cognee.config = cognee_config
+        sys.modules["cognee.config"] = cognee_config
+
         sys.modules["cognee"] = cognee
         sys.modules["cognee.infrastructure"] = cognee_infra
         sys.modules["cognee.infrastructure.engine"] = cognee_engine

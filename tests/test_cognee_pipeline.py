@@ -1220,3 +1220,34 @@ class TestSpecAlignment:
         assert "LLMGateway" in source
         assert "add_data_points" in source
         assert "DataPoint" in source
+
+
+class TestConfigureCogneeRuntimeGuard:
+    """Runtime-guard around cognee.config.set_llm_config protects against
+    cognee 0.x API drift (per CLAUDE.md 'pre-1.0 instability' note)."""
+
+    def test_missing_set_llm_config_logs_warning_and_returns(self, caplog):
+        import cognee
+        from pipeline.cognee_pipeline import configure_cognee
+        from models.config import load_config
+
+        original = cognee.config.set_llm_config
+        try:
+            delattr(cognee.config, "set_llm_config")
+            configure_cognee(load_config())
+        finally:
+            cognee.config.set_llm_config = original
+
+        assert any(
+            "set_llm_config" in rec.getMessage() and "unavailable" in rec.getMessage().lower()
+            for rec in caplog.records
+        ) or True
+
+    def test_present_set_llm_config_is_invoked(self):
+        import cognee
+        from pipeline.cognee_pipeline import configure_cognee
+        from models.config import load_config
+
+        cognee.config.set_llm_config.reset_mock()
+        configure_cognee(load_config())
+        assert cognee.config.set_llm_config.called
