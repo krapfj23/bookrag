@@ -365,3 +365,43 @@ class TestLastKnownChapterInPrompt:
     def test_prompt_explains_semantics(self):
         prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
         assert "latest chapter" in prompt or "last chapter" in prompt
+
+
+class TestForwardLeakPrevention:
+    """Prompt must explicitly instruct the LLM against forward-looking summarization."""
+
+    def test_chapter_bounds_section_exists(self):
+        prompt = Path("prompts/extraction_prompt.txt").read_text()
+        assert "## Chapter Bounds" in prompt
+
+    def test_ignore_training_knowledge_instruction(self):
+        prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
+        assert (
+            "ignore that knowledge" in prompt
+            or "do not foreshadow" in prompt
+            or "do not use your prior knowledge" in prompt
+        )
+
+    def test_future_tense_prohibition(self):
+        prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
+        assert "future tense" in prompt or "foreshadow" in prompt
+
+    def test_worked_example_present(self):
+        prompt = Path("prompts/extraction_prompt.txt").read_text()
+        assert "worked example" in prompt.lower() or "example" in prompt.lower()
+        assert "three spirits" in prompt.lower() or "later" in prompt.lower()
+
+    def test_self_check_section(self):
+        prompt = Path("prompts/extraction_prompt.txt").read_text()
+        assert "Self-Check" in prompt or "self-check" in prompt.lower()
+
+    def test_chapter_numbers_placeholder_used_in_bounds_section(self):
+        """The {{ chapter_numbers }} variable must be referenced inside the bounds
+        guidance so the LLM sees the actual batch range, not a generic constant."""
+        prompt = Path("prompts/extraction_prompt.txt").read_text()
+        idx = prompt.find("## Chapter Bounds")
+        assert idx >= 0
+        tail = prompt[idx:]
+        next_section = tail.find("\n## ", 5)
+        section = tail if next_section < 0 else tail[:next_section]
+        assert "{{ chapter_numbers }}" in section
