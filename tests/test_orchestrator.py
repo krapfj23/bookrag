@@ -408,3 +408,58 @@ class TestRunInBackground:
         with patch("asyncio.create_task") as mock_create:
             orchestrator.run_in_background("dupbook", Path("/fake.epub"))
             mock_create.assert_not_called()
+
+
+def test_stage_run_cognee_batches_writes_chunk_indexes(tmp_path, monkeypatch):
+    """After all batches complete, chunks.json and chapter_to_chunk_index.json exist."""
+    from pipeline.orchestrator import PipelineOrchestrator
+    from models.pipeline_state import PipelineState
+    import asyncio
+
+    # Create minimal raw chapter files
+    book_id = "stub"
+    raw_dir = tmp_path / book_id / "raw" / "chapters"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "chapter_01.txt").write_text("paragraph one\n\nparagraph two")
+
+    class _Cfg:
+        processed_dir = str(tmp_path)
+        chunk_size = 50
+        max_retries = 1
+        llm_provider = "openai"
+        llm_model = "gpt-4o-mini"
+        batcher = "fixed_size"
+        batch_size = 1
+
+    o = PipelineOrchestrator(_Cfg())
+    state = PipelineState(book_id=book_id, total_batches=0)
+    ctx = {
+        "resolved_chapters": ["paragraph one\n\nparagraph two"],
+        "booknlp_output": {},
+        "ontology": {},
+    }
+
+    async def _fake_run(**kwargs):
+        return kwargs.get("chunk_ordinal_start", 0) + 1
+
+    monkeypatch.setattr("pipeline.orchestrator.run_bookrag_pipeline", _fake_run)
+    monkeypatch.setattr("pipeline.orchestrator.configure_cognee", lambda *_a, **_k: None)
+
+    called = {"chunks_json": False, "chapter_idx": False}
+
+    def _fake_build_chunks(*a, **kw):
+        called["chunks_json"] = True
+        return tmp_path / "fake.json"
+
+    def _fake_build_idx(*a, **kw):
+        called["chapter_idx"] = True
+        return tmp_path / "fake.json"
+
+    monkeypatch.setattr("pipeline.orchestrator.build_chunks_json", _fake_build_chunks)
+    monkeypatch.setattr("pipeline.orchestrator.build_chapter_to_chunk_index", _fake_build_idx)
+
+    from loguru import logger as loguru_logger
+    asyncio.run(o._stage_run_cognee_batches(state, ctx, loguru_logger))
+
+    assert called["chunks_json"], "build_chunks_json was not called"
+    assert called["chapter_idx"], "build_chapter_to_chunk_index was not called"

@@ -22,7 +22,13 @@ from pipeline.booknlp_runner import (
     create_stub_output,
     BookNLPOutput,
 )
-from pipeline.cognee_pipeline import run_bookrag_pipeline, configure_cognee
+from pipeline.chunk_index import build_chunks_json, build_chapter_to_chunk_index
+from pipeline.cognee_pipeline import (
+    ChapterChunk,
+    chunk_with_chapter_awareness,
+    configure_cognee,
+    run_bookrag_pipeline,
+)
 from pipeline.coref_resolver import (
     Token as CorefToken,
     EntityMention as CorefEntityMention,
@@ -532,6 +538,9 @@ class PipelineOrchestrator:
         max_retries = getattr(self.config, "max_retries", 3)
         chunk_size = getattr(self.config, "chunk_size", 1500)
 
+        chunk_ordinal_counter = 0
+        all_chunks: list[ChapterChunk] = []
+
         for idx, batch in enumerate(batches):
             state.current_batch = idx + 1
             self._persist(state)
@@ -542,10 +551,22 @@ class PipelineOrchestrator:
                 batch.chapter_numbers,
             )
 
+            # Pre-chunk so we can feed the same chunk list into the index builders
+            # even if run_bookrag_pipeline is retried. run_bookrag_pipeline re-chunks
+            # internally, but with deterministic chunking the chunks are identical.
+            pre_chunks = chunk_with_chapter_awareness(
+                text=batch.combined_text,
+                chunk_size=chunk_size,
+                chapter_numbers=batch.chapter_numbers,
+            )
+            for i, c in enumerate(pre_chunks):
+                c.ordinal = chunk_ordinal_counter + i
+                c.chunk_id = f"{state.book_id}::chunk_{c.ordinal:04d}"
+
             success = False
             for attempt in range(1, max_retries + 1):
                 try:
-                    await run_bookrag_pipeline(
+                    _datapoints, chunk_ordinal_counter = await run_bookrag_pipeline(
                         batch=batch,
                         booknlp_output=booknlp_output,
                         ontology=ontology,
@@ -554,6 +575,7 @@ class PipelineOrchestrator:
                         max_retries=max_retries,
                         embed_triplets=getattr(self.config, "embed_triplets", False),
                         consolidate=getattr(self.config, "consolidate_entities", False),
+                        chunk_ordinal_start=chunk_ordinal_counter,
                     )
                     success = True
                     break
@@ -573,6 +595,24 @@ class PipelineOrchestrator:
                     f"Batch {idx + 1} (chapters {batch.chapter_numbers}) "
                     f"failed after {max_retries} retries"
                 )
+
+            all_chunks.extend(pre_chunks)
+
+        # After all batches: build the chunk indexes
+        if all_chunks:
+            processed_dir = Path(self.config.processed_dir)
+            build_chunks_json(
+                book_id=state.book_id,
+                chunks=all_chunks,
+                chunk_size_tokens=chunk_size,
+                output_dir=processed_dir,
+            )
+            build_chapter_to_chunk_index(
+                book_id=state.book_id,
+                chunks=all_chunks,
+                processed_dir=processed_dir,
+            )
+            log.info("Wrote chunk indexes for {} chunks", len(all_chunks))
 
         log.info("All {} batches processed successfully", len(batches))
 
