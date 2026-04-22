@@ -507,3 +507,50 @@ class TestQueryEndpointFogOfWar:
         assert body["current_chapter"] == 2
         for r in body["results"]:
             assert "dies in stave 4" not in r["content"], f"SPOILER: {r}"
+
+
+class TestGraphCompletionUsesOnlyAllowed:
+    """GRAPH_COMPLETION calls the LLM with ONLY allowed context."""
+
+    def test_llm_prompt_does_not_contain_future_content(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+
+        captured: dict = {}
+
+        async def fake_complete(question: str, context: list[str]) -> str:
+            captured["context"] = context
+            captured["question"] = question
+            return "stub answer"
+
+        monkeypatch.setattr(main_mod, "_complete_over_context", fake_complete)
+
+        batches = tmp_path / "bk" / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Early", "description": "safe",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c2", "name": "Future", "description": "SPOILER_MARKER",
+                 "first_chapter": 1, "last_known_chapter": 9},
+            ],
+        }))
+        (tmp_path / "bk" / "pipeline_state.json").write_text(json.dumps({
+            "book_id": "bk", "ready_for_query": True, "current_stage": "complete", "stages": {},
+        }))
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 2,
+        }))
+
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "tell me about future events",
+            "search_type": "GRAPH_COMPLETION",
+        })
+        assert resp.status_code == 200
+        assert captured, "LLM completion was not invoked"
+        combined = " ".join(captured["context"])
+        assert "SPOILER_MARKER" not in combined, f"context leaked: {combined}"

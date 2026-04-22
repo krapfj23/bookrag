@@ -634,6 +634,40 @@ def _search_datapoints_on_disk(book_id: str, question: str, max_chapter: int) ->
     return results
 
 
+class _SpoilerSafeAnswer(BaseModel):
+    answer: str
+
+
+async def _complete_over_context(question: str, context: list[str]) -> str:
+    """Ask the configured LLM to answer `question` using ONLY `context`.
+
+    Context is the stringified allowed-node content list. No retrieval
+    happens inside this function — the caller owns the fog-of-war guarantee.
+    """
+    from cognee.infrastructure.llm.LLMGateway import LLMGateway
+
+    if not context:
+        return "I don't have information about that yet based on your reading progress."
+
+    system = (
+        "You are a spoiler-free literary assistant. Answer the user's question "
+        "using ONLY the provided knowledge-graph context. If the context does "
+        "not contain the answer, say you don't know yet. Never invent events "
+        "or use prior knowledge of the book."
+    )
+    user = (
+        f"Question: {question}\n\n"
+        "Context (allowed nodes from the reader's current progress):\n"
+        + "\n".join(f"- {c}" for c in context)
+    )
+    response = await LLMGateway.acreate_structured_output(
+        text_input=user,
+        system_prompt=system,
+        response_model=_SpoilerSafeAnswer,
+    )
+    return response.answer
+
+
 def _answer_from_allowed_nodes(
     book_id: str,
     question: str,
@@ -697,12 +731,17 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
 
     results = _answer_from_allowed_nodes(book_id, req.question, current_chapter)
 
+    answer = ""
+    if req.search_type == "GRAPH_COMPLETION":
+        context = [r.content for r in results[:15]]
+        answer = await _complete_over_context(req.question, context)
+
     return QueryResponse(
         book_id=book_id,
         question=req.question,
         search_type=req.search_type,
         current_chapter=current_chapter,
-        answer="",
+        answer=answer,
         results=results,
         result_count=len(results),
     )
