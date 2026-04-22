@@ -25,7 +25,7 @@ type Body =
   | { kind: "error"; message: string }
   | { kind: "ok"; chapter: Chapter; spreads: Spread[] };
 
-type PeekState = { body: string; x: number; y: number } | null;
+type PeekState = { body: string; x: number; y: number; createdAt: string } | null;
 
 export function ReadingScreen() {
   const { bookId = "", chapterNum = "1" } = useParams<{
@@ -376,6 +376,7 @@ export function ReadingScreen() {
           body: noteCard.body,
           x: rect.left + rect.width / 2,
           y: rect.top,
+          createdAt: noteCard.createdAt ?? "",
         });
       }, 150);
     }
@@ -583,6 +584,7 @@ export function ReadingScreen() {
         body={peek?.body ?? ""}
         x={peek?.x ?? 0}
         y={peek?.y ?? 0}
+        createdAt={peek?.createdAt ?? ""}
       />
     </div>
   );
