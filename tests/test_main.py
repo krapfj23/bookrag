@@ -831,3 +831,50 @@ class TestQueryEndpointParagraphGate:
         assert resp.status_code == 200
         body = resp.json()
         assert any("GRAPH_SPOILER" in r["content"] for r in body["results"])
+
+
+class TestQueryResponseIncludesParagraph:
+    def _real_orch(self, monkeypatch, main_mod, cfg):
+        from pipeline.orchestrator import PipelineOrchestrator
+        monkeypatch.setattr(main_mod, "orchestrator", PipelineOrchestrator(cfg))
+
+    def _seed(self, tmp_path, book_id="bk", with_paragraph=True):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({"characters": []}))
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+        progress = {"book_id": book_id, "current_chapter": 3}
+        if with_paragraph:
+            progress["current_paragraph"] = 7
+        (tmp_path / book_id / "reading_progress.json").write_text(json.dumps(progress))
+
+    def test_response_includes_paragraph_when_set(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path, with_paragraph=True)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "anything", "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["current_paragraph"] == 7
+
+    def test_response_paragraph_null_when_unset(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path, with_paragraph=False)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "anything", "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["current_paragraph"] is None

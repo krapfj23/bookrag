@@ -177,6 +177,7 @@ class QueryResponse(BaseModel):
     question: str
     search_type: str
     current_chapter: int
+    current_paragraph: int | None = None
     # LLM-synthesized answer from the graph context (empty string if the
     # synthesis call failed and we fell back to raw sources).
     answer: str
@@ -705,6 +706,7 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
         question=req.question,
         search_type=req.search_type,
         current_chapter=current_chapter,
+        current_paragraph=disk_paragraph,
         answer=answer,
         results=results,
         result_count=len(results),
