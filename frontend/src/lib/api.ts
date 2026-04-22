@@ -1,6 +1,7 @@
 export type Book = {
   book_id: string;
   title: string;
+  author?: string;
   total_chapters: number;
   current_chapter: number;
   ready_for_query: boolean;
@@ -87,6 +88,15 @@ export async function fetchBooks(): Promise<Book[]> {
     throw new Error(`GET /books failed: ${resp.status}`);
   }
   return (await resp.json()) as Book[];
+}
+
+export async function fetchBook(book_id: string): Promise<Book | null> {
+  try {
+    const books = await fetchBooks();
+    return books.find((b) => b.book_id === book_id) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function uploadBook(file: File): Promise<UploadResponse> {

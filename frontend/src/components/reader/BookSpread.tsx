@@ -10,6 +10,7 @@ function PageSide({
   chapterHeader,
   marksBySid,
   onMarkClick,
+  author,
 }: {
   page: Page;
   cursor: string;
@@ -18,6 +19,7 @@ function PageSide({
   chapterHeader?: { num: number; title: string; totalChapters: number };
   marksBySid?: Map<string, SentenceMark[]>;
   onMarkClick?: (cardId: string) => void;
+  author?: string;
 }) {
   return (
     <div
@@ -95,6 +97,11 @@ function PageSide({
         }}
       >
         <span style={{ fontFamily: "var(--mono)" }}>{folio}</span>
+        {author ? (
+          <span style={{ fontStyle: "italic", fontSize: 11, color: "var(--ink-3)" }}>
+            {author}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -112,6 +119,7 @@ export function BookSpread({
   isFirstSpread = false,
   marksBySid,
   onMarkClick,
+  author = "",
 }: {
   chapterNum: number;
   chapterTitle: string;
@@ -124,6 +132,7 @@ export function BookSpread({
   isFirstSpread?: boolean;
   marksBySid?: Map<string, SentenceMark[]>;
   onMarkClick?: (cardId: string) => void;
+  author?: string;
 }) {
   return (
     <div
@@ -150,6 +159,7 @@ export function BookSpread({
         chapterHeader={{ num: chapterNum, title: chapterTitle, totalChapters }}
         marksBySid={marksBySid}
         onMarkClick={onMarkClick}
+        author={author}
       />
       <PageSide
         page={right}
@@ -158,6 +168,7 @@ export function BookSpread({
         folio={folioRight}
         marksBySid={marksBySid}
         onMarkClick={onMarkClick}
+        author={author}
       />
       <div
         aria-hidden="true"

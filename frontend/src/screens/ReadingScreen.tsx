@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { fetchChapter, queryBook, type Chapter } from "../lib/api";
+import { fetchChapter, fetchBook, queryBook, type Chapter } from "../lib/api";
 import { paginate, type Spread } from "../lib/reader/paginator";
 import { BookSpread } from "../components/reader/BookSpread";
 import { useReadingCursor } from "../lib/reader/useReadingCursor";
@@ -38,6 +38,7 @@ export function ReadingScreen() {
 
   const [body, setBody] = useState<Body>({ kind: "loading" });
   const [spreadIdx, setSpreadIdx] = useState(0);
+  const [bookAuthor, setBookAuthor] = useState("");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const bookRef = useRef<HTMLDivElement | null>(null);
   // bookRootEl is a state mirror of bookRef so MarginColumn rerenders when ref is set.
@@ -77,6 +78,15 @@ export function ReadingScreen() {
       cancelled = true;
     };
   }, [bookId, n]);
+
+  // Fetch book metadata once for the author field in the folio row.
+  useEffect(() => {
+    let cancelled = false;
+    fetchBook(bookId).then((book) => {
+      if (!cancelled && book?.author) setBookAuthor(book.author);
+    });
+    return () => { cancelled = true; };
+  }, [bookId]);
 
   const firstSid =
     body.kind === "ok" ? body.spreads[0]?.firstSid ?? "p1.s1" : "p1.s1";
@@ -506,6 +516,7 @@ export function ReadingScreen() {
                 isFirstSpread={spreadIdx === 0}
                 marksBySid={marksBySid}
                 onMarkClick={onMarkClick}
+                author={bookAuthor}
               />
             </div>
             <MarginColumn
