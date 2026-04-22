@@ -136,6 +136,137 @@ describe("ReadingScreen (R2 integration)", () => {
   });
 });
 
+// T4 tests use MemoryRouter + location inspection instead of mocking useNavigate
+// (vi.mock hoisting makes factory-level mocks incompatible with per-test variables).
+describe("ReadingScreen — slice R1b T4 chapter auto-advance", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.spyOn(api, "fetchChapter").mockResolvedValue({
+      num: 1,
+      title: "C1",
+      total_chapters: 3,
+      has_prev: false,
+      has_next: true,
+      paragraphs: ["A."],
+      paragraphs_anchored: [
+        { paragraph_idx: 1, sentences: [{ sid: "p1.s1", text: "A." }] },
+      ],
+      anchors_fallback: false,
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Helper that renders ReadingScreen in a MemoryRouter and exposes a ref to
+  // the router's current location so we can assert navigation.
+  function renderT4WithLocation(path = "/books/carol/read/1") {
+    let locationRef = { pathname: path, state: null as unknown };
+    function LocationCapture() {
+      const loc = (window as unknown as { __testLocation?: { pathname: string; state: unknown } }).__testLocation;
+      if (loc) {
+        locationRef.pathname = loc.pathname;
+        locationRef.state = loc.state;
+      }
+      return null;
+    }
+    // We render inside a MemoryRouter so navigate() updates the in-memory URL.
+    // The ReadingScreen uses useNavigate internally — MemoryRouter wires it up.
+    const { unmount } = render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/books/:bookId/read/:chapterNum" element={<ReadingScreen />} />
+          <Route path="*" element={<span data-testid="navigated-away" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    return { locationRef, unmount };
+  }
+
+  it("ArrowRight on last spread of chapter N < total navigates to chapter N+1", async () => {
+    renderT4WithLocation("/books/carol/read/1");
+    await waitFor(() => screen.getByTestId("book-spread"));
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    });
+
+    // After navigation the route changes — book-spread for ch2 should render.
+    // fetchChapter will be called again for ch2 (still mocked).
+    await waitFor(() => {
+      // The component should have navigated; since ch2 mock returns ch1 data,
+      // the spread still renders. We check the navigate was attempted by
+      // verifying the new chapter's fetch is called.
+      expect(api.fetchChapter).toHaveBeenCalledWith("carol", 2);
+    });
+  });
+
+  it("ArrowRight on last spread of last chapter (N = total) is a no-op", async () => {
+    vi.spyOn(api, "fetchChapter").mockResolvedValue({
+      num: 3,
+      title: "C3",
+      total_chapters: 3,
+      has_prev: true,
+      has_next: false,
+      paragraphs: ["Z."],
+      paragraphs_anchored: [
+        { paragraph_idx: 1, sentences: [{ sid: "p1.s1", text: "Z." }] },
+      ],
+      anchors_fallback: false,
+    });
+    renderT4WithLocation("/books/carol/read/3");
+    await waitFor(() => screen.getByTestId("book-spread"));
+    const callsBefore = (api.fetchChapter as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    });
+
+    // No additional fetch call = no navigation to ch4.
+    expect((api.fetchChapter as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBefore);
+  });
+
+  it("ArrowLeft on spread 0 of chapter N > 1 navigates to chapter N-1", async () => {
+    vi.spyOn(api, "fetchChapter").mockResolvedValue({
+      num: 2,
+      title: "C2",
+      total_chapters: 3,
+      has_prev: true,
+      has_next: true,
+      paragraphs: ["B."],
+      paragraphs_anchored: [
+        { paragraph_idx: 1, sentences: [{ sid: "p1.s1", text: "B." }] },
+      ],
+      anchors_fallback: false,
+    });
+    renderT4WithLocation("/books/carol/read/2");
+    await waitFor(() => screen.getByTestId("book-spread"));
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+    });
+
+    await waitFor(() => {
+      expect(api.fetchChapter).toHaveBeenCalledWith("carol", 1);
+    });
+  });
+
+  it("ArrowLeft on spread 0 of chapter 1 is a no-op", async () => {
+    renderT4WithLocation("/books/carol/read/1");
+    await waitFor(() => screen.getByTestId("book-spread"));
+    const callsBefore = (api.fetchChapter as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+    });
+
+    // No fetch for ch0.
+    expect((api.fetchChapter as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBefore);
+    expect(api.fetchChapter).not.toHaveBeenCalledWith("carol", 0);
+  });
+});
+
 describe("ReadingScreen — slice R1b T2 visibleSids current-spread-only", () => {
   beforeEach(() => {
     window.localStorage.clear();
