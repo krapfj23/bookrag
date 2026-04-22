@@ -755,3 +755,38 @@ class TestExtractionLastKnownChapter:
         assert RelationshipExtraction(
             source_name="a", target_name="b", relation_type="x", first_chapter=2
         ).last_known_chapter == 2
+
+
+class TestToDatapointsPreservesLastKnownChapter:
+    def test_character_last_known_chapter_copied(self):
+        from models.datapoints import ExtractionResult, CharacterExtraction
+        result = ExtractionResult(characters=[
+            CharacterExtraction(name="Scrooge", first_chapter=1, last_known_chapter=4)
+        ])
+        dps = result.to_datapoints()
+        char = next(d for d in dps if d.__class__.__name__ == "Character")
+        assert char.last_known_chapter == 4
+
+    def test_all_types_preserve_last_known_chapter(self):
+        from models.datapoints import (
+            ExtractionResult, CharacterExtraction, LocationExtraction,
+            FactionExtraction, ThemeExtraction, RelationshipExtraction,
+        )
+        result = ExtractionResult(
+            characters=[
+                CharacterExtraction(name="A", first_chapter=1, last_known_chapter=5),
+                CharacterExtraction(name="B", first_chapter=1, last_known_chapter=5),
+            ],
+            locations=[LocationExtraction(name="L", first_chapter=2, last_known_chapter=6)],
+            factions=[FactionExtraction(name="F", first_chapter=3, last_known_chapter=7)],
+            themes=[ThemeExtraction(name="T", first_chapter=4, last_known_chapter=8)],
+            relationships=[RelationshipExtraction(
+                source_name="A", target_name="B", relation_type="loves",
+                first_chapter=2, last_known_chapter=9,
+            )],
+        )
+        dps = {d.__class__.__name__: d for d in result.to_datapoints() if d.__class__.__name__ != "Character"}
+        assert dps["Location"].last_known_chapter == 6
+        assert dps["Faction"].last_known_chapter == 7
+        assert dps["Theme"].last_known_chapter == 8
+        assert dps["Relationship"].last_known_chapter == 9

@@ -259,6 +259,7 @@ class ExtractionResult(BaseModel):
                 aliases=c.aliases,
                 description=c.description,
                 first_chapter=c.first_chapter,
+                last_known_chapter=c.last_known_chapter,
                 chapters_present=c.chapters_present,
             )
             char_map[c.name] = dp
@@ -272,6 +273,7 @@ class ExtractionResult(BaseModel):
                 name=loc.name,
                 description=loc.description,
                 first_chapter=loc.first_chapter,
+                last_known_chapter=loc.last_known_chapter,
             )
             loc_map[loc.name] = dp
             datapoints.append(dp)
@@ -284,6 +286,7 @@ class ExtractionResult(BaseModel):
                 name=f.name,
                 description=f.description,
                 first_chapter=f.first_chapter,
+                last_known_chapter=f.last_known_chapter,
                 members=members,
             )
             datapoints.append(dp)
@@ -318,6 +321,7 @@ class ExtractionResult(BaseModel):
                 relation_type=rel.relation_type,
                 description=rel.description,
                 first_chapter=rel.first_chapter,
+                last_known_chapter=rel.last_known_chapter,
             )
             datapoints.append(dp)
 
@@ -329,6 +333,7 @@ class ExtractionResult(BaseModel):
                 name=th.name,
                 description=th.description,
                 first_chapter=th.first_chapter,
+                last_known_chapter=th.last_known_chapter,
                 related_characters=related,
             )
             datapoints.append(dp)
