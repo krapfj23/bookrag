@@ -68,11 +68,42 @@ Every entity and event you extract MUST include the chapter number where it firs
 
 `relation_type` must name the SEMANTIC tie between the two entities, not the narrative surface action. A relation describes who the characters ARE to each other, not what they happen to be doing in one sentence.
 
-- **Prefer these kinds of labels:** `employs`, `works_for`, `is_nephew_of`, `is_parent_of`, `is_sibling_of`, `is_partner_of`, `haunts`, `warns`, `owes`, `owns`, `is_rival_of`, `loves`, `is_engaged_to`.
-- **Do NOT use dialogue verbs as relations.** If one character `said`, `asked`, `replied`, `told`, or `answered` another, that is narrative surface, not a relationship. Skip the relationship unless the dialogue reveals a new semantic tie.
-- **Do NOT use motion verbs as relations.** If one character took, came, went, walked, or met the other, that is a mere scene — skip the relationship. Only extract if the motion reveals an enduring tie ("Scrooge employs Bob Cratchit" is a relation; "Scrooge took the coal-scuttle" is not).
+Pick exactly ONE of these 10 canonical types:
+
+- `family` — blood or marriage ties (symmetric)
+- `romantic` — romantic partners (symmetric)
+- `friend` — personal friendship
+- `ally` — cooperative non-friend (professional partnership, political alliance, employment)
+- `mentor` — teacher → student (DIRECTIONAL: `source_name` is the mentor)
+- `subordinate` — subordinate → superior (DIRECTIONAL: `source_name` is the subordinate)
+- `rival` — competitive (symmetric)
+- `enemy` — hostile (symmetric)
+- `acquaintance` — knows of, no deeper bond
+- `unknown` — insufficient evidence
+
+Map familiar patterns to these canonical types:
+- `employs`, `works_for` → `ally` (with direction implied by who employs whom, but type is `ally`; use `subordinate` if the dynamic is clearly asymmetric employment)
+- `is_parent_of`, `is_sibling_of`, `is_nephew_of`, `is_engaged_to` → `family` (or `romantic` if engagement/marriage)
+- `loves` → `romantic` (or `family` for parental/filial love)
+- `haunts`, `warns` → `ally` or `mentor` depending on the dynamic
+
+Rules:
+- **Do NOT use dialogue verbs as relations.** "said", "asked", "replied" etc. are narrative surface; skip the relationship unless the dialogue reveals a stable tie.
+- **Do NOT use motion verbs as relations.** "took", "came", "went", "walked", "met" are scenes, not relationships.
 - **Test:** if you can replace the two characters with different characters on the next page without changing the meaning, the verb is too generic — skip it.
-- Relationships should name a tie that is stable across multiple scenes (employment, kinship, partnership, enmity), not a single interaction.
+- Relationships should name a tie stable across multiple scenes, not a single interaction.
+
+### Valence and Confidence
+
+For every relationship, emit:
+- `valence` ∈ [-1.0, +1.0]: anchored at
+  - -1.0 = murderous hatred
+  - -0.5 = rivalry, contempt
+  -  0.0 = neutral, formal, professional
+  - +0.5 = friendship, respect
+  - +1.0 = devoted love
+  Prefer the midpoints (±0.5) unless the text is unambiguous at the extremes.
+- `confidence` ∈ [0.0, 1.0]: your certainty in the (type, valence) assignment.
 
 ### What NOT to Do
 - Do NOT invent events, relationships, or details not present in the text.
@@ -156,10 +187,12 @@ Return valid JSON matching this exact schema:
     {
       "source_name": "character A",
       "target_name": "character B",
-      "relation_type": "snake_case_relation",
+      "relation_type": "ally",
       "description": "brief description of the relationship",
       "first_chapter": 1,
-      "last_known_chapter": 1
+      "last_known_chapter": 1,
+      "valence": 0.0,
+      "confidence": 1.0
     }
   ],
   "themes": [

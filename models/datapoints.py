@@ -12,10 +12,36 @@ converter from extraction output to DataPoints.
 from __future__ import annotations
 
 import uuid
+from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from cognee.infrastructure.engine import DataPoint
+
+
+# ===========================================================================
+# RelationshipType — canonical narrative relationship enum
+# ===========================================================================
+
+
+class RelationshipType(str, Enum):
+    """Canonical narrative relationship categories.
+
+    Kept small (10 entries) so the LLM reliably picks a best fit in
+    structured output. MENTOR/SUBORDINATE encode direction in (source,
+    target); FAMILY/ROMANTIC/ENEMY/RIVAL are symmetric. Phase A Stage 1 / Item 11.
+    """
+
+    FAMILY       = "family"
+    ROMANTIC     = "romantic"
+    FRIEND       = "friend"
+    ALLY         = "ally"
+    MENTOR       = "mentor"
+    SUBORDINATE  = "subordinate"
+    RIVAL        = "rival"
+    ENEMY        = "enemy"
+    ACQUAINTANCE = "acquaintance"
+    UNKNOWN      = "unknown"
 
 
 # ===========================================================================
@@ -114,12 +140,16 @@ class PlotEvent(DataPoint):
 class Relationship(DataPoint):
     source: Character
     target: Character
-    relation_type: str
+    relation_type: str  # backward compat: accepts free strings; new extractions use RelationshipType values
     description: str | None = None
     first_chapter: int
     last_known_chapter: int | None = None
     source_chunk_ordinal: int | None = None
     provenance: list[Provenance] = []
+    # Item 11 (Phase A Stage 1): signed valence + confidence.
+    # valence anchored: -1 murderous hatred, 0 neutral, +1 devoted love.
+    valence: float = Field(default=0.0, ge=-1.0, le=1.0)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     metadata: dict = {"index_fields": ["relation_type", "description"]}
 
     @model_validator(mode="after")
@@ -234,7 +264,10 @@ class RelationshipExtraction(BaseModel):
     source_name: str
     target_name: str
     relation_type: str = Field(
-        description="snake_case relationship label, e.g. 'employs', 'loves', 'fights'",
+        description=(
+            "One of: family, romantic, friend, ally, mentor, subordinate, "
+            "rival, enemy, acquaintance, unknown. See RelationshipType."
+        ),
     )
     description: str | None = None
     first_chapter: int
@@ -243,6 +276,11 @@ class RelationshipExtraction(BaseModel):
         description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
     )
     provenance: list[Provenance] = []
+    valence: float = Field(
+        default=0.0, ge=-1.0, le=1.0,
+        description="-1 murderous, 0 neutral, +1 devoted love",
+    )
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _default_last_known_chapter(self):
@@ -377,6 +415,8 @@ class ExtractionResult(BaseModel):
                 last_known_chapter=rel.last_known_chapter,
                 source_chunk_ordinal=source_chunk_ordinal,
                 provenance=list(rel.provenance),
+                valence=rel.valence,
+                confidence=rel.confidence,
             )
             datapoints.append(dp)
 

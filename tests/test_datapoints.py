@@ -815,3 +815,94 @@ class TestToDatapointsPreservesLastKnownChapter:
         assert dps["Faction"].last_known_chapter == 7
         assert dps["Theme"].last_known_chapter == 8
         assert dps["Relationship"].last_known_chapter == 9
+
+
+# ===========================================================================
+# Item 11 (Phase A Stage 1): RelationshipType enum + signed valence
+# ===========================================================================
+
+
+class TestRelationshipTypeEnum:
+    def test_enum_has_ten_canonical_types(self):
+        from models.datapoints import RelationshipType
+        assert set(v.value for v in RelationshipType) == {
+            "family", "romantic", "friend", "ally", "mentor",
+            "subordinate", "rival", "enemy", "acquaintance", "unknown",
+        }
+
+    def test_enum_values_are_lowercase(self):
+        from models.datapoints import RelationshipType
+        assert all(v.value == v.value.lower() for v in RelationshipType)
+
+
+class TestRelationshipValence:
+    def test_valence_default_zero(self):
+        from models.datapoints import Relationship, Character
+        src = Character(name="A", first_chapter=1)
+        tgt = Character(name="B", first_chapter=1)
+        r = Relationship(source=src, target=tgt, relation_type="ally", first_chapter=1)
+        assert r.valence == 0.0
+        assert r.confidence == 1.0
+
+    def test_valence_rejects_out_of_bounds_high(self):
+        import pytest
+        from models.datapoints import Relationship, Character
+        src = Character(name="A", first_chapter=1)
+        tgt = Character(name="B", first_chapter=1)
+        with pytest.raises(ValueError):
+            Relationship(
+                source=src, target=tgt, relation_type="ally",
+                first_chapter=1, valence=1.5,
+            )
+
+    def test_valence_rejects_out_of_bounds_low(self):
+        import pytest
+        from models.datapoints import Relationship, Character
+        src = Character(name="A", first_chapter=1)
+        tgt = Character(name="B", first_chapter=1)
+        with pytest.raises(ValueError):
+            Relationship(
+                source=src, target=tgt, relation_type="ally",
+                first_chapter=1, valence=-1.1,
+            )
+
+    def test_valence_accepts_anchors(self):
+        from models.datapoints import Relationship, Character
+        src = Character(name="A", first_chapter=1)
+        tgt = Character(name="B", first_chapter=1)
+        for v in (-1.0, -0.5, 0.0, 0.5, 1.0):
+            r = Relationship(
+                source=src, target=tgt, relation_type="ally",
+                first_chapter=1, valence=v,
+            )
+            assert r.valence == v
+
+
+class TestRelationshipExtractionValence:
+    def test_extraction_defaults(self):
+        from models.datapoints import RelationshipExtraction
+        r = RelationshipExtraction(
+            source_name="A", target_name="B", relation_type="ally", first_chapter=1,
+        )
+        assert r.valence == 0.0
+        assert r.confidence == 1.0
+
+    def test_to_datapoints_propagates_valence(self):
+        from models.datapoints import (
+            CharacterExtraction, RelationshipExtraction, ExtractionResult,
+            Relationship,
+        )
+        ex = ExtractionResult(
+            characters=[
+                CharacterExtraction(name="A", first_chapter=1),
+                CharacterExtraction(name="B", first_chapter=1),
+            ],
+            relationships=[RelationshipExtraction(
+                source_name="A", target_name="B", relation_type="enemy",
+                first_chapter=1, valence=-0.8, confidence=0.9,
+            )],
+        )
+        dps = ex.to_datapoints()
+        rel = next(d for d in dps if isinstance(d, Relationship))
+        assert rel.valence == -0.8
+        assert rel.confidence == 0.9
