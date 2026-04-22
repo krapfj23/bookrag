@@ -5,15 +5,64 @@ and produces structured output for downstream BookNLP processing.
 """
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
+import zipfile
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any
 
 import ebooklib
 from ebooklib import epub
 from loguru import logger
+
+
+class EpubSizeError(Exception):
+    """Raised when an EPUB would decompress beyond configured limits."""
+
+
+DEFAULT_MAX_DECOMPRESSED_BYTES = 500 * 1024 * 1024
+DEFAULT_MAX_ENTRY_BYTES = 100 * 1024 * 1024
+
+
+def check_epub_decompressed_size(
+    path_or_bytes,
+    max_total: int | None = None,
+    max_entry: int | None = None,
+) -> None:
+    """Reject EPUBs whose total or per-entry uncompressed size exceeds the caps.
+
+    Pure-function, no HTTP dependency. `path_or_bytes` may be a Path, str, or bytes.
+    """
+    max_total = max_total if max_total is not None else int(
+        os.environ.get("BOOKRAG_MAX_DECOMPRESSED_BYTES", DEFAULT_MAX_DECOMPRESSED_BYTES)
+    )
+    max_entry = max_entry if max_entry is not None else int(
+        os.environ.get("BOOKRAG_MAX_ENTRY_BYTES", DEFAULT_MAX_ENTRY_BYTES)
+    )
+
+    source: Any
+    if isinstance(path_or_bytes, (bytes, bytearray)):
+        import io
+        source = io.BytesIO(bytes(path_or_bytes))
+    else:
+        source = str(path_or_bytes)
+
+    with zipfile.ZipFile(source) as zf:
+        total = 0
+        for info in zf.infolist():
+            if info.file_size > max_entry:
+                raise EpubSizeError(
+                    f"EPUB entry '{info.filename}' decompresses to "
+                    f"{info.file_size} bytes (max per-entry {max_entry})"
+                )
+            total += info.file_size
+            if total > max_total:
+                raise EpubSizeError(
+                    f"EPUB decompresses to total {total}+ bytes (max total {max_total})"
+                )
 
 
 @dataclass
@@ -135,6 +184,14 @@ def parse_epub(epub_path: str | Path, output_dir: str | Path | None = None) -> P
         raise ValueError(
             f"EPUB file too large: {file_size} bytes (limit 500 MB)"
         )
+
+    try:
+        check_epub_decompressed_size(epub_path)
+    except EpubSizeError as exc:
+        raise ValueError(str(exc)) from exc
+    except zipfile.BadZipFile:
+        # Not a valid ZIP — let ebooklib produce its own error downstream
+        pass
 
     book_id = _slugify(epub_path.name)
     logger.info("Parsing EPUB: {} (book_id={})", epub_path.name, book_id)

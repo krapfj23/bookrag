@@ -225,6 +225,12 @@ async def upload_book(file: UploadFile = File(...)) -> UploadResponse:
             detail="File does not appear to be a valid EPUB (invalid ZIP header)",
         )
 
+    from pipeline.epub_parser import check_epub_decompressed_size, EpubSizeError
+    try:
+        check_epub_decompressed_size(content)
+    except EpubSizeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc))
+
     # Check concurrent pipeline limit
     active = sum(1 for t in orchestrator._tasks.values() if not t.done())
     if active >= MAX_CONCURRENT_PIPELINES:

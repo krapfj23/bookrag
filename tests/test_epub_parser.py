@@ -676,3 +676,76 @@ class TestParseEpub:
             start_next, _ = result.chapter_boundaries[i + 1]
             assert end_i <= start_next, \
                 f"Boundaries {i} and {i+1} overlap: end={end_i}, next_start={start_next}"
+
+
+# ============================================================================
+# Zip-bomb pre-check tests
+# ============================================================================
+
+import io
+import zipfile as _zipfile
+
+
+def _make_bomb_zip(tmp_path, total_bytes: int, num_members: int = 10) -> Path:
+    """Build a real ZIP file whose members sum to total_bytes uncompressed."""
+    out = tmp_path / "bomb.epub"
+    chunk = total_bytes // num_members
+    remainder = total_bytes - chunk * (num_members - 1)
+    with _zipfile.ZipFile(out, "w", compression=_zipfile.ZIP_STORED) as zf:
+        # Write mimetype first (EPUB convention)
+        zf.writestr("mimetype", b"application/epub+zip")
+        for i in range(num_members - 1):
+            info = _zipfile.ZipInfo(f"part_{i:03d}.html")
+            info.file_size = chunk
+            zf.writestr(info, b"\x00" * chunk)
+        info = _zipfile.ZipInfo(f"part_{num_members - 1:03d}.html")
+        info.file_size = remainder
+        zf.writestr(info, b"\x00" * remainder)
+    return out
+
+
+class TestZipBombPrecheck:
+    """Tests for check_epub_decompressed_size — zip-bomb guard."""
+
+    def test_total_over_cap_raises(self, tmp_path):
+        from pipeline.epub_parser import check_epub_decompressed_size, EpubSizeError
+
+        bomb = _make_bomb_zip(tmp_path, total_bytes=60 * 1024 * 1024, num_members=10)
+        with pytest.raises(EpubSizeError, match="total"):
+            check_epub_decompressed_size(
+                bomb,
+                max_total=50 * 1024 * 1024,
+                max_entry=20 * 1024 * 1024,
+            )
+
+    def test_single_entry_over_cap_raises(self, tmp_path):
+        from pipeline.epub_parser import check_epub_decompressed_size, EpubSizeError
+
+        # One member of 15 MB
+        out = tmp_path / "big_entry.epub"
+        with _zipfile.ZipFile(out, "w", compression=_zipfile.ZIP_STORED) as zf:
+            zf.writestr("mimetype", b"application/epub+zip")
+            info = _zipfile.ZipInfo("huge.html")
+            data = b"\x00" * (15 * 1024 * 1024)
+            info.file_size = len(data)
+            zf.writestr(info, data)
+        with pytest.raises(EpubSizeError, match="entry"):
+            check_epub_decompressed_size(
+                out,
+                max_total=50 * 1024 * 1024,
+                max_entry=10 * 1024 * 1024,
+            )
+
+    def test_legitimate_small_epub_passes(self, tmp_path):
+        from pipeline.epub_parser import check_epub_decompressed_size, EpubSizeError
+
+        out = tmp_path / "small.epub"
+        with _zipfile.ZipFile(out, "w", compression=_zipfile.ZIP_STORED) as zf:
+            zf.writestr("mimetype", b"application/epub+zip")
+            zf.writestr("OEBPS/content.html", b"<html><body><p>Hello world</p></body></html>")
+        # Should not raise
+        check_epub_decompressed_size(
+            out,
+            max_total=50 * 1024 * 1024,
+            max_entry=10 * 1024 * 1024,
+        )

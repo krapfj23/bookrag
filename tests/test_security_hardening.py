@@ -73,3 +73,49 @@ class TestGraphSpoilerGate:
         full_html = client.get("/books/book_abc12345/graph?full=true").text
         assert "SpoilerChar" not in default_html
         assert "SpoilerChar" in full_html
+
+
+class TestZipBombUploadRejection:
+    """Upload endpoint must return 413 when decompressed size exceeds per-entry cap."""
+
+    def test_oversized_decompressed_entry_rejected(self, tmp_path):
+        import io
+        import zipfile
+        import main
+        from fastapi.testclient import TestClient
+
+        # Build a ZIP with one 15 MB entry (exceeds DEFAULT_MAX_ENTRY_BYTES = 10 MB in test caps)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as zf:
+            zf.writestr("mimetype", b"application/epub+zip")
+            data = b"\x00" * (15 * 1024 * 1024)
+            info = zipfile.ZipInfo("huge.html")
+            info.file_size = len(data)
+            zf.writestr(info, data)
+        content = buf.getvalue()
+
+        # Patch caps so test is fast (10 MB entry cap, 50 MB total cap)
+        monkeypatch_env = {
+            "BOOKRAG_MAX_DECOMPRESSED_BYTES": str(50 * 1024 * 1024),
+            "BOOKRAG_MAX_ENTRY_BYTES": str(10 * 1024 * 1024),
+        }
+
+        import os
+        old_env = {k: os.environ.get(k) for k in monkeypatch_env}
+        try:
+            os.environ.update(monkeypatch_env)
+            client = TestClient(main.app)
+            resp = client.post(
+                "/books/upload",
+                files={"file": ("bomb.epub", content, "application/epub+zip")},
+            )
+        finally:
+            for k, v in old_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        assert resp.status_code == 413
+        detail = resp.json().get("detail", "")
+        assert "decompressed" in detail.lower() or "too large" in detail.lower() or "entry" in detail.lower()
