@@ -136,6 +136,123 @@ describe("ReadingScreen (R2 integration)", () => {
   });
 });
 
+describe("ReadingScreen — slice R1b T2 visibleSids current-spread-only", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    // Chapter has 3 sids spread across 2 mock spreads.
+    vi.spyOn(api, "fetchChapter").mockResolvedValue({
+      num: 1,
+      title: "C1",
+      total_chapters: 3,
+      has_prev: false,
+      has_next: true,
+      paragraphs: ["A.", "B.", "C."],
+      paragraphs_anchored: [
+        { paragraph_idx: 1, sentences: [{ sid: "p1.s1", text: "A." }] },
+        { paragraph_idx: 2, sentences: [{ sid: "p2.s1", text: "B." }] },
+        { paragraph_idx: 3, sentences: [{ sid: "p3.s1", text: "C." }] },
+      ],
+      anchors_fallback: false,
+    });
+  });
+
+  it("only cards anchored to current spread sids render (not prior-spread cards)", async () => {
+    // Seed cards: one on each of 3 sids.
+    const store = {
+      version: 1,
+      cards: [
+        {
+          id: "card-s0",
+          bookId: "carol",
+          anchor: "p1.s1",
+          quote: "A.",
+          chapter: 1,
+          kind: "ask",
+          question: "Q1",
+          answer: "Answer-spread0",
+          followups: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "card-s1a",
+          bookId: "carol",
+          anchor: "p2.s1",
+          quote: "B.",
+          chapter: 1,
+          kind: "ask",
+          question: "Q2",
+          answer: "Answer-spread1a",
+          followups: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "card-s1b",
+          bookId: "carol",
+          anchor: "p3.s1",
+          quote: "C.",
+          chapter: 1,
+          kind: "ask",
+          question: "Q3",
+          answer: "Answer-spread1b",
+          followups: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    };
+    window.localStorage.setItem("bookrag.cards.carol", JSON.stringify(store));
+
+    // Mock paginate to return 2 spreads.
+    const { paginate } = await import("../lib/reader/paginator");
+    const paginateSpy = vi.spyOn(await import("../lib/reader/paginator"), "paginate").mockReturnValue([
+      {
+        index: 0,
+        left: [{ paragraph_idx: 1, sentences: [{ sid: "p1.s1", text: "A." }] }],
+        right: [],
+        firstSid: "p1.s1",
+        lastSid: "p1.s1",
+      },
+      {
+        index: 1,
+        left: [{ paragraph_idx: 2, sentences: [{ sid: "p2.s1", text: "B." }] }],
+        right: [{ paragraph_idx: 3, sentences: [{ sid: "p3.s1", text: "C." }] }],
+        firstSid: "p2.s1",
+        lastSid: "p3.s1",
+      },
+    ]);
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={["/books/carol/read/1"]}>
+        <Routes>
+          <Route path="/books/:bookId/read/:chapterNum" element={<ReadingScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => screen.getByTestId("book-spread"));
+
+    // On spread 0: only card-s0 visible, not card-s1a or card-s1b.
+    expect(screen.queryByText(/Answer-spread0/)).toBeInTheDocument();
+    expect(screen.queryByText(/Answer-spread1a/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Answer-spread1b/)).not.toBeInTheDocument();
+
+    // Advance to spread 1.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    });
+
+    // On spread 1: spread0 card NOT visible (not accumulated), spread1 cards visible.
+    expect(screen.queryByText(/Answer-spread0/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Answer-spread1a/)).toBeInTheDocument();
+    expect(screen.queryByText(/Answer-spread1b/)).toBeInTheDocument();
+
+    paginateSpy.mockRestore();
+    unmount();
+  });
+});
+
 describe("ReadingScreen — slice R4 reading mode integration", () => {
   beforeEach(() => {
     window.localStorage.clear();
