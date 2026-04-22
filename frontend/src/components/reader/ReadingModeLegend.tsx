@@ -32,7 +32,7 @@ export function ReadingModeLegend() {
         border: "1px solid var(--ink-4, rgba(0,0,0,0.1))",
         borderRadius: 8,
         padding: "6px 16px",
-        fontSize: 10,
+        fontSize: 10.5,
         fontFamily: "var(--sans)",
         fontWeight: 600,
         letterSpacing: "0.08em",
