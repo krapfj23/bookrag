@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import "./styles/tokens.css";
+import "./styles/a11y.css";
 import "./styles/animations.css";
 import "./styles/annotations.css";
 

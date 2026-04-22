@@ -1,0 +1,21 @@
+/* Accessibility: visible keyboard-focus rings.
+ *
+ * `:focus-visible` fires only for keyboard-driven focus, so mouse clicks
+ * stay ring-free. `:focus-within` is used by the selection toolbar +
+ * chat input (in annotations.css / ChatInput.css) to paint a container
+ * ring when an inner textbox has focus. */
+.br :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.br textarea:focus-visible,
+.br input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .br :focus-visible {
+    transition: none;
+  }
+}
