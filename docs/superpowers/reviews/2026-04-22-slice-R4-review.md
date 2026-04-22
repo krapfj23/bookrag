@@ -114,3 +114,13 @@ T10's `reading-mode-off.png` and `reading-mode-on.png` captured at `docs/superpo
 3. (Nice) Restore `?? []` defensive guards in the new `progress` useMemo to match the pre-R4 pattern.
 
 Re-run the Playwright R4 gate and the new flow spec, confirm backend + frontend unit suites remain green, then request re-review.
+
+---
+
+## REVISE re-evaluation — 2026-04-22
+
+**Verdict:** APPROVE
+
+### Fix verification
+- Ambient gradient: PASS — `ReadingScreen.tsx:399` applies `radial-gradient(ellipse 80% 60% at center 40%, oklch(96% 0.012 85), oklch(93% 0.015 80) 80%)` when reading-mode is on and `none` when off; `ReadingScreen.tsx:408` sets `transition: "background 420ms cubic-bezier(.2,.7,.2,1)"`, matching the README §4 spec exactly.
+- Flow spec: PASS — `frontend/e2e/flow-reader-reading-mode.spec.ts` T11 passes (15/15 Playwright tests green including slice-R4 + flow-reader suites; 275/275 Vitest). Screenshots present at `docs/superpowers/reviews/assets/2026-04-22-slice-R4/`: `flow-01-toggled-on.png`, `flow-02-note-peek.png`, `flow-03-page-turned.png`, `flow-04-toggled-off.png`.
