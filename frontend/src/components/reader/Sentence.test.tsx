@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Sentence } from "./Sentence";
 import { Paragraph } from "./Paragraph";
 
@@ -16,6 +17,47 @@ describe("Sentence", () => {
     const style = el.getAttribute("style") ?? "";
     expect(style).toMatch(/opacity/);
     expect(style).toMatch(/blur/);
+  });
+
+  it("applies asked background when marks include ask", () => {
+    render(
+      <Sentence
+        sid="p1.s1"
+        text="X."
+        fogged={false}
+        marks={[{ kind: "ask", cardId: "a1" }]}
+      />,
+    );
+    const el = screen.getByText("X.");
+    expect(el.getAttribute("style") ?? "").toMatch(/background/);
+  });
+
+  it("applies underline when marks include note", () => {
+    render(
+      <Sentence
+        sid="p1.s1"
+        text="X."
+        fogged={false}
+        marks={[{ kind: "note", cardId: "n1" }]}
+      />,
+    );
+    const el = screen.getByText("X.");
+    expect(el.getAttribute("style") ?? "").toMatch(/underline/);
+  });
+
+  it("fires onMarkClick with topmost mark's cardId", async () => {
+    const fn = vi.fn();
+    render(
+      <Sentence
+        sid="p1.s1"
+        text="X."
+        fogged={false}
+        marks={[{ kind: "ask", cardId: "a1" }]}
+        onMarkClick={fn}
+      />,
+    );
+    await userEvent.click(screen.getByText("X."));
+    expect(fn).toHaveBeenCalledWith("a1");
   });
 });
 

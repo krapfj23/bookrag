@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { ReadingScreen } from "./ReadingScreen";
+import * as api from "../lib/api";
 
 function mockFetch(response: Record<string, unknown>) {
   return vi.fn(async () =>
@@ -87,5 +88,50 @@ describe("ReadingScreen — slice R1", () => {
     // The first sentence should be un-fogged (opacity:1); later sentences fogged.
     const first = document.querySelector('[data-sid="p1.s1"]') as HTMLElement;
     expect(first.getAttribute("style") ?? "").toMatch(/opacity:\s*1/);
+  });
+});
+
+function renderAtR2(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route
+          path="/books/:bookId/read/:chapterNum"
+          element={<ReadingScreen />}
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe("ReadingScreen (R2 integration)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.spyOn(api, "fetchChapter").mockResolvedValue({
+      num: 1,
+      title: "C1",
+      total_chapters: 1,
+      has_prev: false,
+      has_next: false,
+      paragraphs: ["x"],
+      paragraphs_anchored: [
+        {
+          paragraph_idx: 1,
+          sentences: [
+            { sid: "p1.s1", text: "Alpha sentence here." },
+            { sid: "p1.s2", text: "Bravo sentence here." },
+          ],
+        },
+      ],
+      anchors_fallback: false,
+    });
+  });
+
+  it("renders MarginColumn with S1 empty when no cards", async () => {
+    renderAtR2("/books/carol/read/1");
+    await waitFor(() =>
+      expect(screen.getByTestId("margin-column")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("s1-empty-card")).toBeInTheDocument();
   });
 });
