@@ -121,7 +121,17 @@ class CharacterExtraction(BaseModel):
     aliases: list[str] = []
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
     chapters_present: list[int] = []
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class LocationExtraction(BaseModel):
@@ -129,6 +139,16 @@ class LocationExtraction(BaseModel):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class FactionExtraction(BaseModel):
@@ -136,10 +156,20 @@ class FactionExtraction(BaseModel):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
     member_names: list[str] = Field(
         default=[],
         description="Names of characters who belong to this faction",
     )
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class EventExtraction(BaseModel):
@@ -165,6 +195,16 @@ class RelationshipExtraction(BaseModel):
     )
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class ThemeExtraction(BaseModel):
@@ -172,7 +212,17 @@ class ThemeExtraction(BaseModel):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
     related_character_names: list[str] = []
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class ExtractionResult(BaseModel):

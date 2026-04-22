@@ -733,3 +733,25 @@ class TestLastKnownChapter:
         b = Character(name="B", first_chapter=1)
         r = Relationship(source=a, target=b, relation_type="x", first_chapter=2)
         assert r.last_known_chapter == 2
+
+
+class TestExtractionLastKnownChapter:
+    """LLM extraction models accept last_known_chapter and default to first_chapter."""
+
+    def test_character_extraction_accepts_field(self):
+        from models.datapoints import CharacterExtraction
+        c = CharacterExtraction(name="Scrooge", first_chapter=1, last_known_chapter=3)
+        assert c.last_known_chapter == 3
+
+    def test_extraction_default_equals_first_chapter(self):
+        from models.datapoints import (
+            CharacterExtraction, LocationExtraction, FactionExtraction,
+            ThemeExtraction, RelationshipExtraction,
+        )
+        assert CharacterExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert LocationExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert FactionExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert ThemeExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert RelationshipExtraction(
+            source_name="a", target_name="b", relation_type="x", first_chapter=2
+        ).last_known_chapter == 2
