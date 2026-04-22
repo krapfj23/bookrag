@@ -143,14 +143,27 @@ export function BookSpread({
         minHeight: 780,
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
-        background: "var(--paper-00)",
         borderRadius: 3,
         boxShadow:
           "0 30px 70px -24px rgba(28,24,18,.2), 0 10px 20px -8px rgba(28,24,18,.08)",
         position: "relative",
-        overflow: "hidden",
+        /* overflow must be visible so the box-shadow is not clipped by an ancestor */
+        overflow: "visible",
       }}
     >
+      {/* Inner mask — clips the pages + spine gradient without clipping the outer shadow */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: 3,
+          overflow: "hidden",
+          background: "var(--paper-00)",
+          zIndex: 0,
+          pointerEvents: "none",
+        }}
+      />
       <PageSide
         page={left}
         cursor={cursor}
