@@ -85,6 +85,10 @@ class Character(DataPoint):
     chapters_present: list[int] = []
     source_chunk_ordinal: int | None = None
     provenance: list[Provenance] = []
+    # Item 8 (Phase A Stage 1): BookNLP COREF cluster id (run-local, stable
+    # across batches for a given book). None when the character has no
+    # BookNLP hint — e.g., extracted from a non-PER category or pre-Phase-A.
+    booknlp_coref_id: int | None = None
     metadata: dict = {"index_fields": ["name", "description"]}
 
     @model_validator(mode="after")
@@ -196,6 +200,10 @@ class CharacterExtraction(BaseModel):
     )
     chapters_present: list[int] = []
     provenance: list[Provenance] = []
+    booknlp_coref_id: int | None = Field(
+        default=None,
+        description="BookNLP COREF cluster id from the annotations cheat-sheet when shown.",
+    )
 
     @model_validator(mode="after")
     def _default_last_known_chapter(self):
@@ -346,6 +354,7 @@ class ExtractionResult(BaseModel):
                 chapters_present=c.chapters_present,
                 source_chunk_ordinal=source_chunk_ordinal,
                 provenance=list(c.provenance),
+                booknlp_coref_id=c.booknlp_coref_id,
             )
             char_map[c.name] = dp
             datapoints.append(dp)

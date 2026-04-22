@@ -906,3 +906,33 @@ class TestRelationshipExtractionValence:
         rel = next(d for d in dps if isinstance(d, Relationship))
         assert rel.valence == -0.8
         assert rel.confidence == 0.9
+
+
+# ===========================================================================
+# Item 8 (Phase A Stage 1): BookNLP cluster_id on Character
+# ===========================================================================
+
+
+class TestCharacterCorefId:
+    def test_character_has_booknlp_coref_id_field(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1, booknlp_coref_id=42)
+        assert c.booknlp_coref_id == 42
+
+    def test_character_coref_id_defaults_to_none(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1)
+        assert c.booknlp_coref_id is None
+
+    def test_extraction_propagates_coref_id(self):
+        from models.datapoints import (
+            CharacterExtraction, ExtractionResult, Character,
+        )
+        ex = ExtractionResult(
+            characters=[CharacterExtraction(
+                name="Scrooge", first_chapter=1, booknlp_coref_id=42,
+            )],
+        )
+        dps = ex.to_datapoints()
+        char = next(d for d in dps if isinstance(d, Character))
+        assert char.booknlp_coref_id == 42

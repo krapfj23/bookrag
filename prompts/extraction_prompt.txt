@@ -21,6 +21,11 @@ The following entities and quotes were detected by NLP pre-processing. Use these
 ### Known Entities
 {{ booknlp_entities }}
 
+When an entity is listed with a `#<id>` prefix (e.g., `#42 Scrooge (PER)`),
+copy that integer into the character's `booknlp_coref_id` field. This helps
+downstream merging pick the right identity when names drift ("Ebenezer" vs
+"Scrooge"). Omit `booknlp_coref_id` when no prefix is shown.
+
 ### Attributed Quotes
 {{ booknlp_quotes }}
 
@@ -155,7 +160,8 @@ Return valid JSON matching this exact schema:
       "chapters_present": [1, 2],
       "provenance": [
         {"chunk_id": "book_id::chunk_0001", "quote": "verbatim text from chunk", "char_start": 0, "char_end": 24}
-      ]
+      ],
+      "booknlp_coref_id": 42
     }
   ],
   "locations": [

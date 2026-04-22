@@ -321,7 +321,14 @@ def _format_booknlp_entities(entities: list[dict], chunk: ChapterChunk) -> str:
     for e in relevant[:50]:  # cap to avoid prompt bloat
         cat = e.get("cat", "?")
         text = e.get("text", "?")
-        lines.append(f"- {text} ({cat})")
+        coref = e.get("COREF") or e.get("coref_id") or e.get("coref")
+        # Item 8 (Phase A Stage 1): surface COREF cluster id so the LLM can
+        # copy it into Character.booknlp_coref_id for stable cross-batch
+        # identity keying. Falls back silently if the field isn't present.
+        if coref is not None:
+            lines.append(f"- #{coref} {text} ({cat})")
+        else:
+            lines.append(f"- {text} ({cat})")
     return "\n".join(lines)
 
 
