@@ -71,14 +71,14 @@ describe("ReadingScreen — slice R1", () => {
     expect(document.querySelector('[data-sid="p2.s1"]')).not.toBeNull();
   });
 
-  it("ArrowRight at last spread does nothing (no crash)", async () => {
+  it("ArrowRight at last spread navigates forward without crash (no crash)", async () => {
     renderAt();
     await waitFor(() => screen.getByTestId("book-spread"));
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    await act(async () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
     });
-    // Still on screen.
+    // After navigation to ch2 the spread should appear again (mock returns CH data).
+    await waitFor(() => screen.getByTestId("book-spread"));
     expect(screen.getByTestId("book-spread")).toBeInTheDocument();
   });
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { fetchChapter, queryBook, type Chapter } from "../lib/api";
 import { paginate, type Spread } from "../lib/reader/paginator";
 import { BookSpread } from "../components/reader/BookSpread";
@@ -25,6 +25,7 @@ export function ReadingScreen() {
   }>();
   const n = Number.parseInt(chapterNum, 10) || 1;
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [body, setBody] = useState<Body>({ kind: "loading" });
   const [spreadIdx, setSpreadIdx] = useState(0);
@@ -48,7 +49,9 @@ export function ReadingScreen() {
           lineHeight: 1.72,
         };
         const spreads = paginate(chapter.paragraphs_anchored ?? [], box);
-        setSpreadIdx(0);
+        // If navigated backward from next chapter, land on the last spread.
+        const landOnLast = (location.state as { landOnLastSpread?: boolean } | null)?.landOnLastSpread ?? false;
+        setSpreadIdx(landOnLast ? Math.max(0, spreads.length - 1) : 0);
         setBody({ kind: "ok", chapter, spreads });
       })
       .catch((err: unknown) => {
@@ -72,19 +75,31 @@ export function ReadingScreen() {
 
   const turnForward = useCallback(() => {
     if (body.kind !== "ok") return;
-    if (spreadIdx >= body.spreads.length - 1) return;
-    const next = spreadIdx + 1;
-    setSpreadIdx(next);
-    const nextSpread = body.spreads[next];
-    if (nextSpread) advanceTo(nextSpread.lastSid);
-  }, [body, spreadIdx, advanceTo]);
+    if (spreadIdx < body.spreads.length - 1) {
+      const next = spreadIdx + 1;
+      setSpreadIdx(next);
+      const nextSpread = body.spreads[next];
+      if (nextSpread) advanceTo(nextSpread.lastSid);
+    } else if (body.chapter.num < body.chapter.total_chapters) {
+      // At the last spread of this chapter — advance to next chapter.
+      navigate(`/books/${bookId}/read/${body.chapter.num + 1}`);
+    }
+    // else: last spread of last chapter — no-op.
+  }, [body, spreadIdx, advanceTo, navigate, bookId]);
 
   const turnBackward = useCallback(() => {
     if (body.kind !== "ok") return;
-    if (spreadIdx <= 0) return;
-    setSpreadIdx(spreadIdx - 1);
-    // Cursor does NOT rewind (AC 10).
-  }, [body, spreadIdx]);
+    if (spreadIdx > 0) {
+      setSpreadIdx(spreadIdx - 1);
+      // Cursor does NOT rewind (AC 10).
+    } else if (body.chapter.num > 1) {
+      // At spread 0 of a non-first chapter — go back to previous chapter's last spread.
+      navigate(`/books/${bookId}/read/${body.chapter.num - 1}`, {
+        state: { landOnLastSpread: true },
+      });
+    }
+    // else: spread 0 of chapter 1 — no-op.
+  }, [body, spreadIdx, navigate, bookId]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
