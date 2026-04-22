@@ -253,26 +253,28 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     expect(y).toBeLessThan(4000);
   });
 
-  test("AC7 S7 cross-page prefix on a card from the opposite page", async ({
+  test("AC7 S7 cross-page prefix on a card anchored to the left page of the current spread", async ({
     page,
   }) => {
     await mockAll(page, { chapterSize: "large" });
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
-    // Seed a card anchored to the left page of spread 1.
+    // Ask about p1.s1 — which is on the LEFT page of spread 0.
+    // The margin column sits on the right side, so this card gets the
+    // intra-spread "← FROM p. 1 ·" prefix immediately (no page turn needed).
     await selectInSid(page, "p1.s1");
     await page.getByRole("button", { name: "Ask" }).click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
       { timeout: 5000 },
     );
-    // Turn to the next spread so the anchor is on the previous (left) page
-    // relative to the new right-side margin column.
-    await page.keyboard.press("ArrowRight");
-    // If the card is still in visible sids (multi-spread covers multiple pages),
-    // expect the ← FROM p. 1 · prefix.
+    // The cross-page prefix should appear because p1.s1 is on the left page.
     const prefix = page.locator("text=← FROM p. 1 ·");
     await expect(prefix).toBeVisible({ timeout: 3000 });
+    // After turning to spread 1, the card should NOT be visible (cross-spread cards hidden).
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId("s1-empty-card")).toBeVisible({ timeout: 2000 });
   });
 
   test("AC8/9/10 O2 collapse with 3+ cards, divider, and expand-on-click", async ({

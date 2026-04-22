@@ -214,6 +214,8 @@ test.describe("Slice R3 screenshots", () => {
   });
 
   test("ac7-s7-crosspage", async ({ page }) => {
+    // S7 cross-page prefix fires for a card anchored on the LEFT page of the
+    // current spread (intra-spread only — cross-spread cards are no longer shown).
     await mockAll(page, { chapterSize: "large" });
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
@@ -223,7 +225,7 @@ test.describe("Slice R3 screenshots", () => {
       "synthesized answer",
       { timeout: 5000 },
     );
-    await page.keyboard.press("ArrowRight");
+    // p1.s1 is on the left page of spread 0; the prefix fires immediately.
     await expect(page.locator("text=← FROM p. 1 ·")).toBeVisible({
       timeout: 3000,
     });
