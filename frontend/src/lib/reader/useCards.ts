@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CARDS_KEY,
   newCardId,
   readStoredCards,
   writeStoredCards,
