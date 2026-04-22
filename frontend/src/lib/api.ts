@@ -48,7 +48,8 @@ export class UploadError extends Error {
   }
 }
 
-const BASE_URL = "http://localhost:8000";
+const BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
 
 // Thrown when a request exceeds `timeoutMs` and the AbortController fires.
 export class NetworkError extends Error {

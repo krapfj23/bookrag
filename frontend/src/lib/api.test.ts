@@ -14,6 +14,44 @@ import {
   type ChapterSummary,
 } from "./api";
 
+describe("BASE_URL configuration", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("uses VITE_API_BASE_URL when set", async () => {
+    vi.stubEnv("VITE_API_BASE_URL", "https://api.example.com");
+    vi.resetModules();
+    const freshApi = await import("./api");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
+    await freshApi.fetchBooks();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.example.com/books",
+      expect.anything(),
+    );
+  });
+
+  it("falls back to http://localhost:8000 when VITE_API_BASE_URL is unset", async () => {
+    // Explicit undefined stub simulates the var being absent from .env
+    vi.stubEnv("VITE_API_BASE_URL", undefined as unknown as string);
+    vi.resetModules();
+    const freshApi = await import("./api");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
+    await freshApi.fetchBooks();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:8000/books",
+      expect.anything(),
+    );
+  });
+});
+
 describe("fetchWithTimeout", () => {
   const originalFetch = globalThis.fetch;
   afterEach(() => {
