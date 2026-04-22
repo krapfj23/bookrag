@@ -29,3 +29,6 @@ logs/
 
 .playwright-mcp/
 *.png
+
+# Git worktrees
+.worktrees/
