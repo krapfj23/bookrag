@@ -554,3 +554,36 @@ class TestGraphCompletionUsesOnlyAllowed:
         assert captured, "LLM completion was not invoked"
         combined = " ".join(captured["context"])
         assert "SPOILER_MARKER" not in combined, f"context leaked: {combined}"
+
+
+class TestReadingProgressParagraph:
+    """_get_reading_progress returns (chapter, paragraph) — paragraph may be None."""
+
+    def test_chapter_only_returns_none_paragraph(self, tmp_path, monkeypatch):
+        from main import _get_reading_progress, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        (tmp_path / "bk").mkdir()
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 3,
+        }))
+        chapter, paragraph = _get_reading_progress("bk")
+        assert chapter == 3
+        assert paragraph is None
+
+    def test_chapter_and_paragraph(self, tmp_path, monkeypatch):
+        from main import _get_reading_progress, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        (tmp_path / "bk").mkdir()
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 3, "current_paragraph": 7,
+        }))
+        chapter, paragraph = _get_reading_progress("bk")
+        assert chapter == 3
+        assert paragraph == 7
+
+    def test_missing_file_defaults(self, tmp_path, monkeypatch):
+        from main import _get_reading_progress, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        chapter, paragraph = _get_reading_progress("nonexistent")
+        assert chapter == 1
+        assert paragraph is None

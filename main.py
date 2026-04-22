@@ -395,7 +395,7 @@ def _list_ready_books() -> list[BookSummary]:
         total_chapters = (
             len(list(chapters_dir.glob("chapter_*.txt"))) if chapters_dir.exists() else 0
         )
-        current_chapter = _get_reading_progress(child.name)
+        current_chapter, _ = _get_reading_progress(child.name)
         books.append(
             BookSummary(
                 book_id=child.name,
@@ -475,13 +475,23 @@ def _load_chapter(book_id: str, n: int) -> Chapter | None:
     )
 
 
-def _get_reading_progress(book_id: str) -> int:
-    """Load current reading progress for a book. Defaults to chapter 1."""
+def _get_reading_progress(book_id: str) -> tuple[int, int | None]:
+    """Load current reading progress. Returns (chapter, paragraph_or_None).
+
+    Paragraph is 0-indexed when present. None means "paragraph cursor not
+    recorded" — callers treat that as Phase-0-compatible chapter-only progress.
+    """
     progress_path = Path(config.processed_dir) / book_id / "reading_progress.json"
-    if progress_path.exists():
+    if not progress_path.exists():
+        return 1, None
+    try:
         data = json.loads(progress_path.read_text(encoding="utf-8"))
-        return data.get("current_chapter", 1)
-    return 1
+    except (OSError, json.JSONDecodeError):
+        return 1, None
+    chapter = int(data.get("current_chapter", 1))
+    paragraph = data.get("current_paragraph")
+    paragraph = int(paragraph) if paragraph is not None else None
+    return chapter, paragraph
 
 
 def _extract_chapter(item: Any) -> int | None:
@@ -639,7 +649,7 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    disk_max = _get_reading_progress(book_id)
+    disk_max, _ = _get_reading_progress(book_id)
     current_chapter = (
         min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
     )
