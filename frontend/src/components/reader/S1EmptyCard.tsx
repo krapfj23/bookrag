@@ -1,3 +1,11 @@
+import { IcSpark } from "../icons";
+
+const SUGGESTED_QUESTIONS = [
+  "Who is this character?",
+  "What just happened here?",
+  "What does this phrase mean?",
+];
+
 export function S1EmptyCard() {
   return (
     <article
@@ -23,10 +31,9 @@ export function S1EmptyCard() {
           display: "grid",
           placeItems: "center",
           color: "var(--accent-ink)",
-          fontSize: 16,
         }}
       >
-        ✦
+        <IcSpark size={16} />
       </div>
       <div>
         <h3
@@ -34,23 +41,53 @@ export function S1EmptyCard() {
             fontFamily: "var(--serif)",
             fontWeight: 500,
             fontSize: 15,
-            margin: "2px 0 4px",
+            margin: "2px 0 10px",
             color: "var(--ink-0)",
           }}
         >
           Ask about what you're reading
         </h3>
-        <p
+        <ol
           style={{
-            fontFamily: "var(--sans)",
-            fontSize: 12,
-            color: "var(--ink-2)",
+            listStyle: "none",
+            padding: 0,
             margin: 0,
-            lineHeight: 1.5,
           }}
         >
-          Select a phrase to Ask, Note, or Highlight.
-        </p>
+          {SUGGESTED_QUESTIONS.map((q, i) => (
+            <li
+              key={q}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "auto 1fr",
+                gap: 8,
+                marginBottom: 6,
+              }}
+            >
+              <span
+                data-testid={`bullet-${i + 1}`}
+                style={{
+                  fontFamily: "IBM Plex Mono, SF Mono, ui-monospace, monospace",
+                  fontSize: 11,
+                  color: "var(--ink-3)",
+                  lineHeight: "1.72",
+                }}
+              >
+                {i + 1}.
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--serif)",
+                  fontSize: 13.5,
+                  color: "var(--ink-1)",
+                  lineHeight: 1.5,
+                }}
+              >
+                {q}
+              </span>
+            </li>
+          ))}
+        </ol>
       </div>
     </article>
   );
