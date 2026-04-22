@@ -128,23 +128,19 @@ def build_chapter_to_chunk_index(
         raw_file = raw_chapters_dir / f"chapter_{chapter_num:02d}.txt"
         if raw_file.exists():
             raw_text = raw_file.read_text(encoding="utf-8")
-            paragraphs = raw_text.split("\n\n")
-            # For each paragraph's start_char within this chapter, find the chunk
-            # whose [start_char, end_char) contains it.
-            cursor = 0
-            for para in paragraphs:
-                rel = 0
-                for c in cs:
-                    if c.start_char <= cursor < c.end_char:
-                        rel = c.ordinal - first_ordinal
-                        break
-                    if c.start_char > cursor:
-                        rel = max(0, c.ordinal - first_ordinal - 1)
-                        break
-                else:
-                    rel = last_ordinal - first_ordinal
-                breakpoints.append(rel)
-                cursor += len(para) + 2  # +2 for the "\n\n" separator
+            paragraphs = [p for p in raw_text.split("\n\n") if p.strip()]
+            num_paragraphs = len(paragraphs)
+            num_chunks = len(cs)
+            if num_paragraphs > 0 and num_chunks > 0:
+                # Proportional assignment: paragraph i of P paragraphs maps to
+                # chunk index min(i * K // P, K - 1) within the chapter.
+                # Approximate (chunks and paragraphs aren't equal-sized) but
+                # robust to batch-local vs chapter-local start_char conflation,
+                # which the char-offset walking approach silently got wrong for
+                # multi-chapter batches.
+                for i in range(num_paragraphs):
+                    rel = min(i * num_chunks // num_paragraphs, num_chunks - 1)
+                    breakpoints.append(rel)
         else:
             logger.warning(
                 "Raw chapter file {} missing — paragraph_breakpoints left empty",

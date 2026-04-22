@@ -98,3 +98,37 @@ def test_load_chunks_missing_returns_empty(tmp_path):
 
 def test_load_chapter_index_missing_returns_empty(tmp_path):
     assert load_chapter_index("book", processed_dir=tmp_path) == {}
+
+
+def test_build_chapter_to_chunk_index_multichapter_batch(tmp_path):
+    """Regression: a batch spanning chapters [3, 4] produces chunks with
+    batch-local start_char values. Paragraph breakpoints for chapter 4 must
+    still distribute paragraphs across that chapter's chunks, not collapse
+    them all to the last chunk.
+    """
+    # Chapter 3 chunks: batch-local offsets 0..6000
+    # Chapter 4 chunks: batch-local offsets 6000..12000 (2 chunks)
+    chunks = _chunks(
+        ("ch3_a", [3], 0, 3000, 0),
+        ("ch3_b", [3], 3000, 6000, 1),
+        ("ch4_a", [4], 6000, 9000, 2),
+        ("ch4_b", [4], 9000, 12000, 3),
+    )
+    raw_dir = tmp_path / "book" / "raw" / "chapters"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "chapter_03.txt").write_text("p0\n\np1\n\np2\n\np3")
+    (raw_dir / "chapter_04.txt").write_text("q0\n\nq1\n\nq2\n\nq3")
+
+    out = build_chapter_to_chunk_index("book", chunks, processed_dir=tmp_path)
+    idx = json.loads(Path(out).read_text())
+
+    # Chapter 4 has 4 paragraphs and 2 chunks — breakpoints should distribute
+    # them: [0, 0, 1, 1] (or similar split) — NOT [1, 1, 1, 1] (all last chunk).
+    bp4 = idx["4"]["paragraph_breakpoints"]
+    assert len(bp4) == 4
+    assert set(bp4) == {0, 1}, f"Expected breakpoints to span both chunks, got {bp4}"
+
+    # Chapter 3 has 4 paragraphs and 2 chunks — same expectation
+    bp3 = idx["3"]["paragraph_breakpoints"]
+    assert len(bp3) == 4
+    assert set(bp3) == {0, 1}, f"Expected breakpoints to span both chunks, got {bp3}"
