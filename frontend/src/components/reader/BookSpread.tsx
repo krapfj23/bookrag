@@ -40,7 +40,7 @@ function PageSide({
               fontFamily: "var(--serif)",
               fontStyle: "italic",
               fontSize: 11.5,
-              letterSpacing: 0.4,
+              letterSpacing: "0.4px",
               color: "var(--ink-3)",
               marginBottom: 10,
             }}
