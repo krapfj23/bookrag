@@ -66,6 +66,7 @@ export function MarginColumn({
   onJump,
   onFollowup,
   focusedComposerCardId,
+  hidden = false,
 }: {
   cards: Card[];
   visibleSids: Set<string>;
@@ -83,6 +84,7 @@ export function MarginColumn({
   onJump?: (sid: string) => void;
   onFollowup?: (cardId: string, question: string) => void;
   focusedComposerCardId?: string | null;
+  hidden?: boolean;
 }) {
   const [manuallyExpandedIds, setManuallyExpandedIds] = useState<Set<string>>(
     new Set(),
@@ -165,6 +167,7 @@ export function MarginColumn({
     <aside
       aria-label="Margin cards"
       data-testid="margin-column"
+      aria-hidden={hidden ? "true" : undefined}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -172,6 +175,10 @@ export function MarginColumn({
         paddingTop: 40,
         width: 400,
         position: "relative",
+        opacity: hidden ? 0 : 1,
+        transform: hidden ? "translateX(40px)" : "translateX(0)",
+        pointerEvents: hidden ? "none" : undefined,
+        transition: "opacity 260ms ease, transform 260ms ease",
       }}
     >
       {visible.length === 0 && <S1EmptyCard />}
