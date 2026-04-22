@@ -24,6 +24,8 @@ export interface AskFlowInput {
     question: string,
     maxChapter: number,
   ) => Promise<{ answer: string }>;
+  setAskLoading?: (id: string, loading: boolean) => void;
+  setAskStreaming?: (id: string, streaming: boolean) => void;
   streamMinMs?: number;
   streamMaxMs?: number;
   signal?: AbortSignal;
@@ -40,14 +42,70 @@ export async function askAndStream(input: AskFlowInput): Promise<string> {
     chapter: input.chapter,
     question,
   });
+
+  input.setAskLoading?.(id, true);
+
   const resp = await input.queryBook(input.bookId, question, input.maxChapter);
   const full = resp.answer ?? "";
+
+  let firstChunk = true;
   await simulateStream(full, {
     minMs: input.streamMinMs ?? 25,
     maxMs: input.streamMaxMs ?? 60,
     signal: input.signal,
-    onChunk: (soFar) =>
-      input.updateAsk(id, (prev) => ({ ...prev, answer: soFar })),
+    onChunk: (soFar) => {
+      if (firstChunk) {
+        firstChunk = false;
+        input.setAskLoading?.(id, false);
+        input.setAskStreaming?.(id, true);
+      }
+      input.updateAsk(id, (prev) => ({ ...prev, answer: soFar }));
+    },
   });
+  input.setAskStreaming?.(id, false);
   return id;
+}
+
+export interface FollowupFlowInput {
+  cardId: string;
+  bookId: string;
+  maxChapter: number;
+  question: string;
+  appendFollowup: (id: string, question: string, initialAnswer: string) => void;
+  updateAsk: (id: string, updater: (prev: AskCard) => AskCard) => void;
+  queryBook: (
+    bookId: string,
+    question: string,
+    maxChapter: number,
+  ) => Promise<{ answer: string }>;
+  setFollowupLoading?: (id: string, loading: boolean) => void;
+  streamMinMs?: number;
+  streamMaxMs?: number;
+  signal?: AbortSignal;
+}
+
+export async function followupAndStream(input: FollowupFlowInput): Promise<void> {
+  const { cardId, bookId, maxChapter, question } = input;
+
+  input.appendFollowup(cardId, question, "");
+  input.setFollowupLoading?.(cardId, true);
+
+  const resp = await input.queryBook(bookId, question, maxChapter);
+  const full = resp.answer ?? "";
+
+  await simulateStream(full, {
+    minMs: input.streamMinMs ?? 25,
+    maxMs: input.streamMaxMs ?? 60,
+    signal: input.signal,
+    onChunk: (soFar) => {
+      input.updateAsk(cardId, (prev) => ({
+        ...prev,
+        followups: prev.followups.map((f, i, arr) =>
+          i === arr.length - 1 ? { ...f, answer: soFar } : f,
+        ),
+      }));
+    },
+  });
+
+  input.setFollowupLoading?.(cardId, false);
 }
