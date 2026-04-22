@@ -1,0 +1,116 @@
+{
+  "book_id": "christmas_carol_e6ddcd76",
+  "book_title": "A Christmas Carol",
+  "total_chapters": 3,
+  "description": "Question bank for evaluating GraphRAG answer quality + spoiler safety. Each question has a reader cursor (max_chapter) and expected ground-truth metadata.",
+  "questions": [
+    {
+      "id": "cc-001",
+      "question": "Who is Marley and what is his relationship to Scrooge?",
+      "max_chapter": 1,
+      "expected_answer_gist": "Jacob Marley is Scrooge's deceased business partner. His ghost visits Scrooge on Christmas Eve to warn him and announce that three more spirits will come.",
+      "expected_source_chapters": [1],
+      "expected_entities": ["Marley", "Scrooge", "business partner", "ghost"],
+      "category": "relational"
+    },
+    {
+      "id": "cc-002",
+      "question": "What kind of person is Scrooge at the start of the book?",
+      "max_chapter": 1,
+      "expected_answer_gist": "Scrooge is a cold, miserly, and solitary businessman who hates Christmas and treats others with contempt.",
+      "expected_source_chapters": [1],
+      "expected_entities": ["Scrooge", "miser"],
+      "category": "factual"
+    },
+    {
+      "id": "cc-003",
+      "question": "Who is Bob Cratchit?",
+      "max_chapter": 1,
+      "expected_answer_gist": "Bob Cratchit is Scrooge's underpaid clerk who struggles to support his family, including his ill son Tiny Tim.",
+      "expected_source_chapters": [1],
+      "expected_entities": ["Bob Cratchit", "clerk", "Tiny Tim"],
+      "category": "relational"
+    },
+    {
+      "id": "cc-004",
+      "question": "What does Fred invite Scrooge to?",
+      "max_chapter": 1,
+      "expected_answer_gist": "Fred, Scrooge's cheerful nephew, invites Scrooge to Christmas dinner, which Scrooge refuses.",
+      "expected_source_chapters": [1],
+      "expected_entities": ["Fred", "Scrooge", "nephew", "Christmas"],
+      "category": "relational"
+    },
+    {
+      "id": "cc-005",
+      "question": "Why does Marley's ghost wear chains?",
+      "max_chapter": 1,
+      "expected_answer_gist": "The chains represent the selfish deeds and cash-boxes he forged in life; he wears them as punishment and warns Scrooge to change his ways.",
+      "expected_source_chapters": [1],
+      "expected_entities": ["Marley", "chain", "ghost"],
+      "category": "thematic"
+    },
+    {
+      "id": "cc-006",
+      "question": "Who is Tiny Tim?",
+      "max_chapter": 2,
+      "expected_answer_gist": "Tiny Tim is Bob Cratchit's youngest son. He is ill and represents innocence and the spirit of Christmas.",
+      "expected_source_chapters": [1, 2],
+      "expected_entities": ["Tiny Tim", "Bob Cratchit"],
+      "category": "factual"
+    },
+    {
+      "id": "cc-007",
+      "question": "Who is the last spirit that visits Scrooge, and what does the spirit show him?",
+      "max_chapter": 2,
+      "expected_answer_gist": "The Ghost of Christmas Yet to Come (the Last of the Spirits) shows Scrooge scenes of his own lonely death and neglected grave, prompting his vow to change.",
+      "expected_source_chapters": [2],
+      "expected_entities": ["Spirit", "grave", "Scrooge"],
+      "category": "relational"
+    },
+    {
+      "id": "cc-008",
+      "question": "What does Scrooge see on the bed that horrifies him?",
+      "max_chapter": 2,
+      "expected_answer_gist": "Scrooge sees a man who has died alone and unloved lying on the bed; he realizes the figure is himself in the future.",
+      "expected_source_chapters": [2],
+      "expected_entities": ["Scrooge", "bed", "dead"],
+      "category": "factual"
+    },
+    {
+      "id": "cc-009",
+      "question": "How does Scrooge change by the end of the book?",
+      "max_chapter": 3,
+      "expected_answer_gist": "Scrooge undergoes a complete transformation into a generous, kind man who keeps Christmas well. He raises Bob Cratchit's salary and becomes a second father to Tiny Tim.",
+      "expected_source_chapters": [2, 3],
+      "expected_entities": ["Scrooge", "transformation", "generous", "Cratchit"],
+      "category": "thematic"
+    },
+    {
+      "id": "cc-010",
+      "question": "What is the central theme of A Christmas Carol?",
+      "max_chapter": 3,
+      "expected_answer_gist": "Redemption through compassion: even a hardened miser can be transformed by confronting his past, present, and future and by embracing generosity and the spirit of Christmas.",
+      "expected_source_chapters": [1, 2, 3],
+      "expected_entities": ["redemption", "Christmas", "transformation"],
+      "category": "thematic"
+    },
+    {
+      "id": "cc-011",
+      "question": "What gift does Scrooge send to the Cratchits?",
+      "max_chapter": 3,
+      "expected_answer_gist": "Scrooge anonymously sends a large prize turkey to Bob Cratchit's house on Christmas Day.",
+      "expected_source_chapters": [3],
+      "expected_entities": ["turkey", "Cratchit", "Scrooge"],
+      "category": "factual"
+    },
+    {
+      "id": "cc-012",
+      "question": "Does Tiny Tim die?",
+      "max_chapter": 1,
+      "expected_answer_gist": "Based on what the reader has seen so far (through chapter 1), Tiny Tim is ill but his fate is not yet resolved. The answer should NOT reveal future-chapter outcomes. This is a spoiler-trap question.",
+      "expected_source_chapters": [1],
+      "expected_entities": ["Tiny Tim"],
+      "category": "factual"
+    }
+  ]
+}

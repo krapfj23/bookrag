@@ -626,16 +626,42 @@ def _answer_from_allowed_nodes(
 ) -> list[QueryResultItem]:
     """Pre-filtered keyword retrieval. Walks disk batch JSON, keeps only
     nodes whose effective latest chapter is <= graph_max_chapter, then ranks
-    by keyword overlap with the question."""
-    from pipeline.spoiler_filter import load_allowed_nodes, effective_latest_chapter
+    by keyword overlap with the question.
+
+    When ``BOOKRAG_USE_TRIPLETS=1`` (or ``=true``), Relationship DataPoints
+    are also surfaced as first-class results — but only when both endpoints
+    are within the reader's allowlist (spoiler invariant enforced by
+    ``load_allowed_relationships``).
+    """
+    from pipeline.spoiler_filter import (
+        effective_latest_chapter,
+        load_allowed_nodes,
+        load_allowed_relationships,
+    )
+    import os
 
     nodes = load_allowed_nodes(book_id, cursor=graph_max_chapter, processed_dir=Path(config.processed_dir))
     if not nodes:
         return []
 
-    keywords = [w.lower() for w in question.split() if len(w) > 2]
+    use_triplets = os.environ.get("BOOKRAG_USE_TRIPLETS", "").lower() in ("1", "true", "yes")
+
+    # Tokenize by alphanumeric runs, not whitespace — otherwise 'Marley?' has
+    # the trailing question mark attached and fails to match 'marley' anywhere.
+    import re
+    keywords = [
+        w.lower() for w in re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]+", question)
+        if len(w) > 2
+    ]
     ranked: list[tuple[int, QueryResultItem]] = []
+
+    # Entity nodes — existing behavior
     for node in nodes:
+        if node.get("_type") == "Relationship":
+            # Relationships are handled in the triplet pass when the flag is on;
+            # never surfaced via the node loop because their content format is
+            # different (arrow) and their spoiler rule is stricter.
+            continue
         label = (node.get("name") or node.get("description") or "").lower()
         desc = (node.get("description") or "").lower()
         haystack = f"{label} {desc}"
@@ -650,6 +676,36 @@ def _answer_from_allowed_nodes(
             entity_type=node.get("_type"),
             chapter=effective_latest_chapter(node),
         )))
+
+    # Triplet (Relationship) results — gated by env flag
+    if use_triplets:
+        relationships = load_allowed_relationships(
+            book_id,
+            cursor=graph_max_chapter,
+            processed_dir=Path(config.processed_dir),
+            allowed_nodes=nodes,
+        )
+        for rel in relationships:
+            src = rel.get("source_name", "")
+            tgt = rel.get("target_name", "")
+            relation = rel.get("relation_type", "")
+            desc = rel.get("description", "")
+            # Rank triplets by keyword match across endpoints, relation label,
+            # and description — give endpoint hits extra weight so asking
+            # about Scrooge surfaces his relationships even when the relation
+            # word isn't in the query.
+            haystack = f"{src.lower()} {tgt.lower()} {relation.lower()} {desc.lower()}"
+            score = sum(1 for kw in keywords if kw in haystack) if keywords else 0
+            if keywords and score == 0:
+                continue
+            content = f"{src} → {relation} → {tgt}"
+            if desc:
+                content = f"{content} — {desc}"
+            ranked.append((score, QueryResultItem(
+                content=content,
+                entity_type="Relationship",
+                chapter=effective_latest_chapter(rel),
+            )))
 
     ranked.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in ranked]

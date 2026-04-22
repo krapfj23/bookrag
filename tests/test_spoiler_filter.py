@@ -175,3 +175,208 @@ class TestLoadAllowedNodesDedup:
         })
         allowed = load_allowed_nodes("bk", cursor=5, processed_dir=tmp_path)
         assert len(allowed) == 2
+
+
+class TestLoadAllowedRelationships:
+    """A Relationship is only visible to the reader when BOTH endpoints are
+    already visible (entity-level chapter filter passes) AND the relationship's
+    own chapter is <= cursor."""
+
+    def _write_batch(self, tmp_path, book_id, name, payload):
+        batch_dir = tmp_path / book_id / "batches"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / name).write_text(json.dumps(payload))
+
+    def test_returns_relationship_when_both_endpoints_allowed(self, tmp_path):
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "characters": [
+                {"name": "Scrooge", "first_chapter": 1, "last_known_chapter": 1},
+                {"name": "Marley", "first_chapter": 1, "last_known_chapter": 1},
+            ],
+            "relationships": [
+                {
+                    "source_name": "Scrooge",
+                    "target_name": "Marley",
+                    "relation_type": "business partner of",
+                    "description": "Long-time partners",
+                    "chapter": 1,
+                    "first_chapter": 1,
+                    "last_known_chapter": 1,
+                },
+            ],
+        })
+        rels = load_allowed_relationships("bk", cursor=3, processed_dir=tmp_path)
+        assert len(rels) == 1
+        assert rels[0]["source_name"] == "Scrooge"
+        assert rels[0]["target_name"] == "Marley"
+
+    def test_drops_relationship_when_source_is_unseen(self, tmp_path):
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "characters": [
+                # Source appears in ch.5 — reader is on ch.3, so Scrooge unseen
+                {"name": "Scrooge", "first_chapter": 5, "last_known_chapter": 5},
+                {"name": "Marley", "first_chapter": 1, "last_known_chapter": 1},
+            ],
+            "relationships": [
+                {
+                    "source_name": "Scrooge",
+                    "target_name": "Marley",
+                    "relation_type": "business partner of",
+                    "chapter": 1,
+                    "first_chapter": 1,
+                    "last_known_chapter": 1,
+                },
+            ],
+        })
+        rels = load_allowed_relationships("bk", cursor=3, processed_dir=tmp_path)
+        assert rels == []
+
+    def test_drops_relationship_when_target_is_unseen(self, tmp_path):
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "characters": [
+                {"name": "Scrooge", "first_chapter": 1, "last_known_chapter": 1},
+                {"name": "GhostOfFuture", "first_chapter": 4, "last_known_chapter": 4},
+            ],
+            "relationships": [
+                {
+                    "source_name": "Scrooge",
+                    "target_name": "GhostOfFuture",
+                    "relation_type": "haunted by",
+                    "chapter": 1,
+                    "first_chapter": 1,
+                    "last_known_chapter": 1,
+                },
+            ],
+        })
+        rels = load_allowed_relationships("bk", cursor=3, processed_dir=tmp_path)
+        assert rels == []
+
+    def test_drops_relationship_when_relationship_chapter_is_future(self, tmp_path):
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "characters": [
+                {"name": "Scrooge", "first_chapter": 1, "last_known_chapter": 1},
+                {"name": "Marley", "first_chapter": 1, "last_known_chapter": 1},
+            ],
+            "relationships": [
+                {
+                    "source_name": "Scrooge",
+                    "target_name": "Marley",
+                    "relation_type": "remembers fondly",
+                    "chapter": 7,  # past the reader's cursor
+                    "first_chapter": 7,
+                    "last_known_chapter": 7,
+                },
+            ],
+        })
+        rels = load_allowed_relationships("bk", cursor=3, processed_dir=tmp_path)
+        assert rels == []
+
+    def test_reuses_precomputed_allowed_nodes_when_passed(self, tmp_path):
+        """Callers can pass a pre-computed allowlist to skip the extra walk."""
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        self._write_batch(tmp_path, "bk", "b1.json", {
+            "characters": [
+                {"name": "A", "first_chapter": 1, "last_known_chapter": 1},
+                {"name": "B", "first_chapter": 1, "last_known_chapter": 1},
+            ],
+            "relationships": [
+                {
+                    "source_name": "A",
+                    "target_name": "B",
+                    "relation_type": "knows",
+                    "chapter": 1,
+                    "first_chapter": 1,
+                    "last_known_chapter": 1,
+                },
+            ],
+        })
+        # Pre-computed allowed nodes (simulates caller already did load_allowed_nodes)
+        allowed_nodes = [
+            {"_type": "Character", "name": "A", "first_chapter": 1, "last_known_chapter": 1},
+            {"_type": "Character", "name": "B", "first_chapter": 1, "last_known_chapter": 1},
+        ]
+        rels = load_allowed_relationships(
+            "bk", cursor=3, processed_dir=tmp_path, allowed_nodes=allowed_nodes
+        )
+        assert len(rels) == 1
+
+    def test_nested_endpoint_shape_is_supported(self, tmp_path):
+        """Cognee's DataPoint serialization stores relationship endpoints as
+        nested {name: ..., first_chapter: ...} dicts under source/target,
+        not flat source_name/target_name strings. Both must work."""
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        batch_dir = tmp_path / "bk" / "batches" / "batch_01"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / "extracted_datapoints.json").write_text(json.dumps([
+            {"type": "Character", "name": "Scrooge", "first_chapter": 1, "last_known_chapter": 1},
+            {"type": "Character", "name": "Marley", "first_chapter": 1, "last_known_chapter": 1},
+            {
+                "type": "Relationship",
+                "source": {"type": "Character", "name": "Scrooge", "first_chapter": 1},
+                "target": {"type": "Character", "name": "Marley", "first_chapter": 1},
+                "relation_type": "business partner of",
+                "description": "Long-time partners",
+                # Note: no top-level chapter/first_chapter — must derive from endpoints
+            },
+        ]))
+        rels = load_allowed_relationships("bk", cursor=3, processed_dir=tmp_path)
+        assert len(rels) == 1
+        rel = rels[0]
+        # Normalization: flat names are attached even when source is nested
+        assert rel["source_name"] == "Scrooge"
+        assert rel["target_name"] == "Marley"
+        assert rel["chapter"] == 1  # derived from max(source, target) first_chapter
+
+    def test_nested_shape_drops_when_target_first_chapter_exceeds_cursor(self, tmp_path):
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        batch_dir = tmp_path / "bk" / "batches" / "batch_01"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / "extracted_datapoints.json").write_text(json.dumps([
+            {"type": "Character", "name": "Scrooge", "first_chapter": 1, "last_known_chapter": 1},
+            # Future character only in ch 5
+            {"type": "Character", "name": "Future", "first_chapter": 5, "last_known_chapter": 5},
+            {
+                "type": "Relationship",
+                "source": {"name": "Scrooge", "first_chapter": 1},
+                "target": {"name": "Future", "first_chapter": 5},
+                "relation_type": "haunted by",
+            },
+        ]))
+        rels = load_allowed_relationships("bk", cursor=2, processed_dir=tmp_path)
+        assert rels == []
+
+    def test_flat_list_shape_is_also_supported(self, tmp_path):
+        """Current pipeline output uses batches/batch_NN/extracted_datapoints.json
+        as a flat list with a `type` field; the relationship filter must handle
+        both shapes just like load_allowed_nodes does."""
+        from pipeline.spoiler_filter import load_allowed_relationships
+
+        batch_dir = tmp_path / "bk" / "batches" / "batch_01"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / "extracted_datapoints.json").write_text(json.dumps([
+            {"type": "Character", "name": "Scrooge", "first_chapter": 1, "last_known_chapter": 1},
+            {"type": "Character", "name": "Marley", "first_chapter": 1, "last_known_chapter": 1},
+            {
+                "type": "Relationship",
+                "source_name": "Scrooge",
+                "target_name": "Marley",
+                "relation_type": "partner",
+                "chapter": 1,
+                "first_chapter": 1,
+                "last_known_chapter": 1,
+            },
+        ]))
+        rels = load_allowed_relationships("bk", cursor=3, processed_dir=tmp_path)
+        assert len(rels) == 1
+        assert rels[0]["relation_type"] == "partner"
