@@ -35,16 +35,8 @@ import {
   queryBook,
   QueryRateLimitError,
   QueryError,
-  type Book,
-  type Chapter,
-  type ChapterSummary,
 } from "../lib/api";
-
-type BodyState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ok"; chapter: Chapter };
+import { useReadingState } from "./reading/useReadingState";
 
 type ChatMessage =
   | { id: string; role: "user"; text: string }
@@ -69,55 +61,15 @@ export function ReadingScreen() {
   const n = Number.parseInt(chapterNum, 10) || 1;
   const navigate = useNavigate();
 
-  const [book, setBook] = useState<Book | null>(null);
-  const [chapterList, setChapterList] = useState<ChapterSummary[] | null>(null);
-  const [body, setBody] = useState<BodyState>({ kind: "idle" });
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([fetchBooks(), fetchChapters(bookId)])
-      .then(([books, chapters]) => {
-        if (cancelled) return;
-        setBook(books.find((b) => b.book_id === bookId) ?? null);
-        setChapterList(chapters);
-      })
-      .catch((err: unknown) => {
-        // One-shot load, not a poll loop — log and leave the sidebar empty.
-        // Center column's own fetch+error path handles user-facing surface.
-        console.error("reading sidebar load failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [bookId]);
-
-  useEffect(() => {
-    if (!book) return;
-    if (n > book.current_chapter + 1) {
-      setBody({ kind: "idle" });
-      return;
-    }
-    let cancelled = false;
-    setBody({ kind: "loading" });
-    fetchChapter(bookId, n)
-      .then((chapter) => {
-        if (cancelled) return;
-        setBody({ kind: "ok", chapter });
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setBody({
-          kind: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `book` identity is unused in the body after the current_chapter read;
-    // including it would re-fire the chapter fetch on unrelated reloads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId, n, book?.current_chapter]);
+  const { book, chapterList, body, handleMarkAsRead } = useReadingState({
+    bookId,
+    n,
+    fetchBooks,
+    fetchChapters,
+    fetchChapter,
+    setProgress,
+    onMarkAsRead: (next) => navigate(`/books/${bookId}/read/${next}`),
+  });
 
   // ── Chat (Thread tab) state ──────────────────────────────────────────
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -233,15 +185,6 @@ export function ReadingScreen() {
     if (num < book.current_chapter) return "read";
     if (num === book.current_chapter) return "current";
     return "locked";
-  }
-
-  async function handleMarkAsRead() {
-    if (!book) return;
-    const next = n + 1;
-    await setProgress(bookId, next);
-    const fresh = await fetchBooks();
-    setBook(fresh.find((b) => b.book_id === bookId) ?? null);
-    navigate(`/books/${bookId}/read/${next}`);
   }
 
   const canPrev = n > 1;
