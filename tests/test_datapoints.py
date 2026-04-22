@@ -709,3 +709,27 @@ class TestSchemaAlignmentWithSpec:
         fields = set(Theme.model_fields.keys())
         expected = {"name", "description", "first_chapter", "related_characters", "metadata", "id"}
         assert expected.issubset(fields)
+
+
+class TestLastKnownChapter:
+    """Every temporally-scoped DataPoint carries last_known_chapter."""
+
+    def test_character_has_last_known_chapter(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1, last_known_chapter=3)
+        assert c.last_known_chapter == 3
+
+    def test_last_known_chapter_defaults_to_first_chapter(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1)
+        assert c.last_known_chapter == 1
+
+    def test_location_faction_theme_relationship_all_have_it(self):
+        from models.datapoints import Location, Faction, Theme, Relationship, Character
+        assert Location(name="L", first_chapter=2).last_known_chapter == 2
+        assert Faction(name="F", first_chapter=2).last_known_chapter == 2
+        assert Theme(name="T", first_chapter=2).last_known_chapter == 2
+        a = Character(name="A", first_chapter=1)
+        b = Character(name="B", first_chapter=1)
+        r = Relationship(source=a, target=b, relation_type="x", first_chapter=2)
+        assert r.last_known_chapter == 2

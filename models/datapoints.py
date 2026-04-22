@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from cognee.infrastructure.engine import DataPoint
 
@@ -28,23 +28,44 @@ class Character(DataPoint):
     aliases: list[str] = []
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     chapters_present: list[int] = []
     metadata: dict = {"index_fields": ["name", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class Location(DataPoint):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     metadata: dict = {"index_fields": ["name", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class Faction(DataPoint):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     members: list[Character] = []
     metadata: dict = {"index_fields": ["name"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class PlotEvent(DataPoint):
@@ -61,15 +82,29 @@ class Relationship(DataPoint):
     relation_type: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     metadata: dict = {"index_fields": ["relation_type", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class Theme(DataPoint):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     related_characters: list[Character] = []
     metadata: dict = {"index_fields": ["name", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 # ===========================================================================
