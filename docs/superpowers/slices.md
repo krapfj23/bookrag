@@ -16,7 +16,7 @@ Driven by the backend + security + test + frontend audit. Each slice stands alon
 | # | Slice | Status | Kickoff | Spec | Plan |
 |---|---|---|---|---|---|
 | 1 | Critical security hardening | done | 2026-04-22 | [spec](specs/2026-04-22-slice-1-security-hardening.md) | [plan](plans/2026-04-22-slice-1-security-hardening.md) |
-| 2 | Backend refactor (split god-modules) | spec | 2026-04-22 | [spec](specs/2026-04-22-slice-2-backend-refactor.md) | [plan](plans/2026-04-22-slice-2-backend-refactor.md) |
+| 2 | Backend refactor (split god-modules) | done | 2026-04-22 | [spec](specs/2026-04-22-slice-2-backend-refactor.md) | [plan](plans/2026-04-22-slice-2-backend-refactor.md) |
 | 3 | Test quality uplift | spec | 2026-04-22 | [spec](specs/2026-04-22-slice-3-test-quality-uplift.md) | [plan](plans/2026-04-22-slice-3-test-quality-uplift.md) |
 | 4 | Frontend refactor + hardening | spec | 2026-04-22 | [spec](specs/2026-04-22-slice-4-frontend-hardening.md) | [plan](plans/2026-04-22-slice-4-frontend-hardening.md) |
 
