@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { NavBar } from "../components/NavBar";
 import { ChapterRow, type ChapterRowState } from "../components/ChapterRow";
@@ -7,10 +7,22 @@ import { ProgressiveBlur } from "../components/ProgressiveBlur";
 import { LockState } from "../components/LockState";
 import { Button } from "../components/Button";
 import { Row } from "../components/layout";
-import { IcArrowL, IcArrowR, IcChat } from "../components/icons";
+import { IcArrowL, IcArrowR } from "../components/icons";
 import { UserBubble } from "../components/UserBubble";
 import { AssistantBubble, type AssistantSource } from "../components/AssistantBubble";
 import { ChatInput } from "../components/ChatInput";
+import { AnnotatedParagraph } from "../components/AnnotatedParagraph";
+import { AnnotationPeek } from "../components/AnnotationPeek";
+import { AnnotationRail } from "../components/AnnotationRail";
+import {
+  AnnotationPanel,
+  type PanelTab,
+} from "../components/AnnotationPanel";
+import {
+  annotationsForChapter,
+  SEED_ANNOTATIONS,
+  type Annotation,
+} from "../lib/annotations";
 import {
   fetchBooks,
   fetchChapter,
@@ -57,7 +69,6 @@ export function ReadingScreen() {
   const [chapterList, setChapterList] = useState<ChapterSummary[] | null>(null);
   const [body, setBody] = useState<BodyState>({ kind: "idle" });
 
-  // Fetch the book record + chapter list once
   useEffect(() => {
     let cancelled = false;
     Promise.all([fetchBooks(), fetchChapters(bookId)])
@@ -74,8 +85,6 @@ export function ReadingScreen() {
     };
   }, [bookId]);
 
-  // Fetch the chapter body every time n changes — unless the chapter is
-  // >= current_chapter + 2 (fully locked, no fetch per PRD AC 9).
   useEffect(() => {
     if (!book) return;
     if (n > book.current_chapter + 1) {
@@ -101,14 +110,12 @@ export function ReadingScreen() {
     };
   }, [bookId, n, book?.current_chapter]);
 
-  // Chat transcript state (React-only; not persisted)
+  // ── Chat (Thread tab) state ──────────────────────────────────────────
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll to the latest message after each state change.
-  // Guard against jsdom (no scrollIntoView) in tests.
   useEffect(() => {
     const el = transcriptEndRef.current;
     if (el?.scrollIntoView) {
@@ -147,8 +154,6 @@ export function ReadingScreen() {
             )
             .map((r) => ({ text: r.content, chapter: r.chapter }))
         : [];
-      // Answer prose: only results without chapter context so the same content
-      // is not shown twice (sources already display chapter-cited results).
       const proseResults = hasResults
         ? resp.results.filter((r) => r.chapter == null)
         : [];
@@ -204,7 +209,6 @@ export function ReadingScreen() {
     if (!book) return;
     const next = n + 1;
     await setProgress(bookId, next);
-    // Optimistically refetch the book record so the sidebar reflects new progress
     const fresh = await fetchBooks();
     setBook(fresh.find((b) => b.book_id === bookId) ?? null);
     navigate(`/books/${bookId}/read/${next}`);
@@ -222,6 +226,99 @@ export function ReadingScreen() {
   const lockedStrictly = book !== null && n > book.current_chapter + 1;
   const isTeaser = book !== null && n === book.current_chapter + 1;
 
+  // ── Annotations state ───────────────────────────────────────────────
+  // All seed annotations for this book, plus annotations for the chapter
+  // currently in view (used by AnnotatedParagraph to decorate prose).
+  const bookAnnotations = useMemo(
+    () => SEED_ANNOTATIONS.filter((a) => a.book_id === bookId),
+    [bookId],
+  );
+  const chapterAnnotations = useMemo(
+    () => annotationsForChapter(bookId, n),
+    [bookId, n],
+  );
+  const notes = bookAnnotations.filter((a) => a.kind === "note");
+  const highlights = bookAnnotations.filter((a) => a.kind === "query");
+
+  // Click state: which inline annotation has the peek open.
+  const [peek, setPeek] = useState<{ annotation: Annotation } | null>(null);
+  // Panel state: collapsed (rail) vs expanded; current tab; focused item.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<PanelTab>("thread");
+  const [focusedAnnotationId, setFocusedAnnotationId] = useState<
+    string | undefined
+  >(undefined);
+
+  function openPeek(a: Annotation) {
+    // Clicking the same annotation a second time closes the peek.
+    setPeek((prev) => (prev?.annotation.id === a.id ? null : { annotation: a }));
+  }
+
+  function openInPanel(a: Annotation) {
+    setPanelOpen(true);
+    setPanelTab(a.kind === "note" ? "notes" : "highlights");
+    setFocusedAnnotationId(a.id);
+    setPeek(null);
+  }
+
+  const spoilerSafeLabel = `safe through ch. ${book?.current_chapter ?? 1}`;
+
+  const threadContent = (
+    <>
+      <div
+        style={{
+          flex: 1,
+          padding: "20px 20px 16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 20,
+          overflow: "auto",
+        }}
+      >
+        {messages.length === 0 && (
+          <div
+            role="status"
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              textAlign: "center",
+              fontFamily: "var(--serif)",
+              fontStyle: "italic",
+              fontSize: 15,
+              color: "var(--ink-3)",
+              padding: "40px 24px",
+            }}
+          >
+            Ask about what you've read.
+          </div>
+        )}
+        {messages.map((m) =>
+          m.role === "user" ? (
+            <UserBubble key={m.id} text={m.text} />
+          ) : (
+            <AssistantBubble
+              key={m.id}
+              text={m.text}
+              sources={m.status === "ok" ? m.sources : undefined}
+              thinking={m.status === "thinking"}
+            />
+          )
+        )}
+        <div ref={transcriptEndRef} />
+      </div>
+      <div style={{ padding: "14px 16px 18px" }}>
+        <ChatInput
+          value={draft}
+          onChange={setDraft}
+          onSubmit={handleChatSubmit}
+          disabled={submitting}
+        />
+      </div>
+    </>
+  );
+
   return (
     <div
       className="br"
@@ -231,11 +328,14 @@ export function ReadingScreen() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "260px 1fr 440px",
+          gridTemplateColumns: panelOpen
+            ? "260px 1fr 400px"
+            : "260px 1fr 48px",
           minHeight: "calc(100vh - 56px)",
+          transition: "grid-template-columns var(--dur-slow) var(--ease-out)",
         }}
       >
-        {/* LEFT */}
+        {/* LEFT — chapter nav */}
         <aside
           style={{
             borderRight: "var(--hairline)",
@@ -276,7 +376,7 @@ export function ReadingScreen() {
           </div>
         </aside>
 
-        {/* CENTER */}
+        {/* CENTER — reading */}
         <main
           style={{
             padding: "56px 56px 80px",
@@ -368,16 +468,44 @@ export function ReadingScreen() {
                       fontSize: 17,
                       lineHeight: 1.7,
                       color: "var(--ink-0)",
+                      position: "relative",
                     }}
                   >
-                    {body.chapter.paragraphs.map((p, i) => (
-                      <p
-                        key={i}
-                        style={{ margin: "0 0 22px" }}
-                      >
-                        {p}
-                      </p>
-                    ))}
+                    {body.chapter.paragraphs.map((p, i) => {
+                      const paragraphAnnots = chapterAnnotations.filter(
+                        (a) => a.paragraph_index === i,
+                      );
+                      const peekForThisParagraph =
+                        peek !== null &&
+                        peek.annotation.paragraph_index === i
+                          ? peek.annotation
+                          : null;
+                      return (
+                        <div
+                          key={i}
+                          style={{ position: "relative", margin: "0 0 22px" }}
+                        >
+                          <p style={{ margin: 0 }}>
+                            <AnnotatedParagraph
+                              text={p}
+                              annotations={paragraphAnnots}
+                              activeId={peek?.annotation.id}
+                              onAnnotationClick={openPeek}
+                            />
+                          </p>
+                          {peekForThisParagraph && (
+                            <AnnotationPeek
+                              annotation={peekForThisParagraph}
+                              top={36}
+                              left={0}
+                              onOpenInPanel={() =>
+                                openInPanel(peekForThisParagraph)
+                              }
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -449,96 +577,34 @@ export function ReadingScreen() {
           </div>
         </main>
 
-        {/* RIGHT */}
-        <aside
-          style={{
-            borderLeft: "var(--hairline)",
-            display: "flex",
-            flexDirection: "column",
-            background:
-              "color-mix(in oklab, var(--paper-0) 92%, var(--paper-1))",
-          }}
-        >
-          <div
-            style={{
-              padding: "20px 24px",
-              borderBottom: "var(--hairline)",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
+        {/* RIGHT — 48px rail OR 400px expanded panel */}
+        {panelOpen ? (
+          <AnnotationPanel
+            tab={panelTab}
+            onTabChange={setPanelTab}
+            onClose={() => {
+              setPanelOpen(false);
+              setFocusedAnnotationId(undefined);
             }}
-          >
-            <Row gap={8}>
-              <IcChat size={14} style={{ color: "var(--ink-2)" }} />
-              <span
-                style={{
-                  fontFamily: "var(--sans)",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: "var(--ink-0)",
-                  letterSpacing: 0.2,
-                }}
-              >
-                Margin notes
-              </span>
-            </Row>
-            <LockState
-              variant="spoilerSafe"
-              label={`safe through ch. ${book?.current_chapter ?? 1}`}
-            />
-          </div>
-          <div
-            style={{
-              flex: 1,
-              padding: "24px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 24,
-              overflow: "auto",
+            thread={threadContent}
+            notes={notes}
+            highlights={highlights}
+            spoilerSafeLabel={spoilerSafeLabel}
+            focusedAnnotationId={focusedAnnotationId}
+            threadCount={messages.length}
+          />
+        ) : (
+          <AnnotationRail
+            onOpen={(t) => {
+              setPanelOpen(true);
+              setPanelTab(t);
             }}
-          >
-            {messages.length === 0 && (
-              <div
-                role="status"
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  textAlign: "center",
-                  fontFamily: "var(--serif)",
-                  fontStyle: "italic",
-                  fontSize: 15,
-                  color: "var(--ink-3)",
-                  padding: "40px 24px",
-                }}
-              >
-                Ask about what you've read.
-              </div>
-            )}
-            {messages.map((m) =>
-              m.role === "user" ? (
-                <UserBubble key={m.id} text={m.text} />
-              ) : (
-                <AssistantBubble
-                  key={m.id}
-                  text={m.text}
-                  sources={m.status === "ok" ? m.sources : undefined}
-                  thinking={m.status === "thinking"}
-                />
-              )
-            )}
-            <div ref={transcriptEndRef} />
-          </div>
-          <div style={{ padding: "16px 20px 20px" }}>
-            <ChatInput
-              value={draft}
-              onChange={setDraft}
-              onSubmit={handleChatSubmit}
-              disabled={submitting}
-            />
-          </div>
-        </aside>
+            pips={{
+              thread: messages.length > 0,
+              notes: notes.length > 0,
+            }}
+          />
+        )}
       </div>
     </div>
   );

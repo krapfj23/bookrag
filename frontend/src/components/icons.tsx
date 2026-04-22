@@ -102,3 +102,18 @@ export const IcArrowR = (p: Props) => (
 export const IcSend = (p: Props) => (
   <Icon {...p} d="M2.5 13.5L13.5 8 2.5 2.5v4.5L10 8l-7.5 1.5v4z" fill="currentColor" stroke={0} />
 );
+export const IcEdit = (p: Props) => (
+  <Icon {...p} d="M11.5 2.5l2 2-7.5 7.5H4V10l7.5-7.5zM10 4l2 2" />
+);
+export const IcPrivate = (p: Props) => (
+  <Icon {...p} d="M4.5 7.5h7v6h-7v-6zM6 7.5V5a2 2 0 0 1 4 0v2.5" />
+);
+export const IcExpand = (p: Props) => (
+  <Icon {...p} d="M9 3h4v4M7 13H3V9M13 3l-5 5M3 13l5-5" />
+);
+export const IcHighlight = (p: Props) => (
+  <Icon {...p} d="M3 12h10M4.5 10.5l5-6 2 2-5 6h-2v-2z" />
+);
+export const IcSpark = (p: Props) => (
+  <Icon {...p} d="M8 2v4M8 10v4M2 8h4M10 8h4M4.5 4.5l2 2M9.5 9.5l2 2M11.5 4.5l-2 2M4.5 11.5l2-2" />
+);

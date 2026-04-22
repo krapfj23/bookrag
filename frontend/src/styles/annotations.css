@@ -1,0 +1,143 @@
+/* Inline annotation treatments — Margin Marks Committed design.
+ * Annotations live ON the words, not in the margin. Ported verbatim from
+ * design-handoff/project/Margin Marks Committed.html with minor class
+ * renaming to avoid colliding with existing global classes. */
+
+/* NOTE — soft highlight on the span */
+.annot-note {
+  background: color-mix(in oklab, var(--accent-soft) 85%, transparent);
+  padding: 0 2px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background var(--dur);
+}
+.annot-note:hover {
+  background: var(--accent-soft);
+}
+.annot-note.active {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* QUERY — thin underline */
+.annot-query {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+  cursor: pointer;
+  transition: text-decoration-color var(--dur);
+}
+.annot-query:hover {
+  text-decoration-color: var(--accent-ink);
+  text-decoration-thickness: 2px;
+}
+.annot-query.active {
+  text-decoration-color: var(--accent-ink);
+  text-decoration-thickness: 2px;
+  background: var(--accent-softer);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* Peek popover */
+@keyframes annot-fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.annot-peek {
+  position: absolute;
+  width: 300px;
+  background: var(--paper-00);
+  border: 1px solid var(--paper-2);
+  border-radius: var(--r-lg);
+  box-shadow: 0 12px 32px rgba(32, 28, 22, 0.14), 0 1px 3px rgba(0, 0, 0, 0.04);
+  animation: annot-fadeUp 180ms var(--ease-out);
+  z-index: 8;
+}
+.annot-peek::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 24px;
+  width: 9px;
+  height: 9px;
+  background: var(--paper-00);
+  border-left: 1px solid var(--paper-2);
+  border-top: 1px solid var(--paper-2);
+  transform: rotate(45deg);
+}
+.annot-peek-head {
+  padding: 10px 14px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.annot-peek-body {
+  padding: 6px 14px 14px;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-1);
+}
+.annot-peek-foot {
+  border-top: 1px solid var(--paper-2);
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.annot-peek-action {
+  background: none;
+  border: 0;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-family: var(--sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.annot-peek-action:hover {
+  background: var(--paper-1);
+  color: var(--ink-0);
+}
+
+/* Private chip + tag */
+.annot-private-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  background: var(--paper-1);
+  color: var(--ink-3);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.annot-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background: color-mix(in oklab, var(--accent-softer) 80%, var(--paper-0));
+  color: var(--accent-ink);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}

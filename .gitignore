@@ -24,3 +24,8 @@ logs/
 
 # pytest
 .pytest_cache/
+.playwright-mcp/
+*.png
+
+.playwright-mcp/
+*.png

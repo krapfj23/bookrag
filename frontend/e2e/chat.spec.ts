@@ -60,12 +60,19 @@ async function mockReadingBackend(page: Page) {
 }
 
 test.describe("chat flow (hermetic)", () => {
-  test("empty state is visible on fresh Reading screen", async ({ page }) => {
+  // Margin Marks: chat lives inside the panel's Thread tab. The rail is
+  // collapsed by default; click Thread to expand the panel first.
+  async function openThread(page: import("@playwright/test").Page) {
+    await page.getByRole("button", { name: /^thread$/i }).click();
+  }
+
+  test("empty state is visible after opening the Thread tab", async ({ page }) => {
     await mockReadingBackend(page);
     await page.goto(`/books/${BOOK_ID}/read/2`);
     await expect(
       page.getByText(/opening paragraph of chapter 2/i)
     ).toBeVisible();
+    await openThread(page);
     await expect(
       page.getByText(/ask about what you've read\./i)
     ).toBeVisible();
@@ -108,6 +115,7 @@ test.describe("chat flow (hermetic)", () => {
     await expect(
       page.getByText(/opening paragraph of chapter 2/i)
     ).toBeVisible();
+    await openThread(page);
 
     const input = page.getByLabel(/ask about what you've read/i);
     await input.fill("Who is Marley?");
@@ -156,6 +164,7 @@ test.describe("chat flow (hermetic)", () => {
     await expect(
       page.getByText(/opening paragraph of chapter 2/i)
     ).toBeVisible();
+    await openThread(page);
 
     const input = page.getByLabel(/ask about what you've read/i);
     await input.fill("obscure question");
@@ -183,6 +192,7 @@ test.describe("chat flow (hermetic)", () => {
     await expect(
       page.getByText(/opening paragraph of chapter 2/i)
     ).toBeVisible();
+    await openThread(page);
 
     const input = page.getByLabel(/ask about what you've read/i);
     await input.fill("Hello");

@@ -9,3 +9,6 @@ playwright-report
 *.tsbuildinfo
 vite.config.d.ts
 vite.config.js
+.playwright-mcp/
+*.png
+
