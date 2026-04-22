@@ -9,7 +9,7 @@ import { Button } from "../components/Button";
 import { Row } from "../components/layout";
 import { IcArrowL, IcArrowR } from "../components/icons";
 import { UserBubble } from "../components/UserBubble";
-import { AssistantBubble, type AssistantSource } from "../components/AssistantBubble";
+import { AssistantBubble } from "../components/AssistantBubble";
 import { ChatInput } from "../components/ChatInput";
 import { AnnotatedParagraph, fogLevelFor } from "../components/AnnotatedParagraph";
 import { AnnotationPeek } from "../components/AnnotationPeek";
@@ -33,25 +33,9 @@ import {
   fetchChapters,
   setProgress,
   queryBook,
-  QueryRateLimitError,
-  QueryError,
 } from "../lib/api";
 import { useReadingState } from "./reading/useReadingState";
-
-type ChatMessage =
-  | { id: string; role: "user"; text: string }
-  | {
-      id: string;
-      role: "assistant";
-      status: "thinking" | "ok" | "error";
-      text: string;
-      sources?: AssistantSource[];
-    };
-
-const ERR_GENERIC = "Something went wrong. Try again.";
-const ERR_RATELIMIT = "Too many requests, slow down.";
-const EMPTY_RESULT_TEXT =
-  "I don't have anything in your read-so-far that answers that. Try rephrasing, or read further.";
+import { useChatState } from "./reading/useChatState";
 
 export function ReadingScreen() {
   const { bookId = "", chapterNum = "1" } = useParams<{
@@ -70,115 +54,6 @@ export function ReadingScreen() {
     setProgress,
     onMarkAsRead: (next) => navigate(`/books/${bookId}/read/${next}`),
   });
-
-  // ── Chat (Thread tab) state ──────────────────────────────────────────
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const el = transcriptEndRef.current;
-    if (el?.scrollIntoView) {
-      el.scrollIntoView({ block: "end" });
-    }
-  }, [messages]);
-
-  async function handleChatSubmit() {
-    const trimmed = draft.trim();
-    if (!trimmed || !book || submitting) return;
-
-    const userId = crypto.randomUUID();
-    const thinkingId = crypto.randomUUID();
-    const maxChapter = book.current_chapter;
-    // Attach the selection excerpt as a quoted preamble so the backend
-    // sees the context the user highlighted. The UI still shows the
-    // clean user message in the UserBubble.
-    const attachedExcerpt = pendingQuery?.excerpt ?? null;
-    const queryText = attachedExcerpt
-      ? `About "${attachedExcerpt}": ${trimmed}`
-      : trimmed;
-
-    setMessages((prev) => [
-      ...prev,
-      { id: userId, role: "user", text: trimmed },
-      {
-        id: thinkingId,
-        role: "assistant",
-        status: "thinking",
-        text: "Thinking…",
-      },
-    ]);
-    setDraft("");
-    setPendingQuery(null);
-    setSubmitting(true);
-
-    try {
-      const resp = await queryBook(bookId, queryText, maxChapter);
-      const hasResults = resp.result_count > 0 && resp.results.length > 0;
-      const sources: AssistantSource[] = hasResults
-        ? resp.results
-            .filter((r): r is typeof r & { chapter: number } => r.chapter != null)
-            .map((r) => ({ text: r.content, chapter: r.chapter }))
-        : [];
-      // Prefer the GraphRAG-synthesized answer from the backend. Fall back
-      // to chapter-less raw results only if the LLM synthesis was empty
-      // (e.g., Cognee unavailable). Final fallback: the empty-result copy.
-      const synthesized = resp.answer?.trim() ?? "";
-      const proseResults = hasResults
-        ? resp.results.filter((r) => r.chapter == null)
-        : [];
-      const answerText =
-        synthesized.length > 0
-          ? synthesized
-          : hasResults
-            ? proseResults.map((r) => r.content).join("\n\n") ||
-              sources.map((s) => s.text).join("\n\n")
-            : EMPTY_RESULT_TEXT;
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === thinkingId
-            ? {
-                id: thinkingId,
-                role: "assistant",
-                status: "ok",
-                text: answerText,
-                sources: sources.length > 0 ? sources : undefined,
-              }
-            : m,
-        ),
-      );
-      // Query resolved — fog was only a "I'm asking about this" marker, not
-      // a persistent reading-position cutoff. Clear it so the reader can
-      // continue unimpeded.
-      clearCurrentCutoff();
-    } catch (err) {
-      const copy =
-        err instanceof QueryRateLimitError
-          ? ERR_RATELIMIT
-          : err instanceof QueryError
-            ? ERR_GENERIC
-            : ERR_GENERIC;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === thinkingId
-            ? {
-                id: thinkingId,
-                role: "assistant",
-                status: "error",
-                text: copy,
-              }
-            : m,
-        ),
-      );
-      // Error path: clear the fog too — the user got a response (even if bad)
-      // and shouldn't be stuck staring at blurred text.
-      clearCurrentCutoff();
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   function rowStateFor(num: number): ChapterRowState {
     if (!book) return "locked";
@@ -244,6 +119,25 @@ export function ReadingScreen() {
   // Per-chapter cutoff, loaded from localStorage on chapter change.
   const [cutoff, setCutoffState] = useState<Cutoff | null>(null);
   const readerRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Chat (Thread tab) state — owned by useChatState hook ────────────
+  const {
+    messages,
+    draft,
+    setDraft,
+    submitting,
+    submit: handleChatSubmit,
+    transcriptEndRef,
+  } = useChatState({
+    bookId,
+    book,
+    queryBook,
+    pendingExcerpt: pendingQuery?.excerpt ?? null,
+    onPendingCleared: () => setPendingQuery(null),
+    // Always clear the fog once a query resolves (ok or error) — fog was
+    // only a "I'm asking about this" marker, not a persistent cutoff.
+    onAnswered: () => clearCurrentCutoff(),
+  });
 
   // Load the cutoff for the current (book, chapter) when they change.
   useEffect(() => {
