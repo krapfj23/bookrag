@@ -44,7 +44,7 @@ _NODE_COLLECTIONS = {
 }
 
 
-def load_allowed_nodes(
+def _load_allowed_nodes_by_chapter_legacy(
     book_id: str,
     cursor: int,
     processed_dir: Path | str,
@@ -256,3 +256,109 @@ def _identity_key(node: dict) -> tuple:
     if t == "PlotEvent":
         return (t, node.get("chapter"), node.get("description", ""))
     return (t, node.get("name", ""))
+
+
+def _effective_ordinal(node: dict, book_id: str, processed_dir: Path | str) -> int | None:
+    """Return the node's source_chunk_ordinal, or — if missing — the last ordinal
+    of the chapter derived from effective_latest_chapter. None if neither works.
+    """
+    ord_val = node.get("source_chunk_ordinal")
+    if ord_val is not None:
+        return int(ord_val)
+    ch = effective_latest_chapter(node)
+    if ch is None:
+        return None
+    # Import here to avoid circular imports at module load.
+    from pipeline.chunk_index import load_chapter_index
+    idx = load_chapter_index(book_id, processed_dir)
+    entry = idx.get(str(ch))
+    if entry is None:
+        return None
+    return int(entry["last_ordinal"])
+
+
+def load_allowed_nodes_by_chunk(
+    book_id: str,
+    chunk_ordinal_cursor: int,
+    processed_dir: Path | str,
+) -> list[dict]:
+    """Ordinal-based variant of load_allowed_nodes.
+
+    Keeps the latest per-identity snapshot whose source_chunk_ordinal
+    (or chapter-fallback ordinal) <= cursor.
+    """
+    batches_dir = Path(processed_dir) / book_id / "batches"
+    if not batches_dir.exists():
+        return []
+
+    latest: dict[tuple, tuple[int, dict]] = {}
+
+    def _merge(enriched: dict) -> None:
+        ord_ = _effective_ordinal(enriched, book_id, processed_dir)
+        if ord_ is None or ord_ > chunk_ordinal_cursor:
+            return
+        key = _identity_key(enriched)
+        prev = latest.get(key)
+        if prev is None or ord_ > prev[0]:
+            latest[key] = (ord_, enriched)
+
+    for batch_file in sorted(batches_dir.glob("*.json")):
+        try:
+            payload = json.loads(batch_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        for collection, type_label in _NODE_COLLECTIONS.items():
+            for node in payload.get(collection, []) or []:
+                enriched = dict(node)
+                enriched["_type"] = type_label
+                _merge(enriched)
+
+    for dp_file in sorted(batches_dir.glob("batch_*/extracted_datapoints.json")):
+        try:
+            payload = json.loads(dp_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        items = payload if isinstance(payload, list) else payload.get("datapoints", [])
+        for node in items:
+            if not isinstance(node, dict):
+                continue
+            enriched = dict(node)
+            enriched["_type"] = enriched.get("type") or enriched.get("__type__") or "Entity"
+            _merge(enriched)
+
+    return [node for _, node in latest.values()]
+
+
+def load_allowed_nodes(
+    book_id: str,
+    cursor: int,
+    processed_dir: Path | str,
+) -> list[dict]:
+    """Chapter-cursor variant. Delegates to load_allowed_nodes_by_chunk when
+    the chunk index is present; otherwise falls back to the legacy
+    chapter-based walk.
+    """
+    from pipeline.chunk_index import load_chapter_index
+    idx = load_chapter_index(book_id, processed_dir)
+    if idx:
+        entry = idx.get(str(cursor))
+        if entry is not None:
+            return load_allowed_nodes_by_chunk(
+                book_id=book_id,
+                chunk_ordinal_cursor=entry["last_ordinal"],
+                processed_dir=processed_dir,
+            )
+        # Chapter not in index — find the largest indexed chapter <= cursor
+        prior = [int(v["last_ordinal"]) for k, v in idx.items() if int(k) <= cursor]
+        if prior:
+            return load_allowed_nodes_by_chunk(
+                book_id=book_id,
+                chunk_ordinal_cursor=max(prior),
+                processed_dir=processed_dir,
+            )
+        return []
+
+    # Legacy path: no chunk index, walk batches and compare by chapter
+    return _load_allowed_nodes_by_chapter_legacy(book_id, cursor, processed_dir)
