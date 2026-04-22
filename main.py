@@ -119,6 +119,7 @@ if COGNEE_AVAILABLE:
 class UploadResponse(BaseModel):
     book_id: str
     message: str
+    reused: bool = False
 
 
 class ProgressRequest(BaseModel):
@@ -231,6 +232,13 @@ async def upload_book(file: UploadFile = File(...)) -> UploadResponse:
     except EpubSizeError as exc:
         raise HTTPException(status_code=413, detail=str(exc))
 
+    from pipeline.content_hash import sha256_bytes, lookup_existing_book, record_book
+    content_hash = sha256_bytes(content)
+    existing = lookup_existing_book(config.processed_dir, content_hash)
+    if existing is not None:
+        logger.info("Upload matches existing book {} (sha256={}); returning cached", existing, content_hash[:12])
+        return UploadResponse(book_id=existing, message="already processed", reused=True)
+
     # Check concurrent pipeline limit
     active = sum(1 for t in orchestrator._tasks.values() if not t.done())
     if active >= MAX_CONCURRENT_PIPELINES:
@@ -257,6 +265,7 @@ async def upload_book(file: UploadFile = File(...)) -> UploadResponse:
 
     # Launch pipeline in background
     orchestrator.run_in_background(book_id, epub_path)
+    record_book(config.processed_dir, content_hash, book_id)
 
     return UploadResponse(book_id=book_id, message="Pipeline started")
 

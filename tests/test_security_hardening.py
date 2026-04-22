@@ -119,3 +119,41 @@ class TestZipBombUploadRejection:
         assert resp.status_code == 413
         detail = resp.json().get("detail", "")
         assert "decompressed" in detail.lower() or "too large" in detail.lower() or "entry" in detail.lower()
+
+
+class TestUploadDedupe:
+    def test_same_epub_twice_returns_same_id_when_ready(self, tmp_path, monkeypatch):
+        import io, zipfile, main
+        from models.pipeline_state import PipelineState, save_state
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("mimetype", b"application/epub+zip")
+            zf.writestr("OEBPS/content.xhtml", b"<html>x</html>")
+        payload = buf.getvalue()
+
+        processed = tmp_path / "processed"
+        processed.mkdir()
+        monkeypatch.setattr(main.config, "books_dir", str(tmp_path / "books"))
+        monkeypatch.setattr(main.config, "processed_dir", str(processed))
+
+        # Patch orchestrator to not actually run pipeline
+        monkeypatch.setattr(main.orchestrator, "run_in_background", lambda *a, **k: None)
+
+        client = TestClient(main.app)
+        r1 = client.post("/books/upload",
+                         files={"file": ("same.epub", payload, "application/epub+zip")})
+        assert r1.status_code == 200
+        bid = r1.json()["book_id"]
+        assert r1.json()["reused"] is False
+
+        # Simulate pipeline completion
+        (processed / bid).mkdir(exist_ok=True)
+        s = PipelineState(book_id=bid); s.ready_for_query = True
+        save_state(s, processed / bid / "pipeline_state.json")
+
+        r2 = client.post("/books/upload",
+                         files={"file": ("same.epub", payload, "application/epub+zip")})
+        assert r2.status_code == 200
+        assert r2.json()["book_id"] == bid
+        assert r2.json()["reused"] is True
