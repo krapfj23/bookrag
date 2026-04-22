@@ -348,11 +348,13 @@ class TestProgressEndpoint:
         test_client, mock_orch, _ = client
         mock_orch.get_state.return_value = None
 
+        # Progress endpoint no longer requires book existence (fog-of-war phase 1):
+        # clients may set progress before/independent of ingestion state.
         resp = test_client.post(
             "/books/nobook/progress",
             json={"current_chapter": 1},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 200
 
     def test_progress_invalid_chapter(self, client):
         test_client, mock_orch, _ = client
@@ -587,3 +589,64 @@ class TestReadingProgressParagraph:
         chapter, paragraph = _get_reading_progress("nonexistent")
         assert chapter == 1
         assert paragraph is None
+
+
+class TestSetProgressWithParagraph:
+    """POST /books/{id}/progress accepts optional current_paragraph."""
+
+    def _seed(self, tmp_path, book_id="bk"):
+        (tmp_path / book_id).mkdir(parents=True, exist_ok=True)
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+
+    def test_accepts_paragraph(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/progress", json={
+            "current_chapter": 3, "current_paragraph": 12,
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["current_chapter"] == 3
+        assert body["current_paragraph"] == 12
+
+    def test_paragraph_optional(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/progress", json={"current_chapter": 2})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["current_chapter"] == 2
+        assert body["current_paragraph"] is None
+
+    def test_paragraph_persisted_to_disk(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        client = TestClient(app)
+        client.post("/books/bk/progress", json={
+            "current_chapter": 3, "current_paragraph": 12,
+        })
+        on_disk = json.loads((tmp_path / "bk" / "reading_progress.json").read_text())
+        assert on_disk["current_chapter"] == 3
+        assert on_disk["current_paragraph"] == 12
+
+    def test_rejects_negative_paragraph(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/progress", json={
+            "current_chapter": 3, "current_paragraph": -1,
+        })
+        assert resp.status_code == 400
