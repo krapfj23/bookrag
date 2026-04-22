@@ -490,3 +490,30 @@ class TestVectorTripletFallback:
             "GhostOfFuture" in r.get("content", "")
             for r in body["results"]
         ), f"spoiler leak: {body['results']}"
+
+
+class TestQueryReadyGate:
+    """/query must 409 when the book exists but pipeline_state.ready_for_query is False."""
+
+    def test_query_returns_409_when_not_ready(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        import main
+        from models.pipeline_state import PipelineState, save_state
+
+        book_id = "halfway_book_00000001"
+        processed = tmp_path / "processed"
+        book_dir = processed / book_id
+        book_dir.mkdir(parents=True)
+        state = PipelineState(book_id=book_id)
+        state.ready_for_query = False
+        save_state(state, book_dir / "pipeline_state.json")
+
+        monkeypatch.setattr(main.config, "processed_dir", str(processed))
+
+        client = TestClient(main.app)
+        resp = client.post(
+            f"/books/{book_id}/query",
+            json={"question": "who?", "search_type": "GRAPH_COMPLETION"},
+        )
+        assert resp.status_code == 409
+        assert "processing" in resp.json()["detail"].lower()

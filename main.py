@@ -845,6 +845,21 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
+    from models.pipeline_state import load_state  # local import — avoid cycles
+
+    state_path = book_dir / "pipeline_state.json"
+    if state_path.exists():
+        try:
+            state = load_state(state_path)
+        except (json.JSONDecodeError, KeyError, OSError) as exc:
+            logger.warning("Cannot load pipeline state for {}: {}", book_id, exc)
+        else:
+            if not state.ready_for_query:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Book '{book_id}' is still processing",
+                )
+
     disk_chapter, disk_paragraph = _get_reading_progress(book_id)
     current_chapter = (
         min(req.max_chapter, disk_chapter) if req.max_chapter is not None else disk_chapter
