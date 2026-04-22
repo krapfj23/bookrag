@@ -140,10 +140,18 @@ export type ChapterSummary = {
   word_count: number;
 };
 
+export type AnchoredSentence = { sid: string; text: string };
+export type AnchoredParagraph = {
+  paragraph_idx: number;
+  sentences: AnchoredSentence[];
+};
+
 export type Chapter = {
   num: number;
   title: string;
   paragraphs: string[];
+  paragraphs_anchored: AnchoredParagraph[];
+  anchors_fallback: boolean;
   has_prev: boolean;
   has_next: boolean;
   total_chapters: number;
