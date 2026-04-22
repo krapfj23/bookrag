@@ -5,26 +5,70 @@ interface Props {
   annotations: Annotation[]; // all annotations whose paragraph_index matches this paragraph
   activeId?: string;
   onAnnotationClick?: (annotation: Annotation) => void;
+  // Per-paragraph fog level (1–5) when the paragraph is BELOW the cutoff.
+  // If omitted, no fog applies.
+  fogLevel?: 0 | 1 | 2 | 3 | 4 | 5;
+  // When this paragraph CONTAINS the cutoff, split text at this char offset:
+  // everything before is legible; everything after gets fog-1.
+  cutoffCharOffset?: number;
 }
 
 // Splits paragraph text into plain text + annotated spans at each match.
-// If an annotation's `match` substring doesn't occur in `text`, it is skipped
-// silently — seed data matches prose verbatim, but a missing match should
-// never crash the reader.
+// If an annotation's `match` substring doesn't occur in `text`, it is skipped.
+// Also supports mid-paragraph fog split at `cutoffCharOffset`.
 export function AnnotatedParagraph({
   text,
   annotations,
   activeId,
   onAnnotationClick,
+  fogLevel = 0,
+  cutoffCharOffset,
 }: Props) {
-  if (annotations.length === 0) {
-    return <>{text}</>;
+  // If this paragraph is below the cutoff (fogLevel > 0) and has no mid-split
+  // offset, just blur the whole paragraph as one wrapped span.
+  if (fogLevel > 0 && cutoffCharOffset === undefined) {
+    return (
+      <span className={`fog fog-${fogLevel}`}>
+        {renderAnnotated(text, annotations, activeId, onAnnotationClick)}
+      </span>
+    );
   }
 
-  // Resolve each annotation's start/end offsets within this paragraph. Sort
-  // by start so we can walk left-to-right and emit alternating plain/span
-  // segments. Overlapping annotations are not supported in the seed set;
-  // if two ranges overlap, the later one is dropped to keep the walk safe.
+  // If the cutoff falls INSIDE this paragraph, split into a clear "before"
+  // segment and a blurred "after" segment. Annotations are still rendered
+  // in the before segment (including spans that straddle the boundary —
+  // we truncate them at the cutoff for visual clarity).
+  if (cutoffCharOffset !== undefined) {
+    const boundary = Math.max(0, Math.min(text.length, cutoffCharOffset));
+    const beforeText = text.slice(0, boundary);
+    const afterText = text.slice(boundary);
+    const beforeAnnots = annotations.filter((a) => {
+      const s = text.indexOf(a.match);
+      return s >= 0 && s < boundary;
+    });
+    return (
+      <>
+        {renderAnnotated(beforeText, beforeAnnots, activeId, onAnnotationClick)}
+        {afterText.length > 0 && (
+          <span className="fog fog-1">{afterText}</span>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>{renderAnnotated(text, annotations, activeId, onAnnotationClick)}</>
+  );
+}
+
+function renderAnnotated(
+  text: string,
+  annotations: Annotation[],
+  activeId: string | undefined,
+  onClick: ((a: Annotation) => void) | undefined,
+): React.ReactNode {
+  if (annotations.length === 0) return text;
+
   type Range = { annotation: Annotation; start: number; end: number };
   const ranges: Range[] = [];
   for (const a of annotations) {
@@ -37,7 +81,7 @@ export function AnnotatedParagraph({
   const safe: Range[] = [];
   let cursor = 0;
   for (const r of ranges) {
-    if (r.start < cursor) continue; // overlap with a previous annotation
+    if (r.start < cursor) continue;
     safe.push(r);
     cursor = r.end;
   }
@@ -58,11 +102,11 @@ export function AnnotatedParagraph({
         tabIndex={0}
         data-annotation-id={annotation.id}
         data-annotation-kind={annotation.kind}
-        onClick={() => onAnnotationClick?.(annotation)}
+        onClick={() => onClick?.(annotation)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            onAnnotationClick?.(annotation);
+            onClick?.(annotation);
           }
         }}
       >
@@ -72,6 +116,13 @@ export function AnnotatedParagraph({
     pos = r.end;
   }
   if (pos < text.length) out.push(text.slice(pos));
+  return out;
+}
 
-  return <>{out}</>;
+// Map a paragraph's distance below the cutoff paragraph to a fog level.
+// Paragraph N+1 → fog-1, N+2 → fog-2, … N+5+ → fog-5 (cap).
+export function fogLevelFor(distance: number): 0 | 1 | 2 | 3 | 4 | 5 {
+  if (distance <= 0) return 0;
+  if (distance >= 5) return 5;
+  return distance as 1 | 2 | 3 | 4;
 }

@@ -48,6 +48,13 @@ export function AnnotationPanel({
           "color-mix(in oklab, var(--paper-0) 92%, var(--paper-1))",
         display: "flex",
         flexDirection: "column",
+        // Pin to the viewport so the chat input is always reachable,
+        // instead of stretching to the full document height.
+        position: "sticky",
+        top: 56, // below NavBar
+        height: "calc(100vh - 56px)",
+        alignSelf: "start",
+        overflow: "hidden",
       }}
     >
       {/* Spoiler-safe header band — preserves the invariant from slice 3 */}

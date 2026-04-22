@@ -402,3 +402,155 @@ class TestCORS:
         # The response should not include the evil origin
         allow_origin = resp.headers.get("access-control-allow-origin", "")
         assert "evil.com" not in allow_origin
+
+
+class TestExtractChapterUsesEffectiveLatest:
+    def test_prefers_last_known_over_first(self):
+        from main import _extract_chapter
+
+        class Node:
+            first_chapter = 1
+            last_known_chapter = 7
+
+        assert _extract_chapter(Node()) == 7
+
+    def test_falls_back_to_first_chapter(self):
+        from main import _extract_chapter
+
+        class Node:
+            first_chapter = 4
+
+        assert _extract_chapter(Node()) == 4
+
+    def test_handles_plot_event_chapter(self):
+        from main import _extract_chapter
+        assert _extract_chapter({"chapter": 9}) == 9
+
+
+class TestAnswerFromAllowedNodes:
+    """The pre-filter retrieval path never returns nodes beyond the cursor."""
+
+    def _seed_book(self, tmp_path, book_id: str):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Scrooge", "description": "miser",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c2", "name": "Ghost of Future", "description": "spoiler",
+                 "first_chapter": 1, "last_known_chapter": 5},
+            ],
+            "events": [
+                {"id": "e1", "description": "meets ghost", "chapter": 2},
+                {"id": "e3", "description": "dies", "chapter": 5},
+            ],
+        }))
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True, "current_stage": "complete",
+            "stages": {},
+        }))
+
+    def test_cursor_2_hides_chapter_5_nodes(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_book(tmp_path, "bk")
+
+        items = _answer_from_allowed_nodes("bk", question="what happens", cursor=2)
+        contents = [i.content for i in items]
+        assert not any("spoiler" in c.lower() for c in contents)
+        assert not any("dies" in c.lower() for c in contents)
+
+    def test_cursor_5_reveals_chapter_5_nodes(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_book(tmp_path, "bk")
+
+        items = _answer_from_allowed_nodes("bk", question="dies", cursor=5)
+        assert any("dies" in i.content.lower() for i in items)
+
+
+class TestQueryEndpointFogOfWar:
+    """End-to-end: /books/{id}/query never returns content past the cursor."""
+
+    def _seed(self, tmp_path, book_id):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Marley", "description": "dead partner",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c2", "name": "Tiny Tim", "description": "dies in stave 4",
+                 "first_chapter": 1, "last_known_chapter": 4},
+            ],
+        }))
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True, "current_stage": "complete",
+            "stages": {},
+        }))
+        (tmp_path / book_id / "reading_progress.json").write_text(json.dumps({
+            "book_id": book_id, "current_chapter": 2,
+        }))
+
+    def test_query_hides_future_character_description(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path, "carol")
+
+        client = TestClient(app)
+        resp = client.post("/books/carol/query", json={
+            "question": "Tiny Tim",
+            "search_type": "GRAPH_COMPLETION",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["current_chapter"] == 2
+        for r in body["results"]:
+            assert "dies in stave 4" not in r["content"], f"SPOILER: {r}"
+
+
+class TestGraphCompletionUsesOnlyAllowed:
+    """GRAPH_COMPLETION calls the LLM with ONLY allowed context."""
+
+    def test_llm_prompt_does_not_contain_future_content(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+
+        captured: dict = {}
+
+        async def fake_complete(question: str, context: list[str]) -> str:
+            captured["context"] = context
+            captured["question"] = question
+            return "stub answer"
+
+        monkeypatch.setattr(main_mod, "_complete_over_context", fake_complete)
+
+        batches = tmp_path / "bk" / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Early", "description": "safe",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c2", "name": "Future", "description": "SPOILER_MARKER",
+                 "first_chapter": 1, "last_known_chapter": 9},
+            ],
+        }))
+        (tmp_path / "bk" / "pipeline_state.json").write_text(json.dumps({
+            "book_id": "bk", "ready_for_query": True, "current_stage": "complete", "stages": {},
+        }))
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 2,
+        }))
+
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "tell me about future events",
+            "search_type": "GRAPH_COMPLETION",
+        })
+        assert resp.status_code == 200
+        assert captured, "LLM completion was not invoked"
+        combined = " ".join(captured["context"])
+        assert "SPOILER_MARKER" not in combined, f"context leaked: {combined}"

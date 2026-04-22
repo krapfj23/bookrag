@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from cognee.infrastructure.engine import DataPoint
 
@@ -28,23 +28,44 @@ class Character(DataPoint):
     aliases: list[str] = []
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     chapters_present: list[int] = []
     metadata: dict = {"index_fields": ["name", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class Location(DataPoint):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     metadata: dict = {"index_fields": ["name", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class Faction(DataPoint):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     members: list[Character] = []
     metadata: dict = {"index_fields": ["name"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class PlotEvent(DataPoint):
@@ -61,15 +82,29 @@ class Relationship(DataPoint):
     relation_type: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     metadata: dict = {"index_fields": ["relation_type", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class Theme(DataPoint):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = None
     related_characters: list[Character] = []
     metadata: dict = {"index_fields": ["name", "description"]}
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 # ===========================================================================
@@ -86,7 +121,17 @@ class CharacterExtraction(BaseModel):
     aliases: list[str] = []
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
     chapters_present: list[int] = []
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class LocationExtraction(BaseModel):
@@ -94,6 +139,16 @@ class LocationExtraction(BaseModel):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class FactionExtraction(BaseModel):
@@ -101,10 +156,20 @@ class FactionExtraction(BaseModel):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
     member_names: list[str] = Field(
         default=[],
         description="Names of characters who belong to this faction",
     )
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class EventExtraction(BaseModel):
@@ -130,6 +195,16 @@ class RelationshipExtraction(BaseModel):
     )
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class ThemeExtraction(BaseModel):
@@ -137,7 +212,17 @@ class ThemeExtraction(BaseModel):
     name: str
     description: str | None = None
     first_chapter: int
+    last_known_chapter: int | None = Field(
+        default=None,
+        description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
+    )
     related_character_names: list[str] = []
+
+    @model_validator(mode="after")
+    def _default_last_known_chapter(self):
+        if self.last_known_chapter is None:
+            self.last_known_chapter = self.first_chapter
+        return self
 
 
 class ExtractionResult(BaseModel):
@@ -174,6 +259,7 @@ class ExtractionResult(BaseModel):
                 aliases=c.aliases,
                 description=c.description,
                 first_chapter=c.first_chapter,
+                last_known_chapter=c.last_known_chapter,
                 chapters_present=c.chapters_present,
             )
             char_map[c.name] = dp
@@ -187,6 +273,7 @@ class ExtractionResult(BaseModel):
                 name=loc.name,
                 description=loc.description,
                 first_chapter=loc.first_chapter,
+                last_known_chapter=loc.last_known_chapter,
             )
             loc_map[loc.name] = dp
             datapoints.append(dp)
@@ -199,6 +286,7 @@ class ExtractionResult(BaseModel):
                 name=f.name,
                 description=f.description,
                 first_chapter=f.first_chapter,
+                last_known_chapter=f.last_known_chapter,
                 members=members,
             )
             datapoints.append(dp)
@@ -233,6 +321,7 @@ class ExtractionResult(BaseModel):
                 relation_type=rel.relation_type,
                 description=rel.description,
                 first_chapter=rel.first_chapter,
+                last_known_chapter=rel.last_known_chapter,
             )
             datapoints.append(dp)
 
@@ -244,6 +333,7 @@ class ExtractionResult(BaseModel):
                 name=th.name,
                 description=th.description,
                 first_chapter=th.first_chapter,
+                last_known_chapter=th.last_known_chapter,
                 related_characters=related,
             )
             datapoints.append(dp)

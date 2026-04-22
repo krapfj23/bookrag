@@ -175,6 +175,9 @@ class QueryResponse(BaseModel):
     question: str
     search_type: str
     current_chapter: int
+    # LLM-synthesized answer from the graph context (empty string if the
+    # synthesis call failed and we fell back to raw sources).
+    answer: str
     results: list[QueryResultItem]
     result_count: int
 
@@ -482,18 +485,13 @@ def _get_reading_progress(book_id: str) -> int:
 
 
 def _extract_chapter(item: Any) -> int | None:
-    """Extract the earliest chapter reference from a search result item."""
+    """Return the effective latest chapter for a retrieval result item."""
+    from pipeline.spoiler_filter import effective_latest_chapter
+
     obj = item
     if hasattr(item, "search_result"):
         obj = item.search_result
-    if isinstance(obj, dict):
-        return obj.get("chapter") or obj.get("first_chapter")
-    for attr in ("chapter", "first_chapter"):
-        if hasattr(obj, attr):
-            val = getattr(obj, attr)
-            if val is not None:
-                return int(val)
-    return None
+    return effective_latest_chapter(obj)
 
 
 def _result_to_text(item: Any) -> str:
@@ -551,12 +549,85 @@ def _search_datapoints_on_disk(book_id: str, question: str, max_chapter: int) ->
     return results
 
 
+class _SpoilerSafeAnswer(BaseModel):
+    answer: str
+
+
+async def _complete_over_context(question: str, context: list[str]) -> str:
+    """Ask the configured LLM to answer `question` using ONLY `context`.
+
+    Context is the stringified allowed-node content list. No retrieval
+    happens inside this function — the caller owns the fog-of-war guarantee.
+    """
+    from cognee.infrastructure.llm.LLMGateway import LLMGateway
+
+    if not context:
+        return "I don't have information about that yet based on your reading progress."
+
+    system = (
+        "You are a spoiler-free literary assistant. Answer the user's question "
+        "using ONLY the provided knowledge-graph context. If the context does "
+        "not contain the answer, say you don't know yet. Never invent events "
+        "or use prior knowledge of the book."
+    )
+    user = (
+        f"Question: {question}\n\n"
+        "Context (allowed nodes from the reader's current progress):\n"
+        + "\n".join(f"- {c}" for c in context)
+    )
+    response = await LLMGateway.acreate_structured_output(
+        text_input=user,
+        system_prompt=system,
+        response_model=_SpoilerSafeAnswer,
+    )
+    return response.answer
+
+
+def _answer_from_allowed_nodes(
+    book_id: str,
+    question: str,
+    cursor: int,
+) -> list[QueryResultItem]:
+    """Pre-filtered keyword retrieval. Walks disk batch JSON, keeps only
+    nodes whose effective latest chapter is <= cursor, then ranks by
+    keyword overlap with the question."""
+    from pipeline.spoiler_filter import load_allowed_nodes, effective_latest_chapter
+
+    nodes = load_allowed_nodes(book_id, cursor, processed_dir=Path(config.processed_dir))
+    if not nodes:
+        return []
+
+    keywords = [w.lower() for w in question.split() if len(w) > 2]
+    ranked: list[tuple[int, QueryResultItem]] = []
+    for node in nodes:
+        label = (node.get("name") or node.get("description") or "").lower()
+        desc = (node.get("description") or "").lower()
+        haystack = f"{label} {desc}"
+        score = sum(1 for kw in keywords if kw in haystack) if keywords else 0
+        if keywords and score == 0:
+            continue
+        content = node.get("name") or node.get("description") or ""
+        if node.get("name") and node.get("description"):
+            content = f"{node['name']} — {node['description']}"
+        ranked.append((score, QueryResultItem(
+            content=content,
+            entity_type=node.get("_type"),
+            chapter=effective_latest_chapter(node),
+        )))
+
+    ranked.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in ranked]
+
+
 @app.post("/books/{book_id}/query", response_model=QueryResponse)
 async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
-    """Query the knowledge graph with spoiler filtering.
+    """Query the knowledge graph with reader-progress fog-of-war.
 
-    Results are limited to chapters at or before the reader's current progress.
-    Set progress first via POST /books/{book_id}/progress.
+    Retrieval is PRE-FILTERED: a node allowlist is computed from disk based
+    on the reader's current chapter, and only allowed nodes are ever
+    considered. No Cognee default search is run, because it retrieves over
+    the full dataset before we can filter and may leak spoilers through
+    graph-completion reasoning.
     """
     if req.search_type not in _ALLOWED_SEARCH_TYPES:
         raise HTTPException(
@@ -573,39 +644,19 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
         min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
     )
 
-    # Try Cognee graph search first, fall back to disk-based search
-    results: list[QueryResultItem] = []
+    results = _answer_from_allowed_nodes(book_id, req.question, current_chapter)
 
-    if COGNEE_AVAILABLE and req.search_type in _ALLOWED_SEARCH_TYPES:
-        try:
-            search_type = SearchType(req.search_type)
-            raw_results = await cognee.search(
-                query_text=req.question,
-                query_type=search_type,
-                datasets=[book_id],
-                only_context=True,
-            )
-            for item in raw_results or []:
-                ch = _extract_chapter(item)
-                if ch is not None and ch > current_chapter:
-                    continue
-                results.append(QueryResultItem(
-                    content=_result_to_text(item),
-                    entity_type=_result_entity_type(item),
-                    chapter=ch,
-                ))
-        except Exception as exc:
-            logger.warning("Cognee search unavailable, falling back to disk: {}", exc)
-
-    # Fall back to disk-based keyword search if Cognee returned nothing
-    if not results:
-        results = _search_datapoints_on_disk(book_id, req.question, current_chapter)
+    answer = ""
+    if req.search_type == "GRAPH_COMPLETION":
+        context = [r.content for r in results[:15]]
+        answer = await _complete_over_context(req.question, context)
 
     return QueryResponse(
         book_id=book_id,
         question=req.question,
         search_type=req.search_type,
         current_chapter=current_chapter,
+        answer=answer,
         results=results,
         result_count=len(results),
     )

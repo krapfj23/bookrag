@@ -22,6 +22,11 @@ export function AnnotationRail({ onOpen, pips = {} }: Props) {
         flexDirection: "column",
         alignItems: "center",
         padding: "14px 0",
+        // Pin to viewport so rail buttons are always visible
+        position: "sticky",
+        top: 56,
+        height: "calc(100vh - 56px)",
+        alignSelf: "start",
       }}
     >
       <RailButton

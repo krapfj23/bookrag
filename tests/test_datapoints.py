@@ -709,3 +709,84 @@ class TestSchemaAlignmentWithSpec:
         fields = set(Theme.model_fields.keys())
         expected = {"name", "description", "first_chapter", "related_characters", "metadata", "id"}
         assert expected.issubset(fields)
+
+
+class TestLastKnownChapter:
+    """Every temporally-scoped DataPoint carries last_known_chapter."""
+
+    def test_character_has_last_known_chapter(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1, last_known_chapter=3)
+        assert c.last_known_chapter == 3
+
+    def test_last_known_chapter_defaults_to_first_chapter(self):
+        from models.datapoints import Character
+        c = Character(name="Scrooge", first_chapter=1)
+        assert c.last_known_chapter == 1
+
+    def test_location_faction_theme_relationship_all_have_it(self):
+        from models.datapoints import Location, Faction, Theme, Relationship, Character
+        assert Location(name="L", first_chapter=2).last_known_chapter == 2
+        assert Faction(name="F", first_chapter=2).last_known_chapter == 2
+        assert Theme(name="T", first_chapter=2).last_known_chapter == 2
+        a = Character(name="A", first_chapter=1)
+        b = Character(name="B", first_chapter=1)
+        r = Relationship(source=a, target=b, relation_type="x", first_chapter=2)
+        assert r.last_known_chapter == 2
+
+
+class TestExtractionLastKnownChapter:
+    """LLM extraction models accept last_known_chapter and default to first_chapter."""
+
+    def test_character_extraction_accepts_field(self):
+        from models.datapoints import CharacterExtraction
+        c = CharacterExtraction(name="Scrooge", first_chapter=1, last_known_chapter=3)
+        assert c.last_known_chapter == 3
+
+    def test_extraction_default_equals_first_chapter(self):
+        from models.datapoints import (
+            CharacterExtraction, LocationExtraction, FactionExtraction,
+            ThemeExtraction, RelationshipExtraction,
+        )
+        assert CharacterExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert LocationExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert FactionExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert ThemeExtraction(name="X", first_chapter=2).last_known_chapter == 2
+        assert RelationshipExtraction(
+            source_name="a", target_name="b", relation_type="x", first_chapter=2
+        ).last_known_chapter == 2
+
+
+class TestToDatapointsPreservesLastKnownChapter:
+    def test_character_last_known_chapter_copied(self):
+        from models.datapoints import ExtractionResult, CharacterExtraction
+        result = ExtractionResult(characters=[
+            CharacterExtraction(name="Scrooge", first_chapter=1, last_known_chapter=4)
+        ])
+        dps = result.to_datapoints()
+        char = next(d for d in dps if d.__class__.__name__ == "Character")
+        assert char.last_known_chapter == 4
+
+    def test_all_types_preserve_last_known_chapter(self):
+        from models.datapoints import (
+            ExtractionResult, CharacterExtraction, LocationExtraction,
+            FactionExtraction, ThemeExtraction, RelationshipExtraction,
+        )
+        result = ExtractionResult(
+            characters=[
+                CharacterExtraction(name="A", first_chapter=1, last_known_chapter=5),
+                CharacterExtraction(name="B", first_chapter=1, last_known_chapter=5),
+            ],
+            locations=[LocationExtraction(name="L", first_chapter=2, last_known_chapter=6)],
+            factions=[FactionExtraction(name="F", first_chapter=3, last_known_chapter=7)],
+            themes=[ThemeExtraction(name="T", first_chapter=4, last_known_chapter=8)],
+            relationships=[RelationshipExtraction(
+                source_name="A", target_name="B", relation_type="loves",
+                first_chapter=2, last_known_chapter=9,
+            )],
+        )
+        dps = {d.__class__.__name__: d for d in result.to_datapoints() if d.__class__.__name__ != "Character"}
+        assert dps["Location"].last_known_chapter == 6
+        assert dps["Faction"].last_known_chapter == 7
+        assert dps["Theme"].last_known_chapter == 8
+        assert dps["Relationship"].last_known_chapter == 9

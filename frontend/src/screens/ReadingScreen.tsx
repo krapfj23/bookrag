@@ -11,7 +11,7 @@ import { IcArrowL, IcArrowR } from "../components/icons";
 import { UserBubble } from "../components/UserBubble";
 import { AssistantBubble, type AssistantSource } from "../components/AssistantBubble";
 import { ChatInput } from "../components/ChatInput";
-import { AnnotatedParagraph } from "../components/AnnotatedParagraph";
+import { AnnotatedParagraph, fogLevelFor } from "../components/AnnotatedParagraph";
 import { AnnotationPeek } from "../components/AnnotationPeek";
 import { AnnotationRail } from "../components/AnnotationRail";
 import {
@@ -19,10 +19,23 @@ import {
   type PanelTab,
 } from "../components/AnnotationPanel";
 import {
-  annotationsForChapter,
+  SelectionToolbar,
+  type SelectionAction,
+} from "../components/SelectionToolbar";
+import { NoteComposer } from "../components/NoteComposer";
+import { IcClose } from "../components/icons";
+import {
   SEED_ANNOTATIONS,
   type Annotation,
 } from "../lib/annotations";
+import {
+  appendUserAnnotation,
+  clearCutoff,
+  getCutoff,
+  loadUserAnnotations,
+  setCutoff,
+  type Cutoff,
+} from "../lib/storage";
 import {
   fetchBooks,
   fetchChapter,
@@ -130,6 +143,13 @@ export function ReadingScreen() {
     const userId = crypto.randomUUID();
     const thinkingId = crypto.randomUUID();
     const maxChapter = book.current_chapter;
+    // Attach the selection excerpt as a quoted preamble so the backend
+    // sees the context the user highlighted. The UI still shows the
+    // clean user message in the UserBubble.
+    const attachedExcerpt = pendingQuery?.excerpt ?? null;
+    const queryText = attachedExcerpt
+      ? `About "${attachedExcerpt}": ${trimmed}`
+      : trimmed;
 
     setMessages((prev) => [
       ...prev,
@@ -142,10 +162,11 @@ export function ReadingScreen() {
       },
     ]);
     setDraft("");
+    setPendingQuery(null);
     setSubmitting(true);
 
     try {
-      const resp = await queryBook(bookId, trimmed, maxChapter);
+      const resp = await queryBook(bookId, queryText, maxChapter);
       const hasResults = resp.result_count > 0 && resp.results.length > 0;
       const sources: AssistantSource[] = hasResults
         ? resp.results
@@ -154,11 +175,18 @@ export function ReadingScreen() {
             )
             .map((r) => ({ text: r.content, chapter: r.chapter }))
         : [];
+      // Prefer the GraphRAG-synthesized answer from the backend. Fall back
+      // to chapter-less raw results only if the LLM synthesis was empty
+      // (e.g., Cognee unavailable). Final fallback: the empty-result copy.
+      const synthesized = resp.answer?.trim() ?? "";
       const proseResults = hasResults
         ? resp.results.filter((r) => r.chapter == null)
         : [];
-      const answerText = hasResults
-        ? proseResults.map((r) => r.content).join("\n\n")
+      const answerText = synthesized.length > 0
+        ? synthesized
+        : hasResults
+        ? proseResults.map((r) => r.content).join("\n\n") ||
+          sources.map((s) => s.text).join("\n\n")
         : EMPTY_RESULT_TEXT;
 
       setMessages((prev) =>
@@ -174,6 +202,10 @@ export function ReadingScreen() {
             : m
         )
       );
+      // Query resolved — fog was only a "I'm asking about this" marker, not
+      // a persistent reading-position cutoff. Clear it so the reader can
+      // continue unimpeded.
+      clearCurrentCutoff();
     } catch (err) {
       const copy =
         err instanceof QueryRateLimitError
@@ -193,6 +225,9 @@ export function ReadingScreen() {
             : m
         )
       );
+      // Error path: clear the fog too — the user got a response (even if bad)
+      // and shouldn't be stuck staring at blurred text.
+      clearCurrentCutoff();
     } finally {
       setSubmitting(false);
     }
@@ -227,15 +262,20 @@ export function ReadingScreen() {
   const isTeaser = book !== null && n === book.current_chapter + 1;
 
   // ── Annotations state ───────────────────────────────────────────────
-  // All seed annotations for this book, plus annotations for the chapter
-  // currently in view (used by AnnotatedParagraph to decorate prose).
+  // Seed annotations + user-created (localStorage) annotations, merged.
+  const [userAnnotations, setUserAnnotations] = useState<Annotation[]>(() =>
+    loadUserAnnotations(),
+  );
   const bookAnnotations = useMemo(
-    () => SEED_ANNOTATIONS.filter((a) => a.book_id === bookId),
-    [bookId],
+    () =>
+      [...SEED_ANNOTATIONS, ...userAnnotations].filter(
+        (a) => a.book_id === bookId,
+      ),
+    [bookId, userAnnotations],
   );
   const chapterAnnotations = useMemo(
-    () => annotationsForChapter(bookId, n),
-    [bookId, n],
+    () => bookAnnotations.filter((a) => a.chapter === n),
+    [bookAnnotations, n],
   );
   const notes = bookAnnotations.filter((a) => a.kind === "note");
   const highlights = bookAnnotations.filter((a) => a.kind === "query");
@@ -249,8 +289,94 @@ export function ReadingScreen() {
     string | undefined
   >(undefined);
 
+  // ── Selection + fog state ──────────────────────────────────────────
+  // Current text selection (if any) inside the reading column.
+  const [selection, setSelection] = useState<{
+    excerpt: string;
+    paragraphIndex: number;
+    charOffsetStart: number;
+    charOffsetEnd: number;
+    toolbarTop: number;
+    toolbarLeft: number;
+  } | null>(null);
+  // Pending note composer (opens a modal when user clicks "Note" in the toolbar)
+  const [noteDraft, setNoteDraft] = useState<{
+    excerpt: string;
+    paragraph_index: number;
+  } | null>(null);
+  // Selection context chip to show above the chat input after "Ask"
+  const [pendingQuery, setPendingQuery] = useState<{ excerpt: string } | null>(
+    null,
+  );
+  // Per-chapter cutoff, loaded from localStorage on chapter change.
+  const [cutoff, setCutoffState] = useState<Cutoff | null>(null);
+  const readerRef = useRef<HTMLDivElement | null>(null);
+
+  // Load the cutoff for the current (book, chapter) when they change.
+  useEffect(() => {
+    setCutoffState(getCutoff(bookId, n));
+  }, [bookId, n]);
+
+  // Detect text selection inside the reading column.
+  useEffect(() => {
+    function onMouseUp() {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setSelection(null);
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      const root = readerRef.current;
+      if (!root || !root.contains(range.commonAncestorContainer)) {
+        setSelection(null);
+        return;
+      }
+      // Find the enclosing paragraph <p data-paragraph-index="…">
+      let node: Node | null = range.commonAncestorContainer;
+      while (node && node !== root) {
+        if (
+          node instanceof HTMLElement &&
+          node.dataset.paragraphIndex !== undefined
+        ) {
+          break;
+        }
+        node = node.parentNode;
+      }
+      if (!(node instanceof HTMLElement) || node === root) {
+        setSelection(null);
+        return;
+      }
+      const paragraphIndex = Number.parseInt(
+        node.dataset.paragraphIndex ?? "0",
+        10,
+      );
+      const excerpt = sel.toString().trim();
+      if (excerpt.length === 0) {
+        setSelection(null);
+        return;
+      }
+      // Derive char offsets against the paragraph's text content.
+      const paragraphText = node.textContent ?? "";
+      const charOffsetStart = paragraphText.indexOf(excerpt);
+      const charOffsetEnd =
+        charOffsetStart >= 0
+          ? charOffsetStart + excerpt.length
+          : paragraphText.length;
+      const rect = range.getBoundingClientRect();
+      setSelection({
+        excerpt,
+        paragraphIndex,
+        charOffsetStart: Math.max(0, charOffsetStart),
+        charOffsetEnd,
+        toolbarTop: rect.top,
+        toolbarLeft: rect.left + rect.width / 2,
+      });
+    }
+    document.addEventListener("mouseup", onMouseUp);
+    return () => document.removeEventListener("mouseup", onMouseUp);
+  }, []);
+
   function openPeek(a: Annotation) {
-    // Clicking the same annotation a second time closes the peek.
     setPeek((prev) => (prev?.annotation.id === a.id ? null : { annotation: a }));
   }
 
@@ -260,6 +386,96 @@ export function ReadingScreen() {
     setFocusedAnnotationId(a.id);
     setPeek(null);
   }
+
+  function onSelectionAction(action: SelectionAction) {
+    if (!selection) return;
+    const s = selection;
+    const timestamp = "just now";
+    if (action === "ask") {
+      // 1. Create a query annotation on the selection (persists)
+      const a: Annotation = {
+        id: `q_${Date.now()}`,
+        book_id: bookId,
+        chapter: n,
+        paragraph_index: s.paragraphIndex,
+        match: s.excerpt,
+        kind: "query",
+        created_at: timestamp,
+        question: "",
+        answer_excerpt: "",
+      };
+      setUserAnnotations(appendUserAnnotation(a));
+      // 2. Set the cutoff to start fog immediately after the selection
+      const c: Cutoff = {
+        book_id: bookId,
+        chapter: n,
+        paragraph_index: s.paragraphIndex,
+        char_offset_end: s.charOffsetEnd,
+        excerpt: s.excerpt,
+      };
+      setCutoff(c);
+      setCutoffState(c);
+      // 3. Open Thread tab with the selection context chip primed
+      setPendingQuery({ excerpt: s.excerpt });
+      setPanelOpen(true);
+      setPanelTab("thread");
+    } else if (action === "note") {
+      setNoteDraft({
+        excerpt: s.excerpt,
+        paragraph_index: s.paragraphIndex,
+      });
+    } else if (action === "highlight") {
+      const a: Annotation = {
+        id: `h_${Date.now()}`,
+        book_id: bookId,
+        chapter: n,
+        paragraph_index: s.paragraphIndex,
+        match: s.excerpt,
+        kind: "note", // a highlight renders as a soft-highlight span
+        created_at: timestamp,
+        body: "",
+      };
+      setUserAnnotations(appendUserAnnotation(a));
+    }
+    // Always collapse the selection + toolbar after an action
+    window.getSelection()?.removeAllRanges();
+    setSelection(null);
+  }
+
+  function saveNote(body: string, tags: string[]) {
+    if (!noteDraft) return;
+    const a: Annotation = {
+      id: `n_${Date.now()}`,
+      book_id: bookId,
+      chapter: n,
+      paragraph_index: noteDraft.paragraph_index,
+      match: noteDraft.excerpt,
+      kind: "note",
+      created_at: "just now",
+      body,
+      tags: tags.length > 0 ? tags : undefined,
+    };
+    setUserAnnotations(appendUserAnnotation(a));
+    setNoteDraft(null);
+  }
+
+  function clearCurrentCutoff() {
+    clearCutoff(bookId, n);
+    setCutoffState(null);
+  }
+
+  // Pressing Escape anywhere on the page clears the fog — a fast out for
+  // readers who set a cutoff, then want back to unobstructed reading.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && cutoff) {
+        clearCurrentCutoff();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cutoff, bookId, n]);
 
   const spoilerSafeLabel = `safe through ch. ${book?.current_chapter ?? 1}`;
 
@@ -309,6 +525,24 @@ export function ReadingScreen() {
         <div ref={transcriptEndRef} />
       </div>
       <div style={{ padding: "14px 16px 18px" }}>
+        {pendingQuery && (
+          <div
+            className="selection-context-chip"
+            data-testid="selection-context-chip"
+          >
+            <div style={{ flex: 1 }}>
+              <div className="ctx-label">asking about</div>
+              <div className="ctx-excerpt">"{pendingQuery.excerpt}"</div>
+            </div>
+            <button
+              type="button"
+              aria-label="Remove selection context"
+              onClick={() => setPendingQuery(null)}
+            >
+              <IcClose size={11} />
+            </button>
+          </div>
+        )}
         <ChatInput
           value={draft}
           onChange={setDraft}
@@ -463,6 +697,7 @@ export function ReadingScreen() {
                   </ProgressiveBlur>
                 ) : (
                   <div
+                    ref={readerRef}
                     style={{
                       fontFamily: "var(--serif)",
                       fontSize: 17,
@@ -480,17 +715,38 @@ export function ReadingScreen() {
                         peek.annotation.paragraph_index === i
                           ? peek.annotation
                           : null;
+                      // Fog calc: paragraphs strictly AFTER the cutoff paragraph
+                      // are foggy; the cutoff paragraph itself is split in
+                      // AnnotatedParagraph via cutoffCharOffset.
+                      const isCutoffPara =
+                        cutoff !== null && cutoff.paragraph_index === i;
+                      const fogDistance =
+                        cutoff !== null
+                          ? i - cutoff.paragraph_index
+                          : 0;
+                      const fogLevel = fogLevelFor(
+                        isCutoffPara ? 0 : Math.max(0, fogDistance),
+                      );
                       return (
                         <div
                           key={i}
                           style={{ position: "relative", margin: "0 0 22px" }}
                         >
-                          <p style={{ margin: 0 }}>
+                          <p
+                            data-paragraph-index={i}
+                            style={{ margin: 0 }}
+                          >
                             <AnnotatedParagraph
                               text={p}
                               annotations={paragraphAnnots}
                               activeId={peek?.annotation.id}
                               onAnnotationClick={openPeek}
+                              fogLevel={fogLevel}
+                              cutoffCharOffset={
+                                isCutoffPara
+                                  ? cutoff!.char_offset_end
+                                  : undefined
+                              }
                             />
                           </p>
                           {peekForThisParagraph && (
@@ -506,6 +762,27 @@ export function ReadingScreen() {
                         </div>
                       );
                     })}
+                    {cutoff && (
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "center",
+                          marginTop: 40,
+                        }}
+                      >
+                        <div className="reading-up-to">
+                          <span style={{ opacity: 0.7 }}>Reading up to:</span>
+                          <span className="excerpt">"{cutoff.excerpt}"</span>
+                          <button
+                            type="button"
+                            aria-label="Clear reading cutoff"
+                            onClick={clearCurrentCutoff}
+                          >
+                            <IcClose size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -585,6 +862,10 @@ export function ReadingScreen() {
             onClose={() => {
               setPanelOpen(false);
               setFocusedAnnotationId(undefined);
+              // Leaving the panel = done with the current question.
+              // Drop any lingering fog so the reader gets their book back.
+              setPendingQuery(null);
+              clearCurrentCutoff();
             }}
             thread={threadContent}
             notes={notes}
@@ -606,6 +887,21 @@ export function ReadingScreen() {
           />
         )}
       </div>
+
+      {selection && (
+        <SelectionToolbar
+          top={selection.toolbarTop}
+          left={selection.toolbarLeft}
+          onAction={onSelectionAction}
+        />
+      )}
+      {noteDraft && (
+        <NoteComposer
+          excerpt={noteDraft.excerpt}
+          onCancel={() => setNoteDraft(null)}
+          onSave={saveNote}
+        />
+      )}
     </div>
   );
 }

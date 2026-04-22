@@ -171,6 +171,10 @@ export type QueryResponse = {
   question: string;
   search_type: string;
   current_chapter: number;
+  // LLM-synthesized answer from the graph context. Empty string when
+  // the synthesis call failed server-side and the backend is serving
+  // only raw sources.
+  answer: string;
   results: QueryResult[];
   result_count: number;
 };
