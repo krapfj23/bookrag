@@ -325,6 +325,10 @@ async def set_progress(book_id: SafeBookId, req: ProgressRequest) -> ProgressRes
     if req.current_paragraph is not None and req.current_paragraph < 0:
         raise HTTPException(status_code=400, detail="current_paragraph must be >= 0")
 
+    state = orchestrator.get_state(book_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
+
     progress_path = Path(config.processed_dir) / book_id / "reading_progress.json"
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict = {"book_id": book_id, "current_chapter": req.current_chapter}

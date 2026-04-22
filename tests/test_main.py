@@ -348,13 +348,11 @@ class TestProgressEndpoint:
         test_client, mock_orch, _ = client
         mock_orch.get_state.return_value = None
 
-        # Progress endpoint no longer requires book existence (fog-of-war phase 1):
-        # clients may set progress before/independent of ingestion state.
         resp = test_client.post(
             "/books/nobook/progress",
             json={"current_chapter": 1},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 404
 
     def test_progress_invalid_chapter(self, client):
         test_client, mock_orch, _ = client
@@ -601,10 +599,18 @@ class TestSetProgressWithParagraph:
             "current_stage": "complete", "stages": {},
         }))
 
+    def _real_orchestrator(self, monkeypatch, main_config):
+        """Restore a real orchestrator so get_state reads from disk (prior tests
+        may have replaced main.orchestrator with a mock)."""
+        import main as main_mod
+        from pipeline.orchestrator import PipelineOrchestrator
+        monkeypatch.setattr(main_mod, "orchestrator", PipelineOrchestrator(main_config))
+
     def test_accepts_paragraph(self, tmp_path, monkeypatch):
         from fastapi.testclient import TestClient
         from main import app, config as main_config
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
         self._seed(tmp_path)
         client = TestClient(app)
         resp = client.post("/books/bk/progress", json={
@@ -619,6 +625,7 @@ class TestSetProgressWithParagraph:
         from fastapi.testclient import TestClient
         from main import app, config as main_config
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
         self._seed(tmp_path)
         client = TestClient(app)
         resp = client.post("/books/bk/progress", json={"current_chapter": 2})
@@ -631,6 +638,7 @@ class TestSetProgressWithParagraph:
         from fastapi.testclient import TestClient
         from main import app, config as main_config
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
         self._seed(tmp_path)
         client = TestClient(app)
         client.post("/books/bk/progress", json={
@@ -644,6 +652,7 @@ class TestSetProgressWithParagraph:
         from fastapi.testclient import TestClient
         from main import app, config as main_config
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
         self._seed(tmp_path)
         client = TestClient(app)
         resp = client.post("/books/bk/progress", json={
