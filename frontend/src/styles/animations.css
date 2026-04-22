@@ -2,6 +2,14 @@
    Animations — ported from design-handoff/project
    ───────────────────────────────────────────────────────── */
 
+@keyframes rr-card-flash-kf {
+  0%   { box-shadow: 0 0 0 3px var(--accent-soft), 0 4px 12px -4px rgba(28,24,18,.08); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 4px 12px -4px rgba(28,24,18,.08); }
+}
+.rr-card-flash {
+  animation: rr-card-flash-kf 600ms ease-out;
+}
+
 @keyframes brPulse {
   0% {
     box-shadow: 0 0 0 0 currentColor;
