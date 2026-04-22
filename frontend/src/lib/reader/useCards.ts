@@ -123,6 +123,30 @@ export function useCards(bookId: string) {
     [cards],
   );
 
+  const appendFollowup = useCallback(
+    (id: string, question: string, initialAnswer = "") => {
+      updateAsk(id, (prev) => ({
+        ...prev,
+        followups: [...prev.followups, { question, answer: initialAnswer }],
+      }));
+    },
+    [updateAsk],
+  );
+
+  const setAskLoading = useCallback(
+    (id: string, loading: boolean) => {
+      updateAsk(id, (prev) => ({ ...prev, loading }));
+    },
+    [updateAsk],
+  );
+
+  const setAskStreaming = useCallback(
+    (id: string, streaming: boolean) => {
+      updateAsk(id, (prev) => ({ ...prev, streaming }));
+    },
+    [updateAsk],
+  );
+
   return {
     cards,
     createAsk,
@@ -131,5 +155,8 @@ export function useCards(bookId: string) {
     updateNote,
     removeCard,
     findByAnchorAndKind,
+    appendFollowup,
+    setAskLoading,
+    setAskStreaming,
   };
 }
