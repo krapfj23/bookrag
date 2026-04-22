@@ -104,6 +104,12 @@ def configure_cognee(config: Any) -> None:
     logger.info("Cognee LLM configured: provider={}, model={}", provider, model)
 
 
+# Item 6 (Phase A Stage 0): cap concurrent LLM calls during per-chunk extraction.
+# 10 is conservative vs. OpenAI Tier 3+ (allows ~50 concurrent) and Anthropic
+# Tier 2+ (~50). Tunable if telemetry shows headroom.
+EXTRACTION_CONCURRENCY = 10
+
+
 def _persist_raw_to_cognee_docstore() -> bool:
     """Return whether cognee.add should index raw chunk text.
 
@@ -389,39 +395,46 @@ async def extract_enriched_graph(
     extraction_stats = {"characters": 0, "locations": 0, "events": 0,
                         "relationships": 0, "themes": 0, "factions": 0}
 
-    for i, chunk in enumerate(chunks):
-        logger.info(
-            "Extracting from chunk {}/{} (chapters {}, ~{} tokens)",
-            i + 1, len(chunks), chunk.chapter_numbers, chunk.token_estimate,
-        )
+    # Item 6 (Phase A Stage 0): parallelize chunk extraction with a
+    # Semaphore-bounded asyncio.gather. 10 concurrent calls is conservative
+    # vs OpenAI Tier 3+ (~50) and Anthropic Tier 2+ (~50). Chunk order is
+    # preserved because gather returns results in input order.
+    sem = asyncio.Semaphore(EXTRACTION_CONCURRENCY)
 
-        system_prompt, text_input = render_prompt(chunk, booknlp, ontology)
-
-        extraction: ExtractionResult | None = None
-        last_error: Exception | None = None
-
-        for attempt in range(1, max_retries + 1):
-            try:
-                extraction = await LLMGateway.acreate_structured_output(
-                    text_input=text_input,
-                    system_prompt=system_prompt,
-                    response_model=ExtractionResult,
-                )
-                break
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "LLM extraction attempt {}/{} failed for chunk {}: {}",
-                    attempt, max_retries, i + 1, exc,
-                )
-                if attempt < max_retries:
-                    await asyncio.sleep(2 ** attempt)
-
-        if extraction is None:
+    async def _extract_one(i: int, chunk: ChapterChunk) -> tuple[int, ChapterChunk, ExtractionResult | None]:
+        async with sem:
+            logger.info(
+                "Extracting from chunk {}/{} (chapters {}, ~{} tokens)",
+                i + 1, len(chunks), chunk.chapter_numbers, chunk.token_estimate,
+            )
+            system_prompt, text_input = render_prompt(chunk, booknlp, ontology)
+            last_error: Exception | None = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    extraction = await LLMGateway.acreate_structured_output(
+                        text_input=text_input,
+                        system_prompt=system_prompt,
+                        response_model=ExtractionResult,
+                    )
+                    return i, chunk, extraction
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "LLM extraction attempt {}/{} failed for chunk {}: {}",
+                        attempt, max_retries, i + 1, exc,
+                    )
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 ** attempt)
             logger.error(
                 "All {} attempts failed for chunk {}. Last error: {}",
                 max_retries, i + 1, last_error,
             )
+            return i, chunk, None
+
+    results = await asyncio.gather(*[_extract_one(i, c) for i, c in enumerate(chunks)])
+
+    for i, chunk, extraction in results:
+        if extraction is None:
             continue
 
         # Plan 2: validate relationships before downstream processing drops

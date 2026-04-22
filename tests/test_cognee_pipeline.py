@@ -1355,6 +1355,56 @@ def test_run_bookrag_pipeline_stamps_ordinal_on_datapoints(tmp_path):
         assert dp.source_chunk_ordinal == 0
 
 
+def test_extract_enriched_graph_parallelizes_up_to_semaphore_limit():
+    """Item 6 (Phase A Stage 0): chunk extraction runs concurrently, bounded by
+    EXTRACTION_CONCURRENCY. Proves the loop is gather-based, not sequential.
+    """
+    from pipeline.cognee_pipeline import (
+        extract_enriched_graph,
+        ChapterChunk,
+        EXTRACTION_CONCURRENCY,
+    )
+    from models.datapoints import ExtractionResult
+
+    chunks = [
+        ChapterChunk(
+            text=f"chunk {i}", chapter_numbers=[1],
+            start_char=0, end_char=10, ordinal=i,
+        )
+        for i in range(20)
+    ]
+
+    in_flight = 0
+    max_in_flight = 0
+    lock = asyncio.Lock()
+
+    async def fake_llm_call(*args, **kwargs):
+        nonlocal in_flight, max_in_flight
+        async with lock:
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+        await asyncio.sleep(0.01)
+        async with lock:
+            in_flight -= 1
+        return ExtractionResult(
+            characters=[], locations=[], events=[],
+            relationships=[], themes=[], factions=[],
+        )
+
+    with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+         patch("pipeline.cognee_pipeline.render_prompt",
+               return_value=("sys", "user")):
+        mock_llm.acreate_structured_output = fake_llm_call
+        asyncio.run(extract_enriched_graph(chunks=chunks, booknlp={}, ontology={}))
+
+    assert max_in_flight <= EXTRACTION_CONCURRENCY, (
+        f"max_in_flight={max_in_flight} exceeded cap={EXTRACTION_CONCURRENCY}"
+    )
+    assert max_in_flight >= 2, (
+        f"max_in_flight={max_in_flight} suggests sequential execution"
+    )
+
+
 def test_run_bookrag_pipeline_skips_cognee_add_when_flag_disabled(tmp_path):
     """Bonus A (Phase A Stage 0): cognee.add is NOT called when
     persist_raw_to_cognee_docstore is False (the default).
