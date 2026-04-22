@@ -130,22 +130,18 @@ export function ReadingScreen() {
     flashTimer.current = setTimeout(() => setFocusedCardId(null), 620);
   }, []);
 
-  // visibleSids = all sids seen in spreads 0..spreadIdx (accumulated so cards from
-  // previous pages remain visible with a cross-page prefix after turning).
+  // visibleSids = ONLY the current spread's sids. Cards from previous spreads
+  // are not shown when the reader turns forward (no cross-spread accumulation).
   const visibleSids: Set<string> = useMemo(() => {
-    if (body.kind !== "ok") return new Set();
+    if (!current) return new Set();
     const s = new Set<string>();
-    for (let i = 0; i <= spreadIdx; i++) {
-      const spread = body.spreads[i];
-      if (!spread) continue;
-      for (const page of [spread.left, spread.right]) {
-        for (const para of page) {
-          for (const sent of para.sentences) s.add(sent.sid);
-        }
+    for (const page of [current.left, current.right]) {
+      for (const para of page) {
+        for (const sent of para.sentences) s.add(sent.sid);
       }
     }
     return s;
-  }, [body, spreadIdx]);
+  }, [current]);
 
   // Compute left/right sids and folios from the current spread.
   const leftSids: Set<string> = useMemo(() => {
@@ -169,29 +165,8 @@ export function ReadingScreen() {
   const leftFolio = spreadIdx * 2 + 1;
   const rightFolio = spreadIdx * 2 + 2;
 
-  // currentSpreadSids = ONLY the current spread's sids (for cross-page detection).
-  const currentSpreadSids: Set<string> = useMemo(() => {
-    const s = new Set<string>();
-    for (const sid of leftSids) s.add(sid);
-    for (const sid of rightSids) s.add(sid);
-    return s;
-  }, [leftSids, rightSids]);
-
-  // Map every sid to the left-folio of its spread (used by MarginColumn to
-  // render cross-page prefix for cards from previous spreads).
-  const sidToFolio = useMemo<Map<string, number>>(() => {
-    if (body.kind !== "ok") return new Map();
-    const m = new Map<string, number>();
-    body.spreads.forEach((spread, si) => {
-      const folio = si * 2 + 1; // left-page folio for this spread
-      for (const page of [spread.left, spread.right]) {
-        for (const para of page) {
-          for (const sent of para.sentences) m.set(sent.sid, folio);
-        }
-      }
-    });
-    return m;
-  }, [body]);
+  // currentSpreadSids = visibleSids (same set — kept for MarginColumn cross-page prefix).
+  const currentSpreadSids = visibleSids;
 
   const marksBySid: Map<string, SentenceMark[]> = useMemo(() => {
     const m = new Map<string, SentenceMark[]>();
@@ -426,7 +401,6 @@ export function ReadingScreen() {
               leftFolio={leftFolio}
               rightFolio={rightFolio}
               currentSpreadSids={currentSpreadSids}
-              sidToFolio={sidToFolio}
               bookRoot={bookRootEl}
               onJump={onJump}
               onFollowup={onFollowup}
