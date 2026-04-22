@@ -757,12 +757,11 @@ async def run_bookrag_pipeline(
     embed_triplets: bool = False,
     consolidate: bool = False,
     chunk_ordinal_start: int = 0,
-) -> tuple[list[DataPoint], int]:
+) -> int:
     """Run the full BookRAG Cognee pipeline for a single batch.
 
-    Returns ``(datapoints, next_chunk_ordinal_start)`` where the second
-    element is ``chunk_ordinal_start + len(chunks)`` — the orchestrator
-    threads it into the next batch for a monotonic book-wide counter.
+    Returns the next available chunk ordinal (``chunk_ordinal_start + len(chunks)``)
+    so the orchestrator can pass it to the next batch for a monotonic counter.
 
     Also saves batch artifacts (input_text.txt, annotations.json,
     extracted_datapoints.json) to data/processed/{book_id}/batches/.
@@ -844,4 +843,4 @@ async def run_bookrag_pipeline(
         "Pipeline complete for batch chapters {} — {} DataPoints, next ordinal {}",
         batch.chapter_numbers, len(datapoints), next_ordinal,
     )
-    return datapoints, next_ordinal
+    return next_ordinal

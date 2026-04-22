@@ -309,8 +309,9 @@ class TestCleanerContentPreservation:
 # ============================================================================
 
 class TestOutputFileStructure:
+    @patch("pipeline.epub_parser.check_epub_decompressed_size")
     @patch("pipeline.epub_parser.epub.read_epub")
-    def test_epub_output_structure(self, mock_read, tmp_path):
+    def test_epub_output_structure(self, mock_read, mock_size_check, tmp_path):
         import ebooklib
         from pipeline.epub_parser import parse_epub
 

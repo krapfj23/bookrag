@@ -566,7 +566,7 @@ class PipelineOrchestrator:
             success = False
             for attempt in range(1, max_retries + 1):
                 try:
-                    _datapoints, chunk_ordinal_counter = await run_bookrag_pipeline(
+                    chunk_ordinal_counter = await run_bookrag_pipeline(
                         batch=batch,
                         booknlp_output=booknlp_output,
                         ontology=ontology,

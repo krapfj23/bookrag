@@ -9,6 +9,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
 import html as html_mod
 import json
 import os
@@ -84,8 +85,22 @@ ensure_directories(config)
 
 
 def _query_rate_limit() -> str:
-    return os.environ.get("BOOKRAG_QUERY_RATE_LIMIT", "30/minute")
+    raw = os.environ.get("BOOKRAG_QUERY_RATE_LIMIT", "30/minute")
+    # Basic shape validation — slowapi accepts "<int>/<unit>" forms.
+    # An invalid value would crash every /query request with a 500;
+    # catch it here and fall back to the default with a warning.
+    try:
+        n_str, unit = raw.split("/", 1)
+        int(n_str.strip())
+    except (ValueError, AttributeError):
+        logger.warning(
+            "Invalid BOOKRAG_QUERY_RATE_LIMIT={!r}; falling back to 30/minute", raw
+        )
+        return "30/minute"
+    return raw
 
+
+_manifest_lock = asyncio.Lock()
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
@@ -290,7 +305,8 @@ async def upload_book(file: UploadFile = File(...)) -> UploadResponse:
 
     # Launch pipeline in background
     orchestrator.run_in_background(book_id, epub_path)
-    record_book(config.processed_dir, content_hash, book_id)
+    async with _manifest_lock:
+        record_book(config.processed_dir, content_hash, book_id)
 
     return UploadResponse(book_id=book_id, message="Pipeline started")
 
@@ -967,6 +983,20 @@ async def query_book(request: Request, book_id: SafeBookId, req: QueryRequest) -
 # ---------------------------------------------------------------------------
 
 
+def _resolve_graph_max_chapter(
+    book_id: str,
+    max_chapter: int | None,
+    full: bool,
+) -> int | None:
+    """Priority: full=true wins (→None); explicit max_chapter next; else reader progress."""
+    if full:
+        return None
+    if max_chapter is not None:
+        return max_chapter
+    effective_max, _ = _get_reading_progress(book_id)
+    return effective_max
+
+
 def _load_batch_datapoints(book_id: str, max_chapter: int | None = None) -> dict:
     """Load extracted DataPoints from batch output files and build graph data."""
     batches_dir = Path(config.processed_dir) / book_id / "batches"
@@ -1060,13 +1090,7 @@ async def get_graph_data(
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    effective_max: int | None
-    if full:
-        effective_max = None
-    elif max_chapter is not None:
-        effective_max = max_chapter
-    else:
-        effective_max, _ = _get_reading_progress(book_id)
+    effective_max = _resolve_graph_max_chapter(book_id, max_chapter, full)
     return _load_batch_datapoints(book_id, effective_max)
 
 
@@ -1086,14 +1110,7 @@ async def get_graph_visualization(
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    effective_max: int | None
-    if full:
-        effective_max = None
-    elif max_chapter is not None:
-        effective_max = max_chapter
-    else:
-        effective_max, _ = _get_reading_progress(book_id)
-
+    effective_max = _resolve_graph_max_chapter(book_id, max_chapter, full)
     graph_data = _load_batch_datapoints(book_id, effective_max)
 
     if not graph_data["nodes"]:
@@ -1108,10 +1125,8 @@ async def get_graph_visualization(
     safe_book_id = html_mod.escape(book_id)
     if full:
         chapter_label = " (full)"
-    elif effective_max is not None:
-        chapter_label = html_mod.escape(f" (up to chapter {effective_max})")
     else:
-        chapter_label = ""
+        chapter_label = html_mod.escape(f" (up to chapter {effective_max})")
 
     html = f"""<!DOCTYPE html>
 <html>

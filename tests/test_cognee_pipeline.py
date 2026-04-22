@@ -1283,7 +1283,7 @@ def test_run_bookrag_pipeline_assigns_ordinals_and_calls_cognee_add(tmp_path):
          patch("pipeline.cognee_pipeline.run_pipeline", new=AsyncMock()):
         mock_cognee.add = AsyncMock()
 
-        datapoints, next_ord = asyncio.run(run_bookrag_pipeline(
+        next_ord = asyncio.run(run_bookrag_pipeline(
             batch=batch,
             booknlp_output={},
             ontology={},

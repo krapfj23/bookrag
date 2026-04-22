@@ -91,6 +91,7 @@ def client(tmp_config, monkeypatch):
 
     with patch("main.load_config", return_value=config), \
          patch("main.config", config), \
+         patch("pipeline.epub_parser.check_epub_decompressed_size"), \
          patch("main.PipelineOrchestrator") as MockOrch:
 
         mock_orch = MockOrch.return_value

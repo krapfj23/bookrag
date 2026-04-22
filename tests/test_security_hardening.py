@@ -74,6 +74,18 @@ class TestGraphSpoilerGate:
         assert "SpoilerChar" not in default_html
         assert "SpoilerChar" in full_html
 
+    def test_full_true_overrides_explicit_max_chapter(self, tmp_path, monkeypatch):
+        import main
+        _fake_ready_book(tmp_path, "book_abc12345", current_chapter=2)
+        monkeypatch.setattr(main.config, "processed_dir", str(tmp_path / "processed"))
+        client = TestClient(main.app)
+        resp = client.get("/books/book_abc12345/graph/data?full=true&max_chapter=1")
+        names = {n["label"] for n in resp.json()["nodes"]}
+        # full=true wins; all three characters present
+        assert "EarlyChar" in names
+        assert "MidChar" in names
+        assert "SpoilerChar" in names
+
 
 class TestZipBombUploadRejection:
     """Upload endpoint must return 413 when decompressed size exceeds per-entry cap."""
@@ -158,6 +170,38 @@ class TestUploadDedupe:
         assert r2.json()["book_id"] == bid
         assert r2.json()["reused"] is True
 
+    def test_second_upload_before_pipeline_ready_does_not_dedupe(self, tmp_path, monkeypatch):
+        """If the first upload's pipeline hasn't completed yet, the second
+        upload must NOT be deduped — it should generate a fresh book_id."""
+        import io, zipfile, main
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("mimetype", b"application/epub+zip")
+            zf.writestr("OEBPS/content.xhtml", b"<html>x</html>")
+        payload = buf.getvalue()
+
+        processed = tmp_path / "processed"
+        processed.mkdir()
+        monkeypatch.setattr(main.config, "books_dir", str(tmp_path / "books"))
+        monkeypatch.setattr(main.config, "processed_dir", str(processed))
+        monkeypatch.setattr(main.orchestrator, "run_in_background", lambda *a, **k: None)
+
+        client = TestClient(main.app)
+        r1 = client.post("/books/upload",
+                         files={"file": ("same.epub", payload, "application/epub+zip")})
+        assert r1.status_code == 200
+        bid1 = r1.json()["book_id"]
+        assert r1.json()["reused"] is False
+
+        # Do NOT simulate pipeline completion — ready_for_query stays False
+        r2 = client.post("/books/upload",
+                         files={"file": ("same.epub", payload, "application/epub+zip")})
+        assert r2.status_code == 200
+        # Must be a fresh book_id (not deduped) because first pipeline isn't ready
+        assert r2.json()["reused"] is False
+        assert r2.json()["book_id"] != bid1
+
 
 class TestQueryRateLimit:
     """30/min per-IP; the 31st request in a fresh window returns 429."""
@@ -180,18 +224,17 @@ class TestQueryRateLimit:
         # Reset the limiter so this test starts in a fresh window
         main.limiter.reset()
 
+        # Capture a known 429 from the burst and assert its Retry-After
+        first_429 = None
         client = TestClient(main.app)
         codes = []
         for _ in range(7):
-            r = client.post(
-                f"/books/{book_id}/query",
-                json={"question": "q", "search_type": "GRAPH_COMPLETION"},
-            )
+            r = client.post(f"/books/{book_id}/query",
+                            json={"question": "q", "search_type": "GRAPH_COMPLETION"})
             codes.append(r.status_code)
-        assert 429 in codes
-        # Check a 429 response carries Retry-After
-        for r in [client.post(
-                f"/books/{book_id}/query",
-                json={"question": "q", "search_type": "GRAPH_COMPLETION"})]:
-            if r.status_code == 429:
-                assert "retry-after" in {h.lower() for h in r.headers}
+            if r.status_code == 429 and first_429 is None:
+                first_429 = r
+
+        assert 429 in codes, f"expected at least one 429 in {codes}"
+        assert first_429 is not None
+        assert "retry-after" in {h.lower() for h in first_429.headers}
