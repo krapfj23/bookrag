@@ -511,6 +511,60 @@ def _result_to_text(item: Any) -> str:
     return str(obj)
 
 
+async def _local_synthesis(
+    question: str, results: list[QueryResultItem], current_chapter: int
+) -> str:
+    """Synthesize a concise answer from retrieved graph context via OpenAI.
+
+    Used when Cognee's built-in synthesis is unavailable. Takes the top N
+    disk-retrieved DataPoints and asks the LLM to answer ONLY from those
+    sources, preserving the spoiler boundary at ``current_chapter``.
+    """
+    import os
+
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY")
+    if not api_key:
+        # No key — graceful fallback: concatenate top source descriptions.
+        return " ".join(r.content for r in results[:3])
+
+    try:
+        from openai import AsyncOpenAI
+    except ImportError:
+        return " ".join(r.content for r in results[:3])
+
+    client = AsyncOpenAI(api_key=api_key)
+    top_sources = results[:8]
+    context_block = "\n".join(
+        f"[{i + 1}] ({r.entity_type or 'Entity'}, ch. {r.chapter if r.chapter is not None else '?'}) {r.content}"
+        for i, r in enumerate(top_sources)
+    )
+    system_prompt = (
+        "You are BookRAG, a spoiler-aware literature assistant. Answer the "
+        f"reader's question using ONLY the sources below. They are from "
+        f"chapters the reader has already read (through chapter {current_chapter}). "
+        "Do NOT introduce plot details not present in the sources. If the "
+        "sources don't answer the question, say so briefly. Write in clean "
+        "prose, 1–3 sentences, no lists, no meta-commentary, no citations."
+    )
+    user_prompt = f"Question: {question}\n\nSources:\n{context_block}"
+
+    try:
+        resp = await client.chat.completions.create(
+            model=config.llm_model or "gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=320,
+        )
+        content = resp.choices[0].message.content
+        return (content or "").strip()
+    except Exception as exc:
+        logger.warning("Local synthesis failed: {}", exc)
+        return " ".join(r.content for r in results[:3])
+
+
 def _synthesis_to_text(raw: Any) -> str:
     """Convert Cognee's synthesis response into a single answer string.
 
@@ -578,6 +632,42 @@ def _search_datapoints_on_disk(book_id: str, question: str, max_chapter: int) ->
     # Sort by relevance (more keyword hits first)
     results.sort(key=lambda r: sum(1 for kw in keywords if kw in r.content.lower()), reverse=True)
     return results
+
+
+def _answer_from_allowed_nodes(
+    book_id: str,
+    question: str,
+    cursor: int,
+) -> list[QueryResultItem]:
+    """Pre-filtered keyword retrieval. Walks disk batch JSON, keeps only
+    nodes whose effective latest chapter is <= cursor, then ranks by
+    keyword overlap with the question."""
+    from pipeline.spoiler_filter import load_allowed_nodes, effective_latest_chapter
+
+    nodes = load_allowed_nodes(book_id, cursor, processed_dir=Path(config.processed_dir))
+    if not nodes:
+        return []
+
+    keywords = [w.lower() for w in question.split() if len(w) > 2]
+    ranked: list[tuple[int, QueryResultItem]] = []
+    for node in nodes:
+        label = (node.get("name") or node.get("description") or "").lower()
+        desc = (node.get("description") or "").lower()
+        haystack = f"{label} {desc}"
+        score = sum(1 for kw in keywords if kw in haystack) if keywords else 0
+        if keywords and score == 0:
+            continue
+        content = node.get("name") or node.get("description") or ""
+        if node.get("name") and node.get("description"):
+            content = f"{node['name']} — {node['description']}"
+        ranked.append((score, QueryResultItem(
+            content=content,
+            entity_type=node.get("_type"),
+            chapter=effective_latest_chapter(node),
+        )))
+
+    ranked.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in ranked]
 
 
 @app.post("/books/{book_id}/query", response_model=QueryResponse)
@@ -650,12 +740,12 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     if not results:
         results = _search_datapoints_on_disk(book_id, req.question, current_chapter)
 
-    # If synthesis failed but we have sources, stitch a minimal prose
-    # answer from the top disk-backed results so the UI still shows
-    # something coherent in the bubble.
+    # If Cognee synthesis failed (e.g., database not initialised) but we
+    # have sources on disk, run a local LLM synthesis step via OpenAI
+    # directly. This keeps the GraphRAG shape — prose answer + source
+    # citations — even when Cognee is unavailable at runtime.
     if not answer and results:
-        top = results[:3]
-        answer = " ".join(r.content for r in top)
+        answer = await _local_synthesis(req.question, results, current_chapter)
 
     return QueryResponse(
         book_id=book_id,

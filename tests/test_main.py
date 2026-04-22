@@ -425,3 +425,45 @@ class TestExtractChapterUsesEffectiveLatest:
     def test_handles_plot_event_chapter(self):
         from main import _extract_chapter
         assert _extract_chapter({"chapter": 9}) == 9
+
+
+class TestAnswerFromAllowedNodes:
+    """The pre-filter retrieval path never returns nodes beyond the cursor."""
+
+    def _seed_book(self, tmp_path, book_id: str):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Scrooge", "description": "miser",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c2", "name": "Ghost of Future", "description": "spoiler",
+                 "first_chapter": 1, "last_known_chapter": 5},
+            ],
+            "events": [
+                {"id": "e1", "description": "meets ghost", "chapter": 2},
+                {"id": "e3", "description": "dies", "chapter": 5},
+            ],
+        }))
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True, "current_stage": "complete",
+            "stages": {},
+        }))
+
+    def test_cursor_2_hides_chapter_5_nodes(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_book(tmp_path, "bk")
+
+        items = _answer_from_allowed_nodes("bk", question="what happens", cursor=2)
+        contents = [i.content for i in items]
+        assert not any("spoiler" in c.lower() for c in contents)
+        assert not any("dies" in c.lower() for c in contents)
+
+    def test_cursor_5_reveals_chapter_5_nodes(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_book(tmp_path, "bk")
+
+        items = _answer_from_allowed_nodes("bk", question="dies", cursor=5)
+        assert any("dies" in i.content.lower() for i in items)
