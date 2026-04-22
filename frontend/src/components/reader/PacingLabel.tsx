@@ -11,9 +11,10 @@ export function PacingLabel({ num, total }: { num: number; total: number }) {
       style={{
         fontFamily: "var(--serif)",
         fontStyle: "italic",
-        fontSize: 13,
-        color: "var(--ink-2)",
-        letterSpacing: "0.02em",
+        fontSize: "12px",
+        color: "var(--ink-3)",
+        letterSpacing: "1.4px",
+        textTransform: "uppercase",
         userSelect: "none",
       }}
     >

@@ -552,7 +552,17 @@ export function ReadingScreen() {
       {/* Reading mode chrome — conditionally rendered when mode is on */}
       {mode === "on" && body.kind === "ok" && (
         <>
-          <PacingLabel num={body.chapter.num} total={body.chapter.total_chapters} />
+          <div
+            style={{
+              position: "fixed",
+              top: 16,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 99,
+            }}
+          >
+            <PacingLabel num={body.chapter.num} total={body.chapter.total_chapters} />
+          </div>
           <PageTurnArrow
             direction="left"
             onClick={turnBackward}
