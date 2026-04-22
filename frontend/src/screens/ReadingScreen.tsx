@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchChapter, type Chapter } from "../lib/api";
+import { fetchChapter, queryBook, type Chapter } from "../lib/api";
 import { paginate, type Spread } from "../lib/reader/paginator";
 import { BookSpread } from "../components/reader/BookSpread";
 import { useReadingCursor } from "../lib/reader/useReadingCursor";
 import { NavBar } from "../components/NavBar";
+import { SelectionToolbar, type SelectionAction } from "../components/SelectionToolbar";
+import { MarginColumn } from "../components/reader/MarginColumn";
+import { useCards } from "../lib/reader/useCards";
+import { useSelectionToolbar } from "../lib/reader/useSelectionToolbar";
+import { askAndStream } from "../lib/reader/askFlow";
+import { compareSid } from "../lib/reader/sidCompare";
+import type { SentenceMark } from "../components/reader/Sentence";
 
 type Body =
   | { kind: "loading" }
@@ -22,6 +29,7 @@ export function ReadingScreen() {
   const [body, setBody] = useState<Body>({ kind: "loading" });
   const [spreadIdx, setSpreadIdx] = useState(0);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const bookRef = useRef<HTMLDivElement | null>(null);
 
   // Load chapter and paginate.
   useEffect(() => {
@@ -92,6 +100,129 @@ export function ReadingScreen() {
 
   const title = body.kind === "ok" ? body.chapter.title : "";
   const total = body.kind === "ok" ? body.chapter.total_chapters : 0;
+
+  // Cards state
+  const {
+    cards,
+    createAsk,
+    createNote,
+    updateAsk,
+    updateNote,
+    removeCard,
+    findByAnchorAndKind,
+  } = useCards(bookId);
+
+  const { selection, clear: clearSelection } = useSelectionToolbar(bookRef);
+
+  const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  const [newlyCreatedNoteId, setNewlyCreatedNoteId] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flash = useCallback((id: string) => {
+    setFocusedCardId(id);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFocusedCardId(null), 620);
+  }, []);
+
+  const visibleSids: Set<string> = useMemo(() => {
+    if (!current) return new Set();
+    const s = new Set<string>();
+    for (const page of [current.left, current.right]) {
+      for (const para of page) {
+        for (const sent of para.sentences) s.add(sent.sid);
+      }
+    }
+    return s;
+  }, [current]);
+
+  const marksBySid: Map<string, SentenceMark[]> = useMemo(() => {
+    const m = new Map<string, SentenceMark[]>();
+    for (const c of cards) {
+      if (!visibleSids.has(c.anchor)) continue;
+      const arr = m.get(c.anchor) ?? [];
+      arr.push({ kind: c.kind, cardId: c.id });
+      m.set(c.anchor, arr);
+    }
+    return m;
+  }, [cards, visibleSids]);
+
+  const onMarkClick = useCallback(
+    (cardId: string) => {
+      const el = document.querySelector(`[data-card-id="${cardId}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      flash(cardId);
+    },
+    [flash],
+  );
+
+  const onAction = useCallback(
+    async (action: SelectionAction) => {
+      if (!selection) return;
+      const { anchorSid, quote } = selection;
+      const chapter = n;
+      if (action === "highlight") {
+        clearSelection();
+        return;
+      }
+      if (action === "note") {
+        const existing = findByAnchorAndKind(anchorSid, "note");
+        if (existing) {
+          flash(existing.id);
+          clearSelection();
+          return;
+        }
+        const id = createNote({ anchor: anchorSid, quote, chapter });
+        setNewlyCreatedNoteId(id);
+        flash(id);
+        clearSelection();
+        return;
+      }
+      // ask
+      const existing = findByAnchorAndKind(anchorSid, "ask");
+      if (existing) {
+        flash(existing.id);
+        clearSelection();
+        return;
+      }
+      clearSelection();
+      const id = await askAndStream({
+        anchor: anchorSid,
+        quote,
+        chapter,
+        maxChapter: chapter,
+        bookId,
+        createAsk,
+        updateAsk,
+        findExisting: (a) => {
+          const e = findByAnchorAndKind(a, "ask");
+          return e ? { id: e.id } : undefined;
+        },
+        queryBook: (b, q, mc) => queryBook(b, q, mc),
+      });
+      flash(id);
+    },
+    [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createNote, createAsk, updateAsk],
+  );
+
+  const onBodyChange = useCallback(
+    (id: string, next: string) => updateNote(id, next),
+    [updateNote],
+  );
+
+  const onBodyCommit = useCallback(
+    (id: string) => {
+      const card = cards.find((c) => c.id === id);
+      if (card && card.kind === "note" && card.body.trim() === "") {
+        removeCard(id);
+      }
+      setNewlyCreatedNoteId((prev) => (prev === id ? null : prev));
+    },
+    [cards, removeCard],
+  );
+
+  // Fog check for Ask button disabled state
+  const askDisabled =
+    !!selection && compareSid(selection.anchorSid, cursor) > 0;
 
   return (
     <div
@@ -166,19 +297,47 @@ export function ReadingScreen() {
           </div>
         )}
         {body.kind === "ok" && current && (
-          <div style={{ width: "min(1100px, 100%)" }}>
-            <BookSpread
-              chapterNum={body.chapter.num}
-              chapterTitle={body.chapter.title}
-              totalChapters={total}
-              left={current.left}
-              right={current.right}
-              folioLeft={spreadIdx * 2 + 1}
-              folioRight={spreadIdx * 2 + 2}
-              cursor={cursor}
-              isFirstSpread={spreadIdx === 0}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 400px",
+              gap: 28,
+              alignItems: "start",
+              width: "min(1240px, 100%)",
+            }}
+          >
+            <div ref={bookRef}>
+              <BookSpread
+                chapterNum={body.chapter.num}
+                chapterTitle={body.chapter.title}
+                totalChapters={total}
+                left={current.left}
+                right={current.right}
+                folioLeft={spreadIdx * 2 + 1}
+                folioRight={spreadIdx * 2 + 2}
+                cursor={cursor}
+                isFirstSpread={spreadIdx === 0}
+                marksBySid={marksBySid}
+                onMarkClick={onMarkClick}
+              />
+            </div>
+            <MarginColumn
+              cards={cards}
+              visibleSids={visibleSids}
+              focusedCardId={focusedCardId}
+              newlyCreatedNoteId={newlyCreatedNoteId}
+              onBodyChange={onBodyChange}
+              onBodyCommit={onBodyCommit}
             />
           </div>
+        )}
+        {selection && (
+          <SelectionToolbar
+            top={selection.rect.top + window.scrollY}
+            left={selection.rect.left + selection.rect.width / 2 + window.scrollX}
+            onAction={onAction}
+            disabled={{ ask: askDisabled }}
+          />
         )}
       </div>
     </div>
