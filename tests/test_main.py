@@ -402,3 +402,26 @@ class TestCORS:
         # The response should not include the evil origin
         allow_origin = resp.headers.get("access-control-allow-origin", "")
         assert "evil.com" not in allow_origin
+
+
+class TestExtractChapterUsesEffectiveLatest:
+    def test_prefers_last_known_over_first(self):
+        from main import _extract_chapter
+
+        class Node:
+            first_chapter = 1
+            last_known_chapter = 7
+
+        assert _extract_chapter(Node()) == 7
+
+    def test_falls_back_to_first_chapter(self):
+        from main import _extract_chapter
+
+        class Node:
+            first_chapter = 4
+
+        assert _extract_chapter(Node()) == 4
+
+    def test_handles_plot_event_chapter(self):
+        from main import _extract_chapter
+        assert _extract_chapter({"chapter": 9}) == 9

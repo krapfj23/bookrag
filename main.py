@@ -175,6 +175,9 @@ class QueryResponse(BaseModel):
     question: str
     search_type: str
     current_chapter: int
+    # LLM-synthesized answer from the graph context (empty string if the
+    # synthesis call failed and we fell back to raw sources).
+    answer: str
     results: list[QueryResultItem]
     result_count: int
 
@@ -482,18 +485,13 @@ def _get_reading_progress(book_id: str) -> int:
 
 
 def _extract_chapter(item: Any) -> int | None:
-    """Extract the earliest chapter reference from a search result item."""
+    """Return the effective latest chapter for a retrieval result item."""
+    from pipeline.spoiler_filter import effective_latest_chapter
+
     obj = item
     if hasattr(item, "search_result"):
         obj = item.search_result
-    if isinstance(obj, dict):
-        return obj.get("chapter") or obj.get("first_chapter")
-    for attr in ("chapter", "first_chapter"):
-        if hasattr(obj, attr):
-            val = getattr(obj, attr)
-            if val is not None:
-                return int(val)
-    return None
+    return effective_latest_chapter(obj)
 
 
 def _result_to_text(item: Any) -> str:
@@ -511,6 +509,37 @@ def _result_to_text(item: Any) -> str:
             if val:
                 return str(val)
     return str(obj)
+
+
+def _synthesis_to_text(raw: Any) -> str:
+    """Convert Cognee's synthesis response into a single answer string.
+
+    Cognee's GRAPH_COMPLETION (and similar) return a list of completion
+    strings or dicts containing 'answer'/'text'/'content' fields. Join
+    non-empty pieces into one paragraph-separated string.
+    """
+    if raw is None:
+        return ""
+    items = raw if isinstance(raw, list) else [raw]
+    parts: list[str] = []
+    for item in items:
+        if isinstance(item, str):
+            if item.strip():
+                parts.append(item.strip())
+        elif isinstance(item, dict):
+            for k in ("answer", "text", "content", "response"):
+                v = item.get(k)
+                if isinstance(v, str) and v.strip():
+                    parts.append(v.strip())
+                    break
+        else:
+            for attr in ("answer", "text", "content", "response"):
+                if hasattr(item, attr):
+                    v = getattr(item, attr)
+                    if isinstance(v, str) and v.strip():
+                        parts.append(v.strip())
+                        break
+    return "\n\n".join(parts)
 
 
 def _result_entity_type(item: Any) -> str | None:
@@ -573,12 +602,32 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
         min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
     )
 
-    # Try Cognee graph search first, fall back to disk-based search
+    # Cognee GraphRAG flow:
+    #   1. Synthesis call: cognee.search() without only_context runs the LLM
+    #      over the retrieved graph context and returns a coherent answer.
+    #   2. Context call: only_context=True returns the raw graph chunks we
+    #      render as source citations in the UI.
+    # Both calls are needed — the first produces the prose answer, the
+    # second gives us the attributable sources with chapter metadata.
     results: list[QueryResultItem] = []
+    answer = ""
 
     if COGNEE_AVAILABLE and req.search_type in _ALLOWED_SEARCH_TYPES:
+        search_type = SearchType(req.search_type)
+        # Step 1 — synthesis. LLM produces a natural-language answer
+        # grounded in the graph context.
         try:
-            search_type = SearchType(req.search_type)
+            synthesis = await cognee.search(
+                query_text=req.question,
+                query_type=search_type,
+                datasets=[book_id],
+            )
+            answer = _synthesis_to_text(synthesis)
+        except Exception as exc:
+            logger.warning("Cognee synthesis unavailable: {}", exc)
+
+        # Step 2 — raw context for source citations.
+        try:
             raw_results = await cognee.search(
                 query_text=req.question,
                 query_type=search_type,
@@ -595,17 +644,25 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
                     chapter=ch,
                 ))
         except Exception as exc:
-            logger.warning("Cognee search unavailable, falling back to disk: {}", exc)
+            logger.warning("Cognee context fetch unavailable: {}", exc)
 
     # Fall back to disk-based keyword search if Cognee returned nothing
     if not results:
         results = _search_datapoints_on_disk(book_id, req.question, current_chapter)
+
+    # If synthesis failed but we have sources, stitch a minimal prose
+    # answer from the top disk-backed results so the UI still shows
+    # something coherent in the bubble.
+    if not answer and results:
+        top = results[:3]
+        answer = " ".join(r.content for r in top)
 
     return QueryResponse(
         book_id=book_id,
         question=req.question,
         search_type=req.search_type,
         current_chapter=current_chapter,
+        answer=answer,
         results=results,
         result_count=len(results),
     )
