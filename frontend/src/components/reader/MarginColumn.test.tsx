@@ -100,6 +100,51 @@ describe("MarginColumn", () => {
   });
 });
 
+describe("MarginColumn — T3 S7 cross-page prefix (intra-spread only)", () => {
+  function mkAsk(id: string, anchor: string): AskCard {
+    return {
+      id,
+      bookId: "b",
+      anchor,
+      quote: "q",
+      chapter: 1,
+      kind: "ask",
+      question: `Q-${id}`,
+      answer: `A-${id}`,
+      followups: [],
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+  }
+
+  it("left-anchored card shows ← FROM p. 1 prefix; right-anchored card has none", () => {
+    const leftCard = mkAsk("left-card", "p1.s1");
+    const rightCard = mkAsk("right-card", "p2.s1");
+    const visibleSids = new Set(["p1.s1", "p2.s1", "p2.s2"]);
+    render(
+      <MarginColumn
+        cards={[leftCard, rightCard]}
+        visibleSids={visibleSids}
+        focusedCardId={null}
+        onBodyChange={() => {}}
+        onBodyCommit={() => {}}
+        leftSids={new Set(["p1.s1"])}
+        rightSids={new Set(["p2.s1", "p2.s2"])}
+        leftFolio={1}
+        rightFolio={2}
+        currentSpreadSids={visibleSids}
+        bookRoot={null}
+        onJump={() => {}}
+        onFollowup={() => {}}
+      />,
+    );
+    // Left-anchored card should have "← FROM p. 1 ·" prefix.
+    expect(screen.getByTestId("margin-column").textContent).toMatch(/← FROM p\. 1 ·/);
+    // Right-anchored card should NOT have a cross-page prefix.
+    expect(screen.getByTestId("margin-column").textContent).not.toMatch(/← FROM p\. 2 ·/);
+  });
+});
+
 describe("MarginColumn — O2 overflow (R3)", () => {
   function mkAsk(id: string, anchor: string, updatedAt: string): AskCard {
     return {
