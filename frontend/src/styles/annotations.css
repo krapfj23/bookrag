@@ -285,55 +285,6 @@
   font-size: 13px;
 }
 
-/* Selection toolbar — floats above a text selection. Only top/left are
- * computed at runtime (they're viewport-derived); everything else stays
- * in CSS for consistency + easier theming. */
-.selection-toolbar {
-  position: fixed;
-  transform: translate(-50%, -100%) translateY(-10px);
-  background: var(--paper-00);
-  border: 1px solid var(--paper-2);
-  border-radius: var(--r-lg);
-  box-shadow:
-    0 10px 28px rgba(32, 28, 22, 0.14),
-    0 1px 3px rgba(0, 0, 0, 0.04);
-  padding: 4px;
-  display: inline-flex;
-  gap: 2px;
-  z-index: 20;
-  font-family: var(--sans);
-  animation: annot-fadeUp 140ms var(--ease-out);
-}
-.selection-toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--r-md);
-  color: var(--ink-1);
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--dur);
-}
-.selection-toolbar-btn:hover {
-  background: var(--paper-1);
-}
-.selection-toolbar-arrow {
-  position: absolute;
-  bottom: -5px;
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
-  width: 9px;
-  height: 9px;
-  background: var(--paper-00);
-  border-right: 1px solid var(--paper-2);
-  border-bottom: 1px solid var(--paper-2);
-}
-
 /* Wrapper around the cutoff pill + clear-cutoff button inside the
  * center reading column. Pure layout; the pill itself still uses
  * .reading-up-to. */
