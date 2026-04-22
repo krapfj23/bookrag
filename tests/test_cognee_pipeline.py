@@ -1482,10 +1482,14 @@ class TestConfigureCogneeRuntimeGuard:
     """Runtime-guard around cognee.config.set_llm_config protects against
     cognee 0.x API drift (per CLAUDE.md 'pre-1.0 instability' note)."""
 
-    def test_missing_set_llm_config_logs_warning_and_returns(self, caplog):
+    def test_missing_set_llm_config_logs_warning_and_returns(self):
         import cognee
+        from loguru import logger as _lg
         from pipeline.cognee_pipeline import configure_cognee
         from models.config import load_config
+
+        messages: list[str] = []
+        sink_id = _lg.add(lambda m: messages.append(str(m)), level="WARNING")
 
         original = cognee.config.set_llm_config
         try:
@@ -1493,11 +1497,11 @@ class TestConfigureCogneeRuntimeGuard:
             configure_cognee(load_config())
         finally:
             cognee.config.set_llm_config = original
+            _lg.remove(sink_id)
 
         assert any(
-            "set_llm_config" in rec.getMessage() and "unavailable" in rec.getMessage().lower()
-            for rec in caplog.records
-        ) or True
+            "set_llm_config" in m and "unavailable" in m.lower() for m in messages
+        ), f"expected a warning about set_llm_config being unavailable; got {messages}"
 
     def test_present_set_llm_config_is_invoked(self):
         import cognee
