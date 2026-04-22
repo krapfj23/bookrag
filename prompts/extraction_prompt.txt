@@ -24,9 +24,23 @@ The following entities and quotes were detected by NLP pre-processing. Use these
 ### Attributed Quotes
 {{ booknlp_quotes }}
 
-## Chapter Context
+## Chapter Bounds (CRITICAL)
 
 You are extracting from chapters: {{ chapter_numbers }}
+
+These are the ONLY chapters you have seen. Your output must reflect ONLY what is present in the provided text. Specifically:
+
+- `first_chapter` and `last_known_chapter` MUST both be values from {{ chapter_numbers }}. Never a chapter number outside this range.
+- A character's `description` must describe who they are AS OF the latest chapter in this batch — not who they become later in the book.
+- If you recognize the book from your training and know events from later chapters, you must IGNORE that knowledge. Extract only from the text below. Do not foreshadow.
+- If the narration uses future-tense language or alludes to events the text hasn't depicted yet, do NOT extract those events.
+
+### Worked example
+
+Batch covers chapters 1-2. The text includes the line: "Scrooge would later be visited by three spirits." Correct output:
+- Do NOT extract a PlotEvent for the spirit visits.
+- Scrooge's description should describe him as he appears in chapters 1-2 only (e.g., "a covetous old sinner"), NOT "a miser who will be redeemed by three spirits."
+- `last_known_chapter` for Scrooge is 2.
 
 Every entity and event you extract MUST include the chapter number where it first appears or occurs. Use the chapter boundaries indicated in the text. Do not assign a chapter number you have not seen in the input.
 
@@ -37,7 +51,7 @@ Every entity and event you extract MUST include the chapter number where it firs
 - Use snake_case for all relationship types (e.g., employs, works_for, loves).
 - Do not create separate nodes for dates or numbers — attach them as properties.
 - If an entity was already extracted in a previous batch, re-extract it only if you have NEW information (new description, new chapter appearance, new relationship).
-- For each character/location/faction/theme/relationship, include `last_known_chapter`: the LATEST chapter number from the current batch whose text contributed evidence for this entity's description. If the entity only appears in one chapter of this batch, `last_known_chapter` equals `first_chapter`. This is used for reader-progress filtering — do not set it higher than chapters actually shown in the input.
+- For each character/location/faction/theme/relationship, include `last_known_chapter`: the LATEST chapter number from the current batch whose text contributed evidence for this entity's description. It MUST be one of {{ chapter_numbers }}. If the entity only appears in one chapter of this batch, `last_known_chapter` equals `first_chapter`. This field gates reader-progress filtering: if you set it too high, readers see spoilers; if you include content from outside the batch, the filter cannot protect them.
 
 ### Episodic Content (Plot Events, Character Actions)
 - Extract concrete events that happen in the narrative: who did what, where, and when (chapter).
@@ -55,6 +69,16 @@ Every entity and event you extract MUST include the chapter number where it firs
 - Do NOT use your prior knowledge of this book. Extract only from the provided text.
 - Do NOT create duplicate entities — if "Ebenezer Scrooge" and "Scrooge" refer to the same person, use one canonical name.
 - Do NOT extract from chapter summaries, table of contents, or metadata — only from narrative text.
+
+## Self-Check Before Returning
+
+Before you return your JSON, verify:
+1. Every `first_chapter` and `last_known_chapter` value is in {{ chapter_numbers }}.
+2. Every PlotEvent's `chapter` value is in {{ chapter_numbers }}.
+3. No description contains events that happen AFTER the latest chapter in this batch.
+4. No description uses future tense or foreshadowing language ("will", "would later", "eventually").
+
+If any item fails, silently correct it before returning. Do not add a meta-comment — only return the JSON.
 
 ## Output Format
 
