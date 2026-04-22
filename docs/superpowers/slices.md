@@ -27,7 +27,7 @@ Driven by `design_handoff_bookrag_reader/README.md` (V3 Inline margin cards, amb
 | # | Slice | Status | Kickoff | Spec | Plan | Review |
 |---|---|---|---|---|---|---|
 | R1 | Reading surface + sentence anchors | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R1-reading-surface.md) | [plan](plans/2026-04-22-slice-R1-reading-surface-plan.md) | [review](reviews/2026-04-22-slice-R1-review.md) |
-| R2 | V3 Inline margin cards + selection→ask + notes | not started | — | — | — | — |
+| R2 | V3 Inline margin cards + selection→ask + notes | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R2-cards-and-selection.md) | [plan](plans/2026-04-22-slice-R2-cards-and-selection-plan.md) | [review](reviews/2026-04-22-slice-R2-review.md) |
 | R3 | Card states (S1–S7) + O2 overflow | not started | — | — | — | — |
 | R4 | Ambitious reading mode | not started | — | — | — | — |
 | R5 | Card detail (edit/delete) | blocked | — | — | — | — |
