@@ -1,12 +1,56 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import type { AskCard as AskCardT } from "../../lib/reader/cards";
+import { SkeletonAskCard } from "./SkeletonAskCard";
+import { BlinkingCursor } from "./BlinkingCursor";
+import { FollowupComposer } from "./FollowupComposer";
+import { JumpToAnchorCTA } from "./JumpToAnchorCTA";
+
+const LONG_THRESHOLD = 220;
 
 export function AskCard({
   card,
   flash,
+  offscreen,
+  crossPage,
+  onJump,
+  onFollowup,
 }: {
   card: AskCardT;
   flash: boolean;
+  offscreen?: { direction: "up" | "down" };
+  crossPage?: { direction: "left" | "right"; folio: number };
+  onJump?: () => void;
+  onFollowup?: (q: string) => void;
 }) {
+  const answerRef = useRef<HTMLDivElement | null>(null);
+  const [isLong, setIsLong] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = answerRef.current;
+    if (!el) return;
+    setIsLong(el.scrollHeight > LONG_THRESHOLD);
+  });
+
+  if (card.loading) {
+    return <SkeletonAskCard />;
+  }
+
+  // Build header prefix text.
+  let prefix = "";
+  if (crossPage) {
+    if (crossPage.direction === "left") {
+      prefix = `← FROM p. ${crossPage.folio} · `;
+    } else {
+      prefix = `→ FROM p. ${crossPage.folio} · `;
+    }
+  } else if (offscreen) {
+    if (offscreen.direction === "up") {
+      prefix = "↑ SCROLL UP · ";
+    } else {
+      prefix = "↓ SCROLL DOWN · ";
+    }
+  }
+
   return (
     <article
       data-card-id={card.id}
@@ -35,7 +79,7 @@ export function AskCard({
           marginBottom: 6,
         }}
       >
-        ASKED ABOUT "{card.quote}"
+        {prefix}ASKED ABOUT "{card.quote}"
       </header>
       <div
         style={{
@@ -47,12 +91,79 @@ export function AskCard({
       >
         {card.question}
       </div>
-      <div
-        data-testid="ask-answer"
-        style={{ fontSize: 14, lineHeight: 1.62, color: "var(--ink-0)" }}
-      >
-        {card.answer}
+      <div style={{ position: "relative" }}>
+        <div
+          ref={answerRef}
+          data-testid="ask-answer"
+          style={{
+            fontSize: 14,
+            lineHeight: 1.62,
+            color: "var(--ink-0)",
+            ...(isLong
+              ? { maxHeight: "220px", overflowY: "auto" }
+              : {}),
+          }}
+        >
+          {card.answer}
+          {card.streaming && <BlinkingCursor />}
+        </div>
+        {isLong && (
+          <div
+            data-testid="ask-answer-fade"
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 24,
+              background:
+                "linear-gradient(to bottom, transparent, var(--paper-00))",
+              pointerEvents: "none",
+            }}
+          />
+        )}
       </div>
+      {/* S5: followup thread */}
+      {card.followups.map((fu, i) => (
+        <div
+          key={i}
+          data-testid="followup"
+          style={{
+            marginTop: 10,
+            paddingLeft: 14,
+            borderLeft: "1px dashed var(--paper-3)",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "var(--sans)",
+              fontSize: 9.5,
+              letterSpacing: 1.3,
+              textTransform: "uppercase",
+              color: "var(--accent-ink)",
+              fontWeight: 600,
+              marginBottom: 4,
+            }}
+          >
+            FOLLOW-UP
+          </div>
+          <div style={{ fontStyle: "italic", fontSize: 13, color: "var(--ink-1)", marginBottom: 4 }}>
+            {fu.question}
+          </div>
+          <div style={{ fontSize: 14, lineHeight: 1.62, color: "var(--ink-0)" }}>
+            {fu.answer}
+            {card.followupLoading && i === card.followups.length - 1 && (
+              <BlinkingCursor />
+            )}
+          </div>
+        </div>
+      ))}
+      {/* Follow-up composer — hidden while loading */}
+      {!card.loading && (
+        <FollowupComposer onSubmit={onFollowup ?? (() => {})} />
+      )}
+      {/* S6: jump CTA */}
+      {offscreen && onJump && <JumpToAnchorCTA onJump={onJump} />}
     </article>
   );
 }
