@@ -20,6 +20,20 @@ Driven by the backend + security + test + frontend audit. Each slice stands alon
 | 3 | Test quality uplift | done | 2026-04-22 | [spec](specs/2026-04-22-slice-3-test-quality-uplift.md) | [plan](plans/2026-04-22-slice-3-test-quality-uplift.md) |
 | 4 | Frontend refactor + hardening | spec | 2026-04-22 | [spec](specs/2026-04-22-slice-4-frontend-hardening.md) | [plan](plans/2026-04-22-slice-4-frontend-hardening.md) |
 
+## Reader rebuild slices (2026-04-22)
+
+Driven by `design_handoff_bookrag_reader/README.md` (V3 Inline margin cards, ambitious reading mode). Replaces `ReadingScreen.tsx` in place. Cards persist in localStorage only. Pagination is client-side DOM-measured. Evaluator gates on Playwright (see template 05 rubric item 6). The audit slice 4 (frontend-hardening) is deferred until after this rebuild.
+
+| # | Slice | Status | Kickoff | Spec | Plan | Review |
+|---|---|---|---|---|---|---|
+| R1 | Reading surface + sentence anchors | not started | — | — | — | — |
+| R2 | V3 Inline margin cards + selection→ask + notes | not started | — | — | — | — |
+| R3 | Card states (S1–S7) + O2 overflow | not started | — | — | — | — |
+| R4 | Ambitious reading mode | not started | — | — | — | — |
+| R5 | Card detail (edit/delete) | blocked | — | — | — | — |
+
+R5 is blocked pending a design pass (README §2 "Edit/delete cards" flagged as undesigned).
+
 ## Status values
 
 - `not started` — no agent has been dispatched yet

@@ -24,6 +24,7 @@ Decide whether the Generator's output meets the PRD. Return one of: APPROVE, REV
 3. No new CORS / auth config drift; any new env vars are documented.
 4. Every PRD acceptance criterion is visibly satisfied in the built UI or verifiable via curl.
 5. No scope creep vs the PRD.
+6. **Playwright gate (UI slices):** the slice's Playwright spec at `frontend/e2e/slice-{{slice_number}}-{{slice_name}}.spec.ts` (or equivalent named spec) runs green via `cd frontend && npx playwright test slice-{{slice_number}}`, AND the review includes screenshots of each acceptance-criterion end state captured via `page.screenshot()` and saved to `docs/superpowers/reviews/assets/{{kickoff_date}}-slice-{{slice_number}}/`. A failing or missing Playwright spec is an automatic REVISE.
 
 ## Verdict semantics
 
@@ -67,6 +68,8 @@ One-sentence slice summary for the slice backlog.
 
 - Actually run the tests yourself. Do not trust the Generator's report.
 - Actually start the dev server and load the target page yourself (backend: `python main.py` in one terminal; frontend: `cd frontend && npm run dev` in another). If you cannot verify visually from this environment, state that explicitly in finding 2 and base your verdict on test output + diff reading.
+- Actually run the Playwright spec yourself (`cd frontend && npx playwright test slice-{{slice_number}}`). Do not accept the Generator's claim that it passes. If the spec does not exist, verdict is REVISE.
+- Save all acceptance-criterion screenshots to `docs/superpowers/reviews/assets/{{kickoff_date}}-slice-{{slice_number}}/` and embed them in the review with relative markdown image links.
 - Base verdict on observable behavior, not code style. Style is not a rubric item.
 - Be strict on scope creep. If Generator added a feature not in the PRD, verdict is at least REVISE.
 
