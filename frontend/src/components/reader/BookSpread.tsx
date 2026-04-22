@@ -119,9 +119,11 @@ export function BookSpread({
 }) {
   return (
     <div
-      className="rr-spread"
+      className="rr-book"
       data-testid="book-spread"
       style={{
+        width: 920,
+        minHeight: 780,
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
         background: "var(--paper-00)",
