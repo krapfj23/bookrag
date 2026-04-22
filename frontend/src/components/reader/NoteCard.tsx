@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { NoteCard as NoteCardT } from "../../lib/reader/cards";
+import { JumpToAnchorCTA } from "./JumpToAnchorCTA";
 
 export function NoteCard({
   card,
@@ -7,17 +8,39 @@ export function NoteCard({
   autoFocus,
   onBodyChange,
   onBodyCommit,
+  offscreen,
+  crossPage,
+  onJump,
 }: {
   card: NoteCardT;
   flash: boolean;
   autoFocus: boolean;
   onBodyChange: (id: string, next: string) => void;
   onBodyCommit: (id: string) => void;
+  offscreen?: { direction: "up" | "down" };
+  crossPage?: { direction: "left" | "right"; folio: number };
+  onJump?: () => void;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     if (autoFocus && ref.current) ref.current.focus();
   }, [autoFocus]);
+
+  // Build header prefix text.
+  let prefix = "";
+  if (crossPage) {
+    if (crossPage.direction === "left") {
+      prefix = `← FROM p. ${crossPage.folio} · `;
+    } else {
+      prefix = `→ FROM p. ${crossPage.folio} · `;
+    }
+  } else if (offscreen) {
+    if (offscreen.direction === "up") {
+      prefix = "↑ SCROLL UP · ";
+    } else {
+      prefix = "↓ SCROLL DOWN · ";
+    }
+  }
 
   return (
     <article
@@ -47,7 +70,7 @@ export function NoteCard({
           marginBottom: 6,
         }}
       >
-        NOTED "{card.quote}"
+        {prefix}NOTED "{card.quote}"
       </header>
       <textarea
         ref={ref}
@@ -77,6 +100,7 @@ export function NoteCard({
           padding: 0,
         }}
       />
+      {offscreen && onJump && <JumpToAnchorCTA onJump={onJump} />}
     </article>
   );
 }
