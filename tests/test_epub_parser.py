@@ -356,6 +356,14 @@ class TestParsedBook:
 # parse_epub integration tests (mocked ebooklib)
 # ============================================================================
 
+def _write_minimal_epub_zip(path):
+    """Write a minimal valid ZIP to path so check_epub_decompressed_size doesn't raise BadZipFile."""
+    import zipfile as _zf
+    with _zf.ZipFile(path, "w", _zf.ZIP_DEFLATED) as zf:
+        zf.writestr("mimetype", b"application/epub+zip")
+        zf.writestr("META-INF/container.xml", b"<container/>")
+
+
 class TestParseEpub:
     """Tests for the main parse_epub function.
 
@@ -381,7 +389,7 @@ class TestParseEpub:
         """Parse a mock EPUB with 2 chapters."""
         # Create fake epub file
         epub_file = tmp_path / "test_book.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         ch1_text = "This is chapter one with enough words to pass the content filter. " * 3
         ch2_text = "Chapter two has different content but also enough words to pass. " * 3
@@ -406,7 +414,7 @@ class TestParseEpub:
     def test_chapter_markers_in_full_text(self, mock_read, tmp_path):
         """Full text should contain === CHAPTER N === markers."""
         epub_file = tmp_path / "markers.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         ch_text = "Sufficient content for a chapter with many words to exceed threshold. " * 2
         item = self._make_mock_item("ch1", self._make_chapter_html(ch_text))
@@ -423,7 +431,7 @@ class TestParseEpub:
     def test_boundaries_exclude_markers(self, mock_read, tmp_path):
         """chapter_boundaries should point to content, not markers."""
         epub_file = tmp_path / "bounds.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         ch_text = "Content that is long enough to be a real chapter with more than fifteen words easily. " * 2
         item = self._make_mock_item("ch1", self._make_chapter_html(ch_text))
@@ -443,7 +451,7 @@ class TestParseEpub:
     def test_non_content_items_skipped(self, mock_read, tmp_path):
         """Cover pages and nav items should be filtered out."""
         epub_file = tmp_path / "filtered.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         cover = self._make_mock_item("cover", "<p>Book Title</p>")  # Too short
         ch1 = self._make_mock_item("ch1", self._make_chapter_html(
@@ -462,7 +470,7 @@ class TestParseEpub:
     def test_file_output_structure(self, mock_read, tmp_path):
         """Verify output matches plan: full_text.txt + chapters/chapter_01.txt etc."""
         epub_file = tmp_path / "output_test.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         ch_text = "Chapter content for file output test with sufficient words to pass. " * 3
         item = self._make_mock_item("ch1", self._make_chapter_html(ch_text))
@@ -489,7 +497,7 @@ class TestParseEpub:
     def test_default_output_dir(self, mock_read, tmp_path, monkeypatch):
         """Without output_dir, should write to data/processed/{book_id}/raw/."""
         epub_file = tmp_path / "default_dir.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         ch_text = "Enough words for a chapter that passes the content check without issue. " * 3
         item = self._make_mock_item("ch1", self._make_chapter_html(ch_text))
@@ -515,7 +523,7 @@ class TestParseEpub:
     def test_missing_spine_item_warning(self, mock_read, tmp_path):
         """Spine references a missing item — should warn and continue."""
         epub_file = tmp_path / "missing.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         ch1 = self._make_mock_item("ch1", self._make_chapter_html(
             "Valid chapter with lots of words to satisfy the content checker. " * 3
@@ -533,7 +541,7 @@ class TestParseEpub:
     def test_fallback_when_no_content_chapters(self, mock_read, tmp_path):
         """When spine filtering removes everything, fall back to all ITEM_DOCUMENT."""
         epub_file = tmp_path / "fallback.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         # All spine items are too short
         short = self._make_mock_item("s1", "<p>Short</p>")
@@ -560,7 +568,7 @@ class TestParseEpub:
     def test_multiple_chapters_spine_order(self, mock_read, tmp_path):
         """Chapters should appear in spine order, not arbitrary order."""
         epub_file = tmp_path / "order.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         ch_a = self._make_mock_item("chA", self._make_chapter_html(
             "Alpha chapter text with sufficient content to pass the word count threshold. " * 2
@@ -584,7 +592,7 @@ class TestParseEpub:
     def test_chapter_numbering_in_filenames(self, mock_read, tmp_path):
         """Chapter files should be zero-padded: chapter_01.txt, chapter_02.txt."""
         epub_file = tmp_path / "numbering.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         items = []
         for i in range(3):
@@ -610,7 +618,7 @@ class TestParseEpub:
     def test_book_id_from_filename(self, mock_read, tmp_path):
         """book_id should be slugified from the EPUB filename."""
         epub_file = tmp_path / "A Christmas Carol.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         item = self._make_mock_item("ch1", self._make_chapter_html(
             "Content to pass threshold. " * 10
@@ -627,7 +635,7 @@ class TestParseEpub:
     def test_non_document_items_skipped(self, mock_read, tmp_path):
         """Items that are not ITEM_DOCUMENT (e.g., images, CSS) should be skipped."""
         epub_file = tmp_path / "nondoc.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         import ebooklib
         css_item = self._make_mock_item("style", "body { color: red; }", item_type=ebooklib.ITEM_STYLE)
@@ -648,7 +656,7 @@ class TestParseEpub:
     def test_chapter_boundary_contiguity(self, mock_read, tmp_path):
         """All chapter boundaries should be non-overlapping and within full_text length."""
         epub_file = tmp_path / "contiguous.epub"
-        epub_file.touch()
+        _write_minimal_epub_zip(epub_file)
 
         items = []
         for i in range(5):
@@ -749,3 +757,19 @@ class TestZipBombPrecheck:
             max_total=50 * 1024 * 1024,
             max_entry=10 * 1024 * 1024,
         )
+
+    def test_compression_ratio_bomb_raises(self, tmp_path):
+        """A tiny compressed payload that inflates >100:1 must be rejected,
+        even if file_size fits under the per-entry cap."""
+        import io, zipfile
+        from pipeline.epub_parser import check_epub_decompressed_size, EpubSizeError
+
+        # 1 MB of zeroes compresses to ~1 KB — a ~1000:1 ratio, well over the 100:1 limit.
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("ratio_bomb", b"\0" * 1_000_000)
+        path = tmp_path / "b.epub"
+        path.write_bytes(buf.getvalue())
+        with pytest.raises(EpubSizeError, match="compression ratio"):
+            # Under both the scaled per-entry cap AND total cap, so only the ratio check should fire.
+            check_epub_decompressed_size(path, max_total=50_000_000, max_entry=10_000_000)

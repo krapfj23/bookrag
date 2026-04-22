@@ -25,6 +25,7 @@ class EpubSizeError(Exception):
 
 DEFAULT_MAX_DECOMPRESSED_BYTES = 500 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 100 * 1024 * 1024
+DEFAULT_MAX_COMPRESSION_RATIO = 100
 
 
 def check_epub_decompressed_size(
@@ -42,6 +43,9 @@ def check_epub_decompressed_size(
     max_entry = max_entry if max_entry is not None else int(
         os.environ.get("BOOKRAG_MAX_ENTRY_BYTES", DEFAULT_MAX_ENTRY_BYTES)
     )
+    max_ratio = int(
+        os.environ.get("BOOKRAG_MAX_COMPRESSION_RATIO", DEFAULT_MAX_COMPRESSION_RATIO)
+    )
 
     source: Any
     if isinstance(path_or_bytes, (bytes, bytearray)):
@@ -53,6 +57,15 @@ def check_epub_decompressed_size(
     with zipfile.ZipFile(source) as zf:
         total = 0
         for info in zf.infolist():
+            # Ratio guard — catches compression bombs that pass the per-entry size cap
+            # by declaring a modest file_size relative to a tiny compress_size.
+            # Legitimate EPUBs compress at 5–10x for text; 100:1 is the canary threshold.
+            if info.compress_size > 0 and info.file_size / info.compress_size > max_ratio:
+                raise EpubSizeError(
+                    f"EPUB entry '{info.filename}' has suspicious compression ratio "
+                    f"({info.file_size} / {info.compress_size} = "
+                    f"{info.file_size / info.compress_size:.0f}:1, max {max_ratio}:1)"
+                )
             if info.file_size > max_entry:
                 raise EpubSizeError(
                     f"EPUB entry '{info.filename}' decompresses to "
@@ -189,9 +202,8 @@ def parse_epub(epub_path: str | Path, output_dir: str | Path | None = None) -> P
         check_epub_decompressed_size(epub_path)
     except EpubSizeError as exc:
         raise ValueError(str(exc)) from exc
-    except zipfile.BadZipFile:
-        # Not a valid ZIP — let ebooklib produce its own error downstream
-        pass
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"EPUB is not a valid ZIP archive: {epub_path.name}") from exc
 
     book_id = _slugify(epub_path.name)
     logger.info("Parsing EPUB: {} (book_id={})", epub_path.name, book_id)
