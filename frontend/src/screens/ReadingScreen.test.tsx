@@ -135,3 +135,111 @@ describe("ReadingScreen (R2 integration)", () => {
     expect(screen.getByTestId("s1-empty-card")).toBeInTheDocument();
   });
 });
+
+describe("ReadingScreen — slice R4 reading mode integration", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.spyOn(api, "fetchChapter").mockResolvedValue({
+      num: 1,
+      title: "Marley's Ghost",
+      total_chapters: 5,
+      has_prev: false,
+      has_next: true,
+      paragraphs: ["Alpha. Bravo.", "Charlie."],
+      paragraphs_anchored: [
+        {
+          paragraph_idx: 1,
+          sentences: [
+            { sid: "p1.s1", text: "Alpha sentence here with more words." },
+            { sid: "p1.s2", text: "Bravo sentence here with more words." },
+          ],
+        },
+        {
+          paragraph_idx: 2,
+          sentences: [{ sid: "p2.s1", text: "Charlie sentence here." }],
+        },
+      ],
+      anchors_fallback: false,
+    });
+  });
+
+  function renderAtR4(path = "/books/carol/read/1") {
+    return render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            path="/books/:bookId/read/:chapterNum"
+            element={<ReadingScreen />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it("reader root has data-reading-mode=off by default", async () => {
+    renderAtR4();
+    await waitFor(() => screen.getByTestId("reading-screen"));
+    const root = screen.getByTestId("reading-screen");
+    expect(root.getAttribute("data-reading-mode")).toBe("off");
+    expect(screen.queryByTestId("pacing-label")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("page-arrow-left")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("page-arrow-right")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("progress-hairline")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("reading-mode-legend")).not.toBeInTheDocument();
+  });
+
+  it("toggling the pill flips data-reading-mode and shows chrome when on", async () => {
+    renderAtR4();
+    await waitFor(() => screen.getByTestId("reading-screen"));
+    const toggle = screen.getByRole("button", { name: /reading mode/i });
+    await act(async () => {
+      toggle.click();
+    });
+    const root = screen.getByTestId("reading-screen");
+    expect(root.getAttribute("data-reading-mode")).toBe("on");
+    expect(screen.getByTestId("pacing-label")).toBeInTheDocument();
+    expect(screen.getByTestId("page-arrow-left")).toBeInTheDocument();
+    expect(screen.getByTestId("page-arrow-right")).toBeInTheDocument();
+    expect(screen.getByTestId("progress-hairline")).toBeInTheDocument();
+    expect(screen.getByTestId("reading-mode-legend")).toBeInTheDocument();
+    // Margin column is aria-hidden when on.
+    const margin = screen.getByTestId("margin-column");
+    expect(margin.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("toggling off from on removes chrome and restores margin visibility", async () => {
+    renderAtR4();
+    await waitFor(() => screen.getByTestId("reading-screen"));
+    const toggle = screen.getByRole("button", { name: /reading mode/i });
+    await act(async () => {
+      toggle.click();
+    });
+    await act(async () => {
+      toggle.click();
+    });
+    const root = screen.getByTestId("reading-screen");
+    expect(root.getAttribute("data-reading-mode")).toBe("off");
+    expect(screen.queryByTestId("pacing-label")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("reading-mode-legend")).not.toBeInTheDocument();
+    const margin = screen.getByTestId("margin-column");
+    expect(margin.getAttribute("aria-hidden")).not.toBe("true");
+  });
+
+  it("persists on-state across remount for same bookId", async () => {
+    const { unmount } = renderAtR4();
+    await waitFor(() => screen.getByTestId("reading-screen"));
+    const toggle = screen.getByRole("button", { name: /reading mode/i });
+    await act(async () => {
+      toggle.click();
+    });
+    expect(
+      screen.getByTestId("reading-screen").getAttribute("data-reading-mode"),
+    ).toBe("on");
+    unmount();
+    renderAtR4();
+    await waitFor(() => screen.getByTestId("reading-screen"));
+    expect(
+      screen.getByTestId("reading-screen").getAttribute("data-reading-mode"),
+    ).toBe("on");
+  });
+});

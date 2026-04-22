@@ -45,6 +45,33 @@ describe("Sentence", () => {
     expect(el.getAttribute("style") ?? "").toMatch(/underline/);
   });
 
+  it("emits data-kind=note on a noted span", () => {
+    render(
+      <Sentence
+        sid="p1.s3"
+        text="Noted."
+        fogged={false}
+        marks={[{ kind: "note", cardId: "n7" }]}
+      />,
+    );
+    const el = screen.getByText("Noted.");
+    expect(el.getAttribute("data-kind")).toBe("note");
+    expect(el.getAttribute("data-sid")).toBe("p1.s3");
+  });
+
+  it("does not set data-kind=note on an ask-only span", () => {
+    render(
+      <Sentence
+        sid="p1.s4"
+        text="Asked."
+        fogged={false}
+        marks={[{ kind: "ask", cardId: "a2" }]}
+      />,
+    );
+    const el = screen.getByText("Asked.");
+    expect(el.getAttribute("data-kind")).not.toBe("note");
+  });
+
   it("fires onMarkClick with topmost mark's cardId", async () => {
     const fn = vi.fn();
     render(

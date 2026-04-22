@@ -212,6 +212,39 @@ describe("MarginColumn — O2 overflow (R3)", () => {
     expect(screen.queryByTestId("anchor-connector")).not.toBeInTheDocument();
   });
 
+  it("renders aria-hidden and zero opacity when hidden prop is true", () => {
+    render(
+      <MarginColumn
+        cards={[]}
+        visibleSids={new Set()}
+        focusedCardId={null}
+        onBodyChange={() => {}}
+        onBodyCommit={() => {}}
+        hidden
+      />,
+    );
+    const el = screen.getByTestId("margin-column");
+    expect(el.getAttribute("aria-hidden")).toBe("true");
+    expect(el.style.opacity).toBe("0");
+    expect(el.style.transform).toContain("translateX(40px)");
+    expect(el.style.pointerEvents).toBe("none");
+  });
+
+  it("does not set aria-hidden when hidden prop is false/absent", () => {
+    render(
+      <MarginColumn
+        cards={[]}
+        visibleSids={new Set()}
+        focusedCardId={null}
+        onBodyChange={() => {}}
+        onBodyCommit={() => {}}
+      />,
+    );
+    expect(
+      screen.getByTestId("margin-column").getAttribute("aria-hidden"),
+    ).not.toBe("true");
+  });
+
   it("clicking a collapsed row promotes it and collapses the oldest-expanded", () => {
     const cards: AskCard[] = [
       mkAsk("oldest", "p1.s1", "2026-04-22T00:00:00Z"),
