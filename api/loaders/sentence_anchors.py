@@ -150,3 +150,17 @@ def load_cleaned_full_text(book_id: str, processed_dir: Path) -> str | None:
     for p in sorted(chapters_dir.glob("chapter_*.txt")):
         parts.append(p.read_text(encoding="utf-8"))
     return "\n\n".join(parts) if parts else None
+
+
+def load_booknlp_input_text(book_id: str, processed_dir: Path) -> str | None:
+    """Load the raw text that BookNLP actually processed (booknlp/input.txt).
+
+    BookNLP token byte offsets are relative to this file, NOT to the
+    reconstructed chapter concatenation from raw/chapters/.  Using this
+    text for offset arithmetic ensures sentence slicing is accurate.
+    Returns None if the file does not exist.
+    """
+    input_path = processed_dir / book_id / "booknlp" / "input.txt"
+    if not input_path.exists():
+        return None
+    return input_path.read_text(encoding="utf-8")

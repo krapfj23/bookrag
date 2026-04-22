@@ -19,6 +19,7 @@ from api.loaders.sentence_anchors import (
     AnchoredParagraph,
     build_paragraphs_anchored,
     find_chapter_offsets,
+    load_booknlp_input_text,
     load_cleaned_full_text,
     load_tokens_for_book,
     regex_fallback_paragraphs,
@@ -174,12 +175,24 @@ def load_chapter(book_id: str, n: int, processed_dir: Path) -> Chapter | None:
     anchored: list[AnchoredParagraph] = []
     fallback = True
     tokens = load_tokens_for_book(book_id, processed_dir)
-    full_text = load_cleaned_full_text(book_id, processed_dir)
-    if tokens and full_text:
-        offsets = find_chapter_offsets(full_text, raw_text)
+    # Prefer booknlp/input.txt as the offset coordinate space: BookNLP token
+    # byte_onset/byte_offset values are relative to the file BookNLP actually
+    # processed, not to the reconstructed chapter concatenation.  Using
+    # input.txt avoids a systematic offset error caused by chapter-header
+    # markers ("=== CHAPTER N ===\n\n") inserted by the BookNLP runner.
+    # We search for the raw chapter text within input.txt to obtain the
+    # correct absolute start/end positions, then slice input.txt for the
+    # chapter_text so token-relative slicing stays in the right coordinate.
+    booknlp_full = load_booknlp_input_text(book_id, processed_dir)
+    full_text_for_offsets = booknlp_full if booknlp_full is not None else load_cleaned_full_text(book_id, processed_dir)
+    if tokens and full_text_for_offsets:
+        offsets = find_chapter_offsets(full_text_for_offsets, raw_text)
         if offsets is not None:
             start, end = offsets
-            anchored, ok = build_paragraphs_anchored(raw_text, tokens, start, end)
+            # Use the slice of the reference text as chapter_text so that
+            # sentence byte ranges are valid relative indices into it.
+            chapter_text_for_anchoring = full_text_for_offsets[start:end]
+            anchored, ok = build_paragraphs_anchored(chapter_text_for_anchoring, tokens, start, end)
             if ok:
                 fallback = False
     if fallback:
