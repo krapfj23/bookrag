@@ -1004,22 +1004,56 @@ def _load_batch_datapoints(book_id: str, max_chapter: int | None = None) -> dict
 
 
 @app.get("/books/{book_id}/graph/data")
-async def get_graph_data(book_id: SafeBookId, max_chapter: int | None = Query(default=None, ge=1)) -> dict:
-    """Return knowledge graph as JSON nodes and edges, optionally spoiler-filtered."""
+async def get_graph_data(
+    book_id: SafeBookId,
+    max_chapter: int | None = Query(default=None, ge=1),
+    full: bool = Query(default=False),
+) -> dict:
+    """Return knowledge graph as JSON nodes and edges, spoiler-filtered by default.
+
+    - When ``max_chapter`` is given, filter to that chapter bound.
+    - When ``full=true``, return the full graph (explicit opt-in).
+    - Otherwise, default to the reader's current chapter from reading_progress.json.
+    """
     book_dir = Path(config.processed_dir) / book_id
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
-    return _load_batch_datapoints(book_id, max_chapter)
+
+    effective_max: int | None
+    if full:
+        effective_max = None
+    elif max_chapter is not None:
+        effective_max = max_chapter
+    else:
+        effective_max, _ = _get_reading_progress(book_id)
+    return _load_batch_datapoints(book_id, effective_max)
 
 
 @app.get("/books/{book_id}/graph", response_class=HTMLResponse)
-async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None = Query(default=None, ge=1)) -> HTMLResponse:
-    """Return an interactive HTML visualization of the knowledge graph."""
+async def get_graph_visualization(
+    book_id: SafeBookId,
+    max_chapter: int | None = Query(default=None, ge=1),
+    full: bool = Query(default=False),
+) -> HTMLResponse:
+    """Return an interactive HTML visualization of the knowledge graph, spoiler-filtered by default.
+
+    - When ``max_chapter`` is given, filter to that chapter bound.
+    - When ``full=true``, return the full graph (explicit opt-in).
+    - Otherwise, default to the reader's current chapter from reading_progress.json.
+    """
     book_dir = Path(config.processed_dir) / book_id
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    graph_data = _load_batch_datapoints(book_id, max_chapter)
+    effective_max: int | None
+    if full:
+        effective_max = None
+    elif max_chapter is not None:
+        effective_max = max_chapter
+    else:
+        effective_max, _ = _get_reading_progress(book_id)
+
+    graph_data = _load_batch_datapoints(book_id, effective_max)
 
     if not graph_data["nodes"]:
         return HTMLResponse(
@@ -1031,7 +1065,12 @@ async def get_graph_visualization(book_id: SafeBookId, max_chapter: int | None =
     # Escape JSON for safe embedding in <script type="application/json"> (prevent </script> breakout)
     safe_graph_json = json.dumps(graph_data).replace("</", "<\\/")
     safe_book_id = html_mod.escape(book_id)
-    chapter_label = html_mod.escape(f" (up to chapter {max_chapter})") if max_chapter else ""
+    if full:
+        chapter_label = " (full)"
+    elif effective_max is not None:
+        chapter_label = html_mod.escape(f" (up to chapter {effective_max})")
+    else:
+        chapter_label = ""
 
     html = f"""<!DOCTYPE html>
 <html>
