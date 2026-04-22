@@ -101,7 +101,7 @@ test.describe("Slice R2 — margin cards, selection, ask, note", () => {
     await expect(page.getByTestId("selection-toolbar")).toBeVisible({
       timeout: 1000,
     });
-    await expect(page.getByRole("button", { name: "Ask" })).toBeVisible();
+    await expect(page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]')).toBeVisible();
     await expect(page.getByRole("button", { name: "Note" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Highlight" })).toBeVisible();
   });
@@ -110,7 +110,7 @@ test.describe("Slice R2 — margin cards, selection, ask, note", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     const answer = page.getByTestId("ask-answer").first();
     await expect(answer).toBeVisible();
     // Eventually the final answer lands.
@@ -149,7 +149,7 @@ test.describe("Slice R2 — margin cards, selection, ask, note", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     // Wait for streaming to finish so the card is stable.
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
@@ -169,7 +169,7 @@ test.describe("Slice R2 — margin cards, selection, ask, note", () => {
     await expect(page.getByTestId("book-spread")).toBeVisible();
     // Initial cursor = p1.s1; selecting in p1.s2 is past the cursor.
     await selectInSid(page, "p1.s2");
-    const ask = page.getByRole("button", { name: "Ask" });
+    const ask = page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]');
     await expect(ask).toBeDisabled();
     // Note remains enabled.
     await expect(page.getByRole("button", { name: "Note" })).toBeEnabled();

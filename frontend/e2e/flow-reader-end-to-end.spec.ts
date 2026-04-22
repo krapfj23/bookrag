@@ -173,7 +173,7 @@ test.describe("Reader end-to-end flow (R1b gate)", () => {
 
     // Step 3: select and Ask.
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "Synthesized end-to-end flow answer",
       { timeout: 5000 },

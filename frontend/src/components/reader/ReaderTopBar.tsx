@@ -9,9 +9,11 @@ interface Props {
   mode: ReadingMode;
   onToggleMode: () => void;
   onAsk?: () => void;
+  spreadIdx?: number;
+  totalSpreads?: number;
 }
 
-export function ReaderTopBar({ title, mode, onToggleMode, onAsk }: Props) {
+export function ReaderTopBar({ title, mode, onToggleMode, onAsk, spreadIdx, totalSpreads }: Props) {
   const navigate = useNavigate();
 
   return (
@@ -60,7 +62,7 @@ export function ReaderTopBar({ title, mode, onToggleMode, onAsk }: Props) {
         {title}
       </div>
 
-      {/* Right: Search, Bookmark, Ask pill, Reading mode toggle */}
+      {/* Right: spread counter, Search, Bookmark, Ask pill, Reading mode toggle */}
       <div
         style={{
           justifySelf: "end",
@@ -69,6 +71,14 @@ export function ReaderTopBar({ title, mode, onToggleMode, onAsk }: Props) {
           gap: 8,
         }}
       >
+        {spreadIdx != null && totalSpreads != null && (
+          <div
+            aria-hidden="true"
+            style={{ color: "var(--ink-3)", fontSize: 12 }}
+          >
+            {`${spreadIdx + 1} / ${totalSpreads}`}
+          </div>
+        )}
         <button
           type="button"
           aria-label="Search"
@@ -104,6 +114,7 @@ export function ReaderTopBar({ title, mode, onToggleMode, onAsk }: Props) {
         <button
           type="button"
           aria-label="Ask"
+          data-testid="topbar-ask-pill"
           onClick={onAsk}
           style={{
             padding: "6px 14px",

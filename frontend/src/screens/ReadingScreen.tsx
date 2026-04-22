@@ -424,6 +424,8 @@ export function ReadingScreen() {
         title={title}
         mode={mode}
         onToggleMode={toggle}
+        spreadIdx={spreadIdx}
+        totalSpreads={body.kind === "ok" ? body.spreads.length : undefined}
       />
 
       <div

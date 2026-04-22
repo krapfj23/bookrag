@@ -140,7 +140,7 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     await expect(page.getByTestId("book-spread")).toBeVisible();
 
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
       { timeout: 5000 },
@@ -160,7 +160,7 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("skeleton-ask-card")).toBeVisible();
     await expect(page.getByTestId("blinking-cursor")).toBeVisible({
       timeout: 2000,
@@ -178,7 +178,7 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     const answer = page.getByTestId("ask-answer").first();
     await expect(answer).toContainText("lorem ipsum", { timeout: 8000 });
     const overflowY = await answer.evaluate(
@@ -193,7 +193,7 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
       { timeout: 5000 },
@@ -215,14 +215,14 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
       { timeout: 5000 },
     );
     // Re-select the same sid and press Ask again.
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     const focusedPlaceholder = await page.evaluate(
       () => (document.activeElement as HTMLInputElement | null)?.placeholder,
     );
@@ -235,7 +235,7 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
       { timeout: 5000 },
@@ -263,7 +263,7 @@ test.describe("Slice R3 — card states S1–S7 + O2 overflow", () => {
     // The margin column sits on the right side, so this card gets the
     // intra-spread "← FROM p. 1 ·" prefix immediately (no page turn needed).
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
       { timeout: 5000 },

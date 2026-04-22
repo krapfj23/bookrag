@@ -121,7 +121,7 @@ test.describe("Slice R2 screenshots", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     // Capture mid-stream shortly after click.
     await page.waitForTimeout(120);
     await page.screenshot({ path: `${OUT}/ac5-ask-streaming.png`, fullPage: true });
@@ -153,14 +153,14 @@ test.describe("Slice R2 screenshots", () => {
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "synthesized answer",
       { timeout: 5000 },
     );
     // Second Ask on same sid -> focus existing.
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await page.screenshot({ path: `${OUT}/ac11-dup-focus.png`, fullPage: true });
   });
 });

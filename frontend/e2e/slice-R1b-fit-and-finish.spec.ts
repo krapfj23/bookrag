@@ -184,7 +184,7 @@ test.describe("Slice R1b — fit-and-finish", () => {
 
     // Ask about a sentence on spread 0 (p1.s1).
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "Synthesized answer",
       { timeout: 5000 },
@@ -279,7 +279,7 @@ test.describe("Slice R1b — fit-and-finish", () => {
 
     // Ask about p1.s1 which should be on the left page of spread 0.
     await selectInSid(page, "p1.s1");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]').click();
     await expect(page.getByTestId("ask-answer").first()).toContainText(
       "Synthesized answer",
       { timeout: 5000 },
