@@ -15,7 +15,7 @@ export function ProgressHairline({ progress }: { progress: number }) {
         left: 0,
         right: 0,
         height: 3,
-        background: "var(--ink-4, rgba(0,0,0,0.08))",
+        background: "var(--paper-2)",
         zIndex: 100,
       }}
     >
