@@ -85,3 +85,33 @@ class TestLoadAllowedNodes:
         })
         allowed = load_allowed_nodes("book-1", cursor=5, processed_dir=tmp_path)
         assert {n["id"] for n in allowed} == {"a", "b"}
+
+
+class TestIdentityKey:
+    """_identity_key groups nodes by stable identity regardless of which batch they came from."""
+
+    def test_character_keyed_by_name(self):
+        from pipeline.spoiler_filter import _identity_key
+        a = {"_type": "Character", "name": "Scrooge", "last_known_chapter": 1}
+        b = {"_type": "Character", "name": "Scrooge", "last_known_chapter": 5}
+        assert _identity_key(a) == _identity_key(b)
+
+    def test_different_names_different_keys(self):
+        from pipeline.spoiler_filter import _identity_key
+        a = {"_type": "Character", "name": "Scrooge"}
+        b = {"_type": "Character", "name": "Marley"}
+        assert _identity_key(a) != _identity_key(b)
+
+    def test_same_name_different_type_different_keys(self):
+        from pipeline.spoiler_filter import _identity_key
+        a = {"_type": "Character", "name": "London"}
+        b = {"_type": "Location", "name": "London"}
+        assert _identity_key(a) != _identity_key(b)
+
+    def test_plotevent_keyed_by_chapter_and_description(self):
+        from pipeline.spoiler_filter import _identity_key
+        a = {"_type": "PlotEvent", "chapter": 2, "description": "Scrooge meets Marley's ghost"}
+        b = {"_type": "PlotEvent", "chapter": 2, "description": "Scrooge meets Marley's ghost"}
+        c = {"_type": "PlotEvent", "chapter": 2, "description": "Different event"}
+        assert _identity_key(a) == _identity_key(b)
+        assert _identity_key(a) != _identity_key(c)

@@ -104,3 +104,20 @@ def load_allowed_nodes(
             allowed.append(enriched)
 
     return allowed
+
+
+def _identity_key(node: dict) -> tuple:
+    """Return a stable identity tuple for grouping snapshots of the same entity.
+
+    - Named entities (Character/Location/Faction/Theme): (type, name)
+    - Relationships: (type, source_name, relation_type, target_name)
+    - PlotEvents: (type, chapter, description) — events are inherently tied to a
+      moment; we key by chapter + description to let identical events in
+      different chapters remain distinct.
+    """
+    t = node.get("_type", "")
+    if t == "Relationship":
+        return (t, node.get("source_name", ""), node.get("relation_type", ""), node.get("target_name", ""))
+    if t == "PlotEvent":
+        return (t, node.get("chapter"), node.get("description", ""))
+    return (t, node.get("name", ""))
