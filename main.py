@@ -123,11 +123,13 @@ class UploadResponse(BaseModel):
 
 class ProgressRequest(BaseModel):
     current_chapter: int
+    current_paragraph: int | None = None
 
 
 class ProgressResponse(BaseModel):
     book_id: str
     current_chapter: int
+    current_paragraph: int | None = None
 
 
 class HealthResponse(BaseModel):
@@ -175,6 +177,7 @@ class QueryResponse(BaseModel):
     question: str
     search_type: str
     current_chapter: int
+    current_paragraph: int | None = None
     # LLM-synthesized answer from the graph context (empty string if the
     # synthesis call failed and we fell back to raw sources).
     answer: str
@@ -317,26 +320,33 @@ async def get_chapter(book_id: SafeBookId, n: int) -> Chapter:
 
 @app.post("/books/{book_id}/progress", response_model=ProgressResponse)
 async def set_progress(book_id: SafeBookId, req: ProgressRequest) -> ProgressResponse:
-    """Set the reader's current chapter progress for spoiler filtering.
+    """Set the reader's current chapter + optional paragraph cursor."""
+    if req.current_chapter < 1:
+        raise HTTPException(status_code=400, detail="current_chapter must be >= 1")
+    if req.current_paragraph is not None and req.current_paragraph < 0:
+        raise HTTPException(status_code=400, detail="current_paragraph must be >= 0")
 
-    This is stored as a simple JSON file alongside the book's processed data.
-    """
     state = orchestrator.get_state(book_id)
     if state is None:
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    if req.current_chapter < 1:
-        raise HTTPException(status_code=400, detail="current_chapter must be >= 1")
-
     progress_path = Path(config.processed_dir) / book_id / "reading_progress.json"
     progress_path.parent.mkdir(parents=True, exist_ok=True)
-    progress_path.write_text(
-        json.dumps({"book_id": book_id, "current_chapter": req.current_chapter}, indent=2),
-        encoding="utf-8",
-    )
-    logger.info("Updated reading progress: book_id={}, chapter={}", book_id, req.current_chapter)
+    payload: dict = {"book_id": book_id, "current_chapter": req.current_chapter}
+    if req.current_paragraph is not None:
+        payload["current_paragraph"] = req.current_paragraph
+    progress_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    return ProgressResponse(book_id=book_id, current_chapter=req.current_chapter)
+    logger.info(
+        "Updated reading progress: book_id={}, chapter={}, paragraph={}",
+        book_id, req.current_chapter, req.current_paragraph,
+    )
+
+    return ProgressResponse(
+        book_id=book_id,
+        current_chapter=req.current_chapter,
+        current_paragraph=req.current_paragraph,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -395,7 +405,7 @@ def _list_ready_books() -> list[BookSummary]:
         total_chapters = (
             len(list(chapters_dir.glob("chapter_*.txt"))) if chapters_dir.exists() else 0
         )
-        current_chapter = _get_reading_progress(child.name)
+        current_chapter, _ = _get_reading_progress(child.name)
         books.append(
             BookSummary(
                 book_id=child.name,
@@ -475,13 +485,39 @@ def _load_chapter(book_id: str, n: int) -> Chapter | None:
     )
 
 
-def _get_reading_progress(book_id: str) -> int:
-    """Load current reading progress for a book. Defaults to chapter 1."""
+def _load_paragraphs_up_to(
+    book_id: str,
+    chapter: int,
+    paragraph_cursor: int,
+) -> list[str]:
+    """Return paragraphs 0..paragraph_cursor (inclusive) from `chapter`.
+
+    Empty list if the book/chapter doesn't exist. Cursor values past the last
+    paragraph are clamped. Reuses _load_chapter's paragraph splitting.
+    """
+    ch = _load_chapter(book_id, chapter)
+    if ch is None:
+        return []
+    return ch.paragraphs[: max(paragraph_cursor + 1, 0)]
+
+
+def _get_reading_progress(book_id: str) -> tuple[int, int | None]:
+    """Load current reading progress. Returns (chapter, paragraph_or_None).
+
+    Paragraph is 0-indexed when present. None means "paragraph cursor not
+    recorded" — callers treat that as Phase-0-compatible chapter-only progress.
+    """
     progress_path = Path(config.processed_dir) / book_id / "reading_progress.json"
-    if progress_path.exists():
+    if not progress_path.exists():
+        return 1, None
+    try:
         data = json.loads(progress_path.read_text(encoding="utf-8"))
-        return data.get("current_chapter", 1)
-    return 1
+    except (OSError, json.JSONDecodeError):
+        return 1, None
+    chapter = int(data.get("current_chapter", 1))
+    paragraph = data.get("current_paragraph")
+    paragraph = int(paragraph) if paragraph is not None else None
+    return chapter, paragraph
 
 
 def _extract_chapter(item: Any) -> int | None:
@@ -586,14 +622,14 @@ async def _complete_over_context(question: str, context: list[str]) -> str:
 def _answer_from_allowed_nodes(
     book_id: str,
     question: str,
-    cursor: int,
+    graph_max_chapter: int,
 ) -> list[QueryResultItem]:
     """Pre-filtered keyword retrieval. Walks disk batch JSON, keeps only
-    nodes whose effective latest chapter is <= cursor, then ranks by
-    keyword overlap with the question."""
+    nodes whose effective latest chapter is <= graph_max_chapter, then ranks
+    by keyword overlap with the question."""
     from pipeline.spoiler_filter import load_allowed_nodes, effective_latest_chapter
 
-    nodes = load_allowed_nodes(book_id, cursor, processed_dir=Path(config.processed_dir))
+    nodes = load_allowed_nodes(book_id, cursor=graph_max_chapter, processed_dir=Path(config.processed_dir))
     if not nodes:
         return []
 
@@ -623,11 +659,13 @@ def _answer_from_allowed_nodes(
 async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     """Query the knowledge graph with reader-progress fog-of-war.
 
-    Retrieval is PRE-FILTERED: a node allowlist is computed from disk based
-    on the reader's current chapter, and only allowed nodes are ever
-    considered. No Cognee default search is run, because it retrieves over
-    the full dataset before we can filter and may leak spoilers through
-    graph-completion reasoning.
+    Filter semantics:
+    - If current_paragraph is set, the graph is filtered to chapters
+      STRICTLY BEFORE current_chapter, and paragraphs 0..current_paragraph
+      of the current chapter are loaded from raw text and injected as
+      additional context.
+    - If current_paragraph is not set, Phase 0 behavior applies:
+      graph is filtered INCLUSIVE of current_chapter, no raw-text injection.
     """
     if req.search_type not in _ALLOWED_SEARCH_TYPES:
         raise HTTPException(
@@ -639,23 +677,36 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    disk_max = _get_reading_progress(book_id)
+    disk_chapter, disk_paragraph = _get_reading_progress(book_id)
     current_chapter = (
-        min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
+        min(req.max_chapter, disk_chapter) if req.max_chapter is not None else disk_chapter
     )
 
-    results = _answer_from_allowed_nodes(book_id, req.question, current_chapter)
+    if disk_paragraph is not None:
+        graph_max_chapter = max(current_chapter - 1, 0)
+        current_chapter_paragraphs = _load_paragraphs_up_to(
+            book_id, current_chapter, disk_paragraph
+        )
+    else:
+        graph_max_chapter = current_chapter
+        current_chapter_paragraphs = []
+
+    results = _answer_from_allowed_nodes(
+        book_id, req.question, graph_max_chapter=graph_max_chapter
+    )
 
     answer = ""
     if req.search_type == "GRAPH_COMPLETION":
-        context = [r.content for r in results[:15]]
-        answer = await _complete_over_context(req.question, context)
+        graph_context = [r.content for r in results[:15]]
+        combined = graph_context + current_chapter_paragraphs
+        answer = await _complete_over_context(req.question, combined)
 
     return QueryResponse(
         book_id=book_id,
         question=req.question,
         search_type=req.search_type,
         current_chapter=current_chapter,
+        current_paragraph=disk_paragraph,
         answer=answer,
         results=results,
         result_count=len(results),

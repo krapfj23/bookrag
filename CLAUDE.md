@@ -95,15 +95,18 @@ frontend/src/
 
 BookNLP does NOT produce resolved text. We reconstruct it from `.entities` + `.tokens` + `.book` files. Format: `"he [Scrooge] muttered to his [Scrooge] clerk [Bob Cratchit]"`. Reversible (strip brackets to recover original), and LLMs parse it well during Phase 2 extraction.
 
-### Fog-of-War Retrieval (Phase 0)
+### Fog-of-War Retrieval (Phases 0 + 1)
 
-Reader progress is persisted per book in `reading_progress.json` (chapter-granular). At query time, `pipeline/spoiler_filter.py` walks `data/processed/{book_id}/batches/*.json` and builds an allowlist of nodes whose `effective_latest_chapter` (= max of `first_chapter`, `last_known_chapter`, `chapter`) is ≤ the reader's cursor. Retrieval runs ONLY over this allowlist — Cognee's default graph search is bypassed because it retrieves over the full dataset before filtering, which leaks spoilers through graph-completion reasoning.
+Reader progress is persisted per book in `reading_progress.json` as `{current_chapter, current_paragraph?}`. Paragraph is 0-indexed and optional — clients that send only `current_chapter` get Phase-0-compatible chapter-inclusive filtering.
 
-For `GRAPH_COMPLETION` queries, the top-K allowed nodes are passed as context to the LLM via `_complete_over_context`. The LLM never sees post-progress content.
+At query time, `pipeline/spoiler_filter.py` walks `data/processed/{book_id}/batches/*.json` and builds an allowlist of nodes whose `effective_latest_chapter` (= max of `first_chapter`, `last_known_chapter`, `chapter`) is ≤ a chapter bound. The bound is:
+- `current_chapter` (inclusive) when `current_paragraph` is None
+- `current_chapter - 1` (strict) when `current_paragraph` is set — the current chapter is excluded from the graph and comes from raw text instead.
 
-Limitations (addressed in later phases):
-- Progress is chapter-granular, not paragraph-granular (Phase 1).
-- Each entity has one DataPoint with a single `last_known_chapter`. If the entity's description was written from chapter-5 evidence, a reader at chapter-5 sees the full description; we can't rewind to a "chapter-3 snapshot" of the same entity (Phase 2).
+When a paragraph cursor is set, `_load_paragraphs_up_to(book_id, current_chapter, current_paragraph)` loads paragraphs 0..cursor from `raw/chapters/chapter_NN.txt` and, for `GRAPH_COMPLETION`, those paragraphs are concatenated with the allowed-node context and passed to the LLM via `_complete_over_context`.
+
+Limitations (addressed in Phase 2):
+- Node descriptions are still chapter-granular. A Character with `last_known_chapter=4` may have had its description influenced by chapter-5 content the LLM saw during batch extraction, even if the reader is at chapter-4 paragraph-3. Phase 2 introduces per-paragraph node snapshots.
 
 ## Testing
 

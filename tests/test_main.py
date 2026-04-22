@@ -455,7 +455,7 @@ class TestAnswerFromAllowedNodes:
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
         self._seed_book(tmp_path, "bk")
 
-        items = _answer_from_allowed_nodes("bk", question="what happens", cursor=2)
+        items = _answer_from_allowed_nodes("bk", question="what happens", graph_max_chapter=2)
         contents = [i.content for i in items]
         assert not any("spoiler" in c.lower() for c in contents)
         assert not any("dies" in c.lower() for c in contents)
@@ -465,7 +465,7 @@ class TestAnswerFromAllowedNodes:
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
         self._seed_book(tmp_path, "bk")
 
-        items = _answer_from_allowed_nodes("bk", question="dies", cursor=5)
+        items = _answer_from_allowed_nodes("bk", question="dies", graph_max_chapter=5)
         assert any("dies" in i.content.lower() for i in items)
 
 
@@ -554,3 +554,327 @@ class TestGraphCompletionUsesOnlyAllowed:
         assert captured, "LLM completion was not invoked"
         combined = " ".join(captured["context"])
         assert "SPOILER_MARKER" not in combined, f"context leaked: {combined}"
+
+
+class TestReadingProgressParagraph:
+    """_get_reading_progress returns (chapter, paragraph) — paragraph may be None."""
+
+    def test_chapter_only_returns_none_paragraph(self, tmp_path, monkeypatch):
+        from main import _get_reading_progress, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        (tmp_path / "bk").mkdir()
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 3,
+        }))
+        chapter, paragraph = _get_reading_progress("bk")
+        assert chapter == 3
+        assert paragraph is None
+
+    def test_chapter_and_paragraph(self, tmp_path, monkeypatch):
+        from main import _get_reading_progress, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        (tmp_path / "bk").mkdir()
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 3, "current_paragraph": 7,
+        }))
+        chapter, paragraph = _get_reading_progress("bk")
+        assert chapter == 3
+        assert paragraph == 7
+
+    def test_missing_file_defaults(self, tmp_path, monkeypatch):
+        from main import _get_reading_progress, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        chapter, paragraph = _get_reading_progress("nonexistent")
+        assert chapter == 1
+        assert paragraph is None
+
+
+class TestSetProgressWithParagraph:
+    """POST /books/{id}/progress accepts optional current_paragraph."""
+
+    def _seed(self, tmp_path, book_id="bk"):
+        (tmp_path / book_id).mkdir(parents=True, exist_ok=True)
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+
+    def _real_orchestrator(self, monkeypatch, main_config):
+        """Restore a real orchestrator so get_state reads from disk (prior tests
+        may have replaced main.orchestrator with a mock)."""
+        import main as main_mod
+        from pipeline.orchestrator import PipelineOrchestrator
+        monkeypatch.setattr(main_mod, "orchestrator", PipelineOrchestrator(main_config))
+
+    def test_accepts_paragraph(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/progress", json={
+            "current_chapter": 3, "current_paragraph": 12,
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["current_chapter"] == 3
+        assert body["current_paragraph"] == 12
+
+    def test_paragraph_optional(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/progress", json={"current_chapter": 2})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["current_chapter"] == 2
+        assert body["current_paragraph"] is None
+
+    def test_paragraph_persisted_to_disk(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        client.post("/books/bk/progress", json={
+            "current_chapter": 3, "current_paragraph": 12,
+        })
+        on_disk = json.loads((tmp_path / "bk" / "reading_progress.json").read_text())
+        assert on_disk["current_chapter"] == 3
+        assert on_disk["current_paragraph"] == 12
+
+    def test_rejects_negative_paragraph(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orchestrator(monkeypatch, main_config)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/progress", json={
+            "current_chapter": 3, "current_paragraph": -1,
+        })
+        assert resp.status_code == 400
+
+
+class TestLoadParagraphsUpTo:
+    """_load_paragraphs_up_to returns paragraphs 0..cursor from the requested chapter."""
+
+    def _seed_chapter(self, tmp_path, book_id, chapter_n, paragraphs: list[str]):
+        chapters = tmp_path / book_id / "raw" / "chapters"
+        chapters.mkdir(parents=True, exist_ok=True)
+        for i in range(1, chapter_n):
+            (chapters / f"chapter_{i:02d}.txt").write_text("filler", encoding="utf-8")
+        text = "\n\n".join(paragraphs)
+        (chapters / f"chapter_{chapter_n:02d}.txt").write_text(text, encoding="utf-8")
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+
+    def test_returns_paragraphs_through_cursor_inclusive(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_chapter(tmp_path, "bk", 3, ["p0", "p1", "p2", "p3", "p4"])
+        assert _load_paragraphs_up_to("bk", 3, 2) == ["p0", "p1", "p2"]
+
+    def test_cursor_past_end_clamps(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_chapter(tmp_path, "bk", 1, ["p0", "p1"])
+        assert _load_paragraphs_up_to("bk", 1, 99) == ["p0", "p1"]
+
+    def test_cursor_zero_returns_single(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_chapter(tmp_path, "bk", 1, ["p0", "p1"])
+        assert _load_paragraphs_up_to("bk", 1, 0) == ["p0"]
+
+    def test_missing_chapter_returns_empty(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        assert _load_paragraphs_up_to("missing", 1, 0) == []
+
+
+class TestAnswerFromAllowedNodesExplicitBound:
+    """_answer_from_allowed_nodes accepts graph_max_chapter kwarg."""
+
+    def _seed(self, tmp_path, book_id="bk"):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Early", "description": "ch1",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c3", "name": "Later", "description": "ch3",
+                 "first_chapter": 1, "last_known_chapter": 3},
+            ],
+        }))
+
+    def test_bound_2_excludes_chapter_3(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        items = _answer_from_allowed_nodes("bk", "later", graph_max_chapter=2)
+        assert not any("ch3" in i.content for i in items)
+
+    def test_bound_3_includes_chapter_3(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        items = _answer_from_allowed_nodes("bk", "later", graph_max_chapter=3)
+        assert any("ch3" in i.content for i in items)
+
+
+class TestQueryEndpointParagraphGate:
+    """/books/{id}/query respects current_paragraph for raw-text context."""
+
+    def _seed(self, tmp_path, book_id="bk"):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Marley", "description": "dead partner",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c3", "name": "Future", "description": "GRAPH_SPOILER",
+                 "first_chapter": 1, "last_known_chapter": 3},
+            ],
+        }))
+        # Current chapter 3 has 5 paragraphs. Reader at paragraph 1.
+        # NOTE: _load_chapter indexes files[n-1] after sorting; need chapters 1..3 to exist.
+        chapters = tmp_path / book_id / "raw" / "chapters"
+        chapters.mkdir(parents=True)
+        (chapters / "chapter_01.txt").write_text("ch1 p0\n\nch1 p1", encoding="utf-8")
+        (chapters / "chapter_02.txt").write_text("ch2 p0\n\nch2 p1", encoding="utf-8")
+        (chapters / "chapter_03.txt").write_text(
+            "READ_P0\n\nREAD_P1\n\nUNREAD_P2\n\nUNREAD_P3\n\nUNREAD_P4",
+            encoding="utf-8",
+        )
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+        (tmp_path / book_id / "reading_progress.json").write_text(json.dumps({
+            "book_id": book_id, "current_chapter": 3, "current_paragraph": 1,
+        }))
+
+    def _real_orch(self, monkeypatch, main_mod, cfg):
+        from pipeline.orchestrator import PipelineOrchestrator
+        monkeypatch.setattr(main_mod, "orchestrator", PipelineOrchestrator(cfg))
+
+    def test_paragraph_cursor_excludes_current_chapter_graph_nodes(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "Future",
+            "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        for r in body["results"]:
+            assert "GRAPH_SPOILER" not in r["content"], f"leaked: {r}"
+
+    def test_paragraph_cursor_injects_raw_read_paragraphs(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+
+        captured: dict = {}
+
+        async def fake_complete(question, context):
+            captured["context"] = context
+            return "ok"
+
+        monkeypatch.setattr(main_mod, "_complete_over_context", fake_complete)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "Marley",
+            "search_type": "GRAPH_COMPLETION",
+        })
+        assert resp.status_code == 200
+        combined = " ".join(captured["context"])
+        assert "READ_P0" in combined
+        assert "READ_P1" in combined
+        assert "UNREAD_P2" not in combined
+        assert "UNREAD_P3" not in combined
+        assert "UNREAD_P4" not in combined
+
+    def test_no_paragraph_preserves_phase0_inclusive(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path)
+        # Drop paragraph cursor from progress.
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 3,
+        }))
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "Future",
+            "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert any("GRAPH_SPOILER" in r["content"] for r in body["results"])
+
+
+class TestQueryResponseIncludesParagraph:
+    def _real_orch(self, monkeypatch, main_mod, cfg):
+        from pipeline.orchestrator import PipelineOrchestrator
+        monkeypatch.setattr(main_mod, "orchestrator", PipelineOrchestrator(cfg))
+
+    def _seed(self, tmp_path, book_id="bk", with_paragraph=True):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({"characters": []}))
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+        progress = {"book_id": book_id, "current_chapter": 3}
+        if with_paragraph:
+            progress["current_paragraph"] = 7
+        (tmp_path / book_id / "reading_progress.json").write_text(json.dumps(progress))
+
+    def test_response_includes_paragraph_when_set(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path, with_paragraph=True)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "anything", "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["current_paragraph"] == 7
+
+    def test_response_paragraph_null_when_unset(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path, with_paragraph=False)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "anything", "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["current_paragraph"] is None
