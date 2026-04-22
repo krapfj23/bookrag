@@ -61,6 +61,11 @@ class BookRAGConfig(BaseSettings):
     # one extra LLM call per multi-member group at ingestion time;
     # improves retrieval-card uniqueness in the chat.
     consolidate_entities: bool = True
+    # Bonus A (Phase A Stage 0): when False, skip cognee.add for chunk indexing.
+    # BookRAG's Approach C reads from Kuzu+LanceDB via DataPoints; cognee.add is
+    # dead weight unless Slice 2 (cognee-search-types) is live and needs raw-doc
+    # retrieval via cognee.search(CHUNKS|RAG_COMPLETION).
+    persist_raw_to_cognee_docstore: bool = False
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 

@@ -652,6 +652,30 @@ class TestSaveBatchArtifacts:
         data = json.loads(dp_path.read_text())
         assert data == []
 
+    def test_save_batch_artifacts_logs_warning_on_model_dump_failure(self, tmp_path):
+        """When a DataPoint's model_dump raises, warning fires AND fallback record stays."""
+        from unittest.mock import MagicMock
+        from pipeline.cognee_pipeline import _save_batch_artifacts
+        from pipeline.batcher import Batch
+
+        bad_dp = MagicMock()
+        bad_dp.id = "dp-boom"
+        bad_dp.model_dump.side_effect = RuntimeError("serialize boom")
+        type(bad_dp).__name__ = "Character"
+        batch = Batch(chapter_numbers=[1], texts=[""], combined_text="")
+
+        messages = []
+        from loguru import logger as _lg
+        sink_id = _lg.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            _save_batch_artifacts(batch, {}, [bad_dp], tmp_path)
+        finally:
+            _lg.remove(sink_id)
+
+        assert any("Failed to serialize DataPoint dp-boom" in m for m in messages)
+        out = (tmp_path / "batch_01" / "extracted_datapoints.json").read_text()
+        assert '"id": "dp-boom"' in out
+
 
 # ===================================================================
 # run_bookrag_pipeline — integration
@@ -696,7 +720,7 @@ class TestValidateRelationships:
         )
 
     def test_valid_relationship_passes_through(self):
-        from pipeline.cognee_pipeline import _validate_relationships
+        from pipeline.extraction_validation import _validate_relationships
 
         ext = self._make_extraction(
             characters=[self._make_character("Scrooge"), self._make_character("Marley")],
@@ -706,7 +730,7 @@ class TestValidateRelationships:
         assert len(result.relationships) == 1
 
     def test_orphan_source_is_dropped(self):
-        from pipeline.cognee_pipeline import _validate_relationships
+        from pipeline.extraction_validation import _validate_relationships
 
         ext = self._make_extraction(
             characters=[self._make_character("Marley")],
@@ -719,7 +743,7 @@ class TestValidateRelationships:
         )
 
     def test_orphan_target_is_dropped(self):
-        from pipeline.cognee_pipeline import _validate_relationships
+        from pipeline.extraction_validation import _validate_relationships
 
         ext = self._make_extraction(
             characters=[self._make_character("Scrooge")],
@@ -730,7 +754,7 @@ class TestValidateRelationships:
         assert result.relationships == []
 
     def test_duplicate_keeps_longest_description(self):
-        from pipeline.cognee_pipeline import _validate_relationships
+        from pipeline.extraction_validation import _validate_relationships
 
         ext = self._make_extraction(
             characters=[self._make_character("Scrooge"), self._make_character("Marley")],
@@ -751,7 +775,7 @@ class TestValidateRelationships:
 
     def test_duplicate_when_all_none_descriptions_keeps_one(self):
         """Edge: if both duplicates have description=None, still dedupe to one."""
-        from pipeline.cognee_pipeline import _validate_relationships
+        from pipeline.extraction_validation import _validate_relationships
 
         ext = self._make_extraction(
             characters=[self._make_character("A"), self._make_character("B")],
@@ -767,7 +791,7 @@ class TestValidateRelationships:
         """The ontology allows some Relationships between a Character and a
         Location (e.g. Character owns Location). Treat Locations, Factions,
         and Characters as valid endpoints."""
-        from pipeline.cognee_pipeline import _validate_relationships
+        from pipeline.extraction_validation import _validate_relationships
         from models.datapoints import LocationExtraction, ExtractionResult
 
         ext = ExtractionResult(
@@ -779,7 +803,7 @@ class TestValidateRelationships:
         assert len(result.relationships) == 1
 
     def test_no_relationships_input_is_noop(self):
-        from pipeline.cognee_pipeline import _validate_relationships
+        from pipeline.extraction_validation import _validate_relationships
 
         ext = self._make_extraction(
             characters=[self._make_character("Scrooge")],
@@ -810,7 +834,7 @@ class TestEntityConsolidation:
         )
 
     def test_group_single_entity_is_noop_key(self):
-        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from pipeline.consolidation import _group_entities_for_consolidation
         from models.datapoints import ExtractionResult
         ext = ExtractionResult(characters=[self._make_char("Scrooge")])
         groups = _group_entities_for_consolidation(ext)
@@ -818,7 +842,7 @@ class TestEntityConsolidation:
         assert len(groups[("Character", "Scrooge", 1)]) == 1
 
     def test_group_two_same_bucket_keys_together(self):
-        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from pipeline.consolidation import _group_entities_for_consolidation
         from models.datapoints import ExtractionResult
         ext = ExtractionResult(characters=[
             self._make_char("Scrooge", desc="A"),
@@ -830,7 +854,7 @@ class TestEntityConsolidation:
 
     def test_group_different_last_chapter_never_merges(self):
         """Spoiler invariant: ch.1 Scrooge and ch.3 Scrooge are separate keys."""
-        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from pipeline.consolidation import _group_entities_for_consolidation
         from models.datapoints import ExtractionResult
         ext = ExtractionResult(characters=[
             self._make_char("Scrooge", first_ch=1, last_ch=1, desc="A"),
@@ -845,7 +869,7 @@ class TestEntityConsolidation:
     def test_merge_group_preserves_first_chapter_min(self):
         """After merging, first_chapter = min across members; last_known_chapter
         = the group key's chapter (shared)."""
-        from pipeline.cognee_pipeline import _merge_group
+        from pipeline.consolidation import _merge_group
 
         members = [
             self._make_char("Scrooge", first_ch=1, last_ch=3, desc="A"),
@@ -860,7 +884,7 @@ class TestEntityConsolidation:
     def test_no_relationships_touched(self):
         """Validator only groups entity types; relationships pass through
         untouched."""
-        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from pipeline.consolidation import _group_entities_for_consolidation
         from models.datapoints import ExtractionResult, RelationshipExtraction
 
         ext = ExtractionResult(
@@ -875,7 +899,7 @@ class TestEntityConsolidation:
         assert not any(k[0] == "Relationship" for k in groups)
 
     def test_locations_factions_themes_all_grouped(self):
-        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from pipeline.consolidation import _group_entities_for_consolidation
         from models.datapoints import (
             ExtractionResult, LocationExtraction, FactionExtraction, ThemeExtraction,
         )
@@ -898,12 +922,12 @@ class TestEntityConsolidation:
     def test_consolidate_entities_single_member_is_noop(self):
         """Single-member groups incur no LLM call — nothing to merge."""
         import asyncio
-        from pipeline.cognee_pipeline import consolidate_entities
+        from pipeline.consolidation import consolidate_entities
         from models.datapoints import ExtractionResult
 
         ext = ExtractionResult(characters=[self._make_char("Scrooge", desc="A miser.")])
 
-        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+        with patch("pipeline.consolidation.LLMGateway") as mock_llm:
             mock_llm.acreate_structured_output = AsyncMock(
                 return_value=MagicMock(answer="should not be called")
             )
@@ -917,7 +941,7 @@ class TestEntityConsolidation:
         merged into one via a single LLM call. Description field is replaced;
         the group collapses to a single entity."""
         import asyncio
-        from pipeline.cognee_pipeline import consolidate_entities
+        from pipeline.consolidation import consolidate_entities
         from models.datapoints import ExtractionResult
 
         ext = ExtractionResult(characters=[
@@ -925,7 +949,7 @@ class TestEntityConsolidation:
             self._make_char("Scrooge", desc="Cold-hearted businessman."),
         ])
 
-        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+        with patch("pipeline.consolidation.LLMGateway") as mock_llm:
             mock_llm.acreate_structured_output = AsyncMock(
                 return_value=MagicMock(answer="A cold-hearted miserly businessman.")
             )
@@ -938,7 +962,7 @@ class TestEntityConsolidation:
     def test_consolidate_preserves_different_chapter_buckets(self):
         """Spoiler-safety: merging must not cross chapter-bucket boundaries."""
         import asyncio
-        from pipeline.cognee_pipeline import consolidate_entities
+        from pipeline.consolidation import consolidate_entities
         from models.datapoints import ExtractionResult
 
         ext = ExtractionResult(characters=[
@@ -946,7 +970,7 @@ class TestEntityConsolidation:
             self._make_char("Scrooge", last_ch=3, desc="Changed Scrooge."),
         ])
 
-        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+        with patch("pipeline.consolidation.LLMGateway") as mock_llm:
             mock_llm.acreate_structured_output = AsyncMock(
                 return_value=MagicMock(answer="should not be called")
             )
@@ -963,7 +987,7 @@ class TestEntityConsolidation:
         """If the LLM call raises, keep the first member's description
         unchanged (and log); never fail the whole extraction."""
         import asyncio
-        from pipeline.cognee_pipeline import consolidate_entities
+        from pipeline.consolidation import consolidate_entities
         from models.datapoints import ExtractionResult
 
         ext = ExtractionResult(characters=[
@@ -971,7 +995,7 @@ class TestEntityConsolidation:
             self._make_char("Scrooge", desc="Second description."),
         ])
 
-        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+        with patch("pipeline.consolidation.LLMGateway") as mock_llm:
             mock_llm.acreate_structured_output = AsyncMock(
                 side_effect=RuntimeError("LLM down")
             )
@@ -1280,7 +1304,8 @@ def test_run_bookrag_pipeline_assigns_ordinals_and_calls_cognee_add(tmp_path):
     with patch("pipeline.cognee_pipeline.extract_enriched_graph", new=AsyncMock(return_value=[])), \
          patch("pipeline.cognee_pipeline.cognee") as mock_cognee, \
          patch("pipeline.cognee_pipeline.add_data_points"), \
-         patch("pipeline.cognee_pipeline.run_pipeline", new=AsyncMock()):
+         patch("pipeline.cognee_pipeline.run_pipeline", new=AsyncMock()), \
+         patch("pipeline.cognee_pipeline._persist_raw_to_cognee_docstore", return_value=True):
         mock_cognee.add = AsyncMock()
 
         next_ord = asyncio.run(run_bookrag_pipeline(
@@ -1328,3 +1353,55 @@ def test_run_bookrag_pipeline_stamps_ordinal_on_datapoints(tmp_path):
         ))
 
         assert dp.source_chunk_ordinal == 0
+
+
+def test_run_bookrag_pipeline_skips_cognee_add_when_flag_disabled(tmp_path):
+    """Bonus A (Phase A Stage 0): cognee.add is NOT called when
+    persist_raw_to_cognee_docstore is False (the default).
+    """
+    from pipeline.cognee_pipeline import run_bookrag_pipeline
+    from pipeline.batcher import Batch
+
+    batch = Batch(
+        chapter_numbers=[1],
+        texts=["hello world"],
+        combined_text="hello world",
+    )
+
+    with patch("pipeline.cognee_pipeline.extract_enriched_graph", new=AsyncMock(return_value=[])), \
+         patch("pipeline.cognee_pipeline.cognee") as mock_cognee, \
+         patch("pipeline.cognee_pipeline.add_data_points"), \
+         patch("pipeline.cognee_pipeline.run_pipeline", new=AsyncMock()), \
+         patch("pipeline.cognee_pipeline._persist_raw_to_cognee_docstore", return_value=False):
+        mock_cognee.add = AsyncMock()
+        asyncio.run(run_bookrag_pipeline(
+            batch=batch, booknlp_output={}, ontology={}, book_id="b",
+            chunk_size=1500, chunk_ordinal_start=0, output_dir=tmp_path,
+        ))
+        assert mock_cognee.add.await_count == 0
+
+
+def test_run_bookrag_pipeline_calls_cognee_add_when_flag_enabled(tmp_path):
+    """Bonus A (Phase A Stage 0): cognee.add IS called when
+    persist_raw_to_cognee_docstore is True.
+    """
+    from pipeline.cognee_pipeline import run_bookrag_pipeline
+    from pipeline.batcher import Batch
+
+    batch = Batch(
+        chapter_numbers=[1],
+        texts=["hello world"],
+        combined_text="hello world",
+    )
+
+    with patch("pipeline.cognee_pipeline.extract_enriched_graph", new=AsyncMock(return_value=[])), \
+         patch("pipeline.cognee_pipeline.cognee") as mock_cognee, \
+         patch("pipeline.cognee_pipeline.add_data_points"), \
+         patch("pipeline.cognee_pipeline.run_pipeline", new=AsyncMock()), \
+         patch("pipeline.cognee_pipeline._persist_raw_to_cognee_docstore", return_value=True):
+        mock_cognee.add = AsyncMock()
+        asyncio.run(run_bookrag_pipeline(
+            batch=batch, booknlp_output={}, ontology={}, book_id="b",
+            chunk_size=1500, chunk_ordinal_start=0, output_dir=tmp_path,
+        ))
+        assert mock_cognee.add.await_count >= 1

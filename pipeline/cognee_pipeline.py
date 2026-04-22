@@ -33,6 +33,14 @@ from cognee.tasks.storage import add_data_points
 from models.config import DEFAULT_CHUNK_SIZE, DEFAULT_MAX_RETRIES
 from models.datapoints import ExtractionResult
 from pipeline.batcher import Batch
+from pipeline.consolidation import (
+    _ConsolidatedDescription,
+    _group_entities_for_consolidation,
+    _merge_chunk_extractions,
+    _merge_group,
+    consolidate_entities,
+)
+from pipeline.extraction_validation import _validate_relationships
 
 
 def configure_cognee(config: Any) -> None:
@@ -94,6 +102,19 @@ def configure_cognee(config: Any) -> None:
         return
 
     logger.info("Cognee LLM configured: provider={}, model={}", provider, model)
+
+
+def _persist_raw_to_cognee_docstore() -> bool:
+    """Return whether cognee.add should index raw chunk text.
+
+    Read lazily from config each call so tests can monkeypatch. See
+    docs/superpowers/plans/2026-04-22-phase-a-integration-roadmap.md § Stage 0.
+    """
+    from models.config import load_config
+    try:
+        return bool(getattr(load_config(), "persist_raw_to_cognee_docstore", False))
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -450,28 +471,6 @@ async def extract_enriched_graph(
     return all_datapoints
 
 
-def _merge_chunk_extractions(
-    extractions: list["ExtractionResult"],
-) -> "ExtractionResult":
-    """Concatenate per-chunk ExtractionResults into one batch-level result.
-
-    Entities, events, and relationships are simply concatenated — no dedup
-    happens here. Dedup happens in _validate_relationships (relationships,
-    per-chunk) and consolidate_entities (entities, per-batch).
-    """
-    from models.datapoints import ExtractionResult
-
-    merged = ExtractionResult()
-    for e in extractions:
-        merged.characters.extend(e.characters)
-        merged.locations.extend(e.locations)
-        merged.events.extend(e.events)
-        merged.relationships.extend(e.relationships)
-        merged.themes.extend(e.themes)
-        merged.factions.extend(e.factions)
-    return merged
-
-
 # ---------------------------------------------------------------------------
 # Pipeline assembly
 # ---------------------------------------------------------------------------
@@ -514,7 +513,12 @@ def _save_batch_artifacts(
     for dp in datapoints:
         try:
             dp_records.append(dp.model_dump(mode="json"))
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to serialize DataPoint {}: {}",
+                getattr(dp, "id", "<no-id>"),
+                exc,
+            )
             dp_records.append({"type": type(dp).__name__, "id": str(dp.id)})
 
     dp_path = batch_dir / "extracted_datapoints.json"
@@ -526,224 +530,6 @@ def _save_batch_artifacts(
         "Saved batch artifacts to {} (input_text, annotations, {} datapoints)",
         batch_dir, len(dp_records),
     )
-
-
-# ---------------------------------------------------------------------------
-# Plan 3 — Entity consolidation helpers
-# ---------------------------------------------------------------------------
-
-def _group_entities_for_consolidation(
-    extraction: "ExtractionResult",
-) -> dict[tuple[str, str, int], list]:
-    """Group extracted entities by (type, name, last_known_chapter).
-
-    Plan 3's spoiler invariant: NEVER merge across chapter buckets. Two
-    records for the same character but with different last_known_chapter
-    values describe the character at different points in the narrative
-    and must remain distinct retrieval targets.
-
-    Relationships are NOT grouped here — they have their own dedup logic
-    in _validate_relationships. Events are per-scene, also not grouped.
-
-    Returns: dict keyed by ("Character"|"Location"|"Faction"|"Theme", name,
-    last_known_chapter) → list of extraction objects sharing that key.
-    """
-    groups: dict[tuple[str, str, int], list] = {}
-    for entity in extraction.characters:
-        key = ("Character", entity.name, entity.last_known_chapter or entity.first_chapter)
-        groups.setdefault(key, []).append(entity)
-    for entity in extraction.locations:
-        key = ("Location", entity.name, entity.last_known_chapter or entity.first_chapter)
-        groups.setdefault(key, []).append(entity)
-    for entity in extraction.factions:
-        key = ("Faction", entity.name, entity.last_known_chapter or entity.first_chapter)
-        groups.setdefault(key, []).append(entity)
-    for entity in extraction.themes:
-        key = ("Theme", entity.name, entity.last_known_chapter or entity.first_chapter)
-        groups.setdefault(key, []).append(entity)
-    return groups
-
-
-def _merge_group(members: list, consolidated_description: str):
-    """Produce a single canonical record from a group of same-entity extractions.
-
-    Copies the first member, overwrites its ``description`` with the
-    consolidated text, and sets ``first_chapter`` to the minimum across
-    members (so retrieval sees the earliest chapter this entity was
-    grounded in). ``last_known_chapter`` stays at the group key's value,
-    which is shared across all members by construction.
-
-    All other fields (name, aliases, related_character_names, etc.) come
-    from the first member. This is arbitrary but deterministic; if the
-    first member is missing data, it stays missing — the tradeoff is
-    simplicity vs per-field merging, and Plan 3's scope limits this to
-    description consolidation only.
-    """
-    if not members:
-        raise ValueError("_merge_group requires at least one member")
-    canonical = members[0].model_copy() if hasattr(members[0], "model_copy") else members[0]
-    canonical.description = consolidated_description
-    canonical.first_chapter = min(m.first_chapter for m in members)
-    return canonical
-
-
-from pydantic import BaseModel as _PydBase
-
-
-class _ConsolidatedDescription(_PydBase):
-    """Structured output for consolidate_entities' LLM call."""
-    answer: str
-
-
-async def consolidate_entities(extraction: "ExtractionResult") -> "ExtractionResult":
-    """Plan 3 — merge duplicate same-bucket entity descriptions via LLM.
-
-    For each (type, name, last_known_chapter) group with 2+ members, call
-    the LLM once to produce a consolidated description. Replace the group
-    with a single canonical record (first member + consolidated description).
-
-    Never merges across chapter buckets — see _group_entities_for_consolidation.
-
-    LLM failures fall back to keeping the first member's description
-    unchanged. The pass is best-effort: an extraction with failed
-    consolidation is still better than an extraction with duplicates.
-
-    Mutates ``extraction`` in place (and also returns it for chaining).
-    """
-    import asyncio as _asyncio
-
-    groups = _group_entities_for_consolidation(extraction)
-    multi = {k: ms for k, ms in groups.items() if len(ms) > 1}
-    if not multi:
-        return extraction  # nothing to do
-
-    prompt_tmpl = _load_extraction_prompt("prompts/consolidate_entity_prompt.txt")
-    env = SandboxedEnvironment(loader=BaseLoader(), keep_trailing_newline=True)
-    template = env.from_string(prompt_tmpl)
-
-    # Cap concurrency so we don't fire 20 LLM calls at once for a big book.
-    sem = _asyncio.Semaphore(5)
-
-    async def _consolidate_one(key, members):
-        async with sem:
-            descriptions = [m.description for m in members if m.description]
-            if not descriptions:
-                # Nothing to consolidate
-                return key, members[0]
-            prompt = template.render(
-                entity_type=key[0],
-                entity_name=key[1],
-                last_known_chapter=key[2],
-                descriptions=descriptions,
-            )
-            try:
-                response = await LLMGateway.acreate_structured_output(
-                    text_input=prompt,
-                    system_prompt="You are a literary knowledge-graph assistant consolidating entity descriptions.",
-                    response_model=_ConsolidatedDescription,
-                )
-                merged_desc = response.answer.strip()
-            except Exception as exc:
-                logger.warning(
-                    "Consolidation LLM call failed for {}/{} — keeping first description: {}",
-                    key[0], key[1], exc,
-                )
-                merged_desc = members[0].description or ""
-            canonical = _merge_group(members, merged_desc)
-            return key, canonical
-
-    tasks = [_consolidate_one(k, ms) for k, ms in multi.items()]
-    results = await _asyncio.gather(*tasks)
-    replacements = {k: c for k, c in results}
-
-    # Rebuild the four entity lists: singletons pass through; multi-member
-    # groups get replaced with their canonical member.
-    def _rebuild(members_list, type_label):
-        out = []
-        seen_keys: set = set()
-        for m in members_list:
-            key = (type_label, m.name, m.last_known_chapter or m.first_chapter)
-            if key in replacements:
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-                out.append(replacements[key])
-            else:
-                out.append(m)
-        return out
-
-    extraction.characters = _rebuild(extraction.characters, "Character")
-    extraction.locations = _rebuild(extraction.locations, "Location")
-    extraction.factions = _rebuild(extraction.factions, "Faction")
-    extraction.themes = _rebuild(extraction.themes, "Theme")
-    return extraction
-
-
-def _validate_relationships(extraction: "ExtractionResult") -> "ExtractionResult":
-    """Plan 2 — drop orphan + duplicate relationships before persistence.
-
-    Invariants after this pass:
-
-    1. Every surviving Relationship's ``source_name`` AND ``target_name`` match
-       a ``name`` field on some extracted Character, Location, or Faction in
-       the same ExtractionResult. Relationships whose endpoints don't appear
-       in the extracted entity set are dropped — the LLM hallucinated a name
-       that isn't grounded in this batch.
-
-    2. Duplicates — multiple Relationships with the same
-       ``(source_name, relation_type, target_name)`` — are collapsed to a
-       single record. When descriptions differ, keep the longest (most
-       information-dense). When all descriptions are None/empty, keep the
-       first one encountered.
-
-    This mirrors Cognee's cascade-extract validation pattern (dedup by triple
-    key, validate endpoints against discovered nodes) — see
-    cognee/tasks/graph/cascade_extract/utils/extract_edge_triplets.py.
-
-    Non-Relationship DataPoints are passed through unchanged.
-    """
-    # Local import to avoid circular-import shenanigans; ExtractionResult
-    # is defined in models.datapoints and also referenced in the function
-    # signature string above for forward-ref purposes.
-    from models.datapoints import ExtractionResult  # noqa: F401
-
-    # Build the allowed-name set from the extracted entities.
-    allowed_names = set()
-    for collection in (extraction.characters, extraction.locations, extraction.factions):
-        for entity in collection:
-            name = getattr(entity, "name", None)
-            if name:
-                allowed_names.add(name)
-
-    # Dedupe by (source, relation, target). When a duplicate is seen, keep
-    # whichever has the longer description.
-    kept: dict[tuple[str, str, str], Any] = {}
-    dropped_orphans = 0
-    for rel in extraction.relationships:
-        if rel.source_name not in allowed_names or rel.target_name not in allowed_names:
-            dropped_orphans += 1
-            continue
-        key = (rel.source_name, rel.relation_type, rel.target_name)
-        existing = kept.get(key)
-        if existing is None:
-            kept[key] = rel
-            continue
-        new_desc_len = len(rel.description or "")
-        old_desc_len = len(existing.description or "")
-        if new_desc_len > old_desc_len:
-            kept[key] = rel
-
-    surviving = list(kept.values())
-    n_before = len(extraction.relationships)
-    n_after = len(surviving)
-    if dropped_orphans or n_after != n_before:
-        logger.info(
-            "Relationship validation: {} → {} (dropped {} orphans, collapsed {} duplicates)",
-            n_before, n_after, dropped_orphans,
-            n_before - dropped_orphans - n_after,
-        )
-    extraction.relationships = surviving
-    return extraction
 
 
 async def run_bookrag_pipeline(
@@ -783,19 +569,28 @@ async def run_bookrag_pipeline(
         c.ordinal = chunk_ordinal_start + i
         c.chunk_id = f"{book_id}::chunk_{c.ordinal:04d}"
 
-    # Index chunk text in cognee so CHUNKS / RAG_COMPLETION can find it later.
-    for c in chunks:
-        try:
-            await cognee.add(
-                data=c.text,
-                dataset_name=book_id,
-                node_set=[c.chunk_id],
-            )
-        except Exception as exc:
-            logger.warning(
-                "cognee.add failed for {} (chunk text not indexed): {}",
-                c.chunk_id, exc,
-            )
+    # Bonus A (Phase A Stage 0): gate cognee.add behind config flag.
+    # Default False — BookRAG's Approach C reads from Kuzu+LanceDB, not
+    # cognee's raw-doc store. Slice 2 will flip this on when chunk retrieval
+    # via cognee.search(CHUNKS|RAG_COMPLETION) is wired up (blocked on C1/C2).
+    if _persist_raw_to_cognee_docstore():
+        for c in chunks:
+            try:
+                await cognee.add(
+                    data=c.text,
+                    dataset_name=book_id,
+                    node_set=[c.chunk_id],
+                )
+            except Exception as exc:
+                logger.warning(
+                    "cognee.add failed for {} (chunk text not indexed): {}",
+                    c.chunk_id, exc,
+                )
+    else:
+        logger.debug(
+            "Skipping cognee.add for {} chunks (persist_raw_to_cognee_docstore=False)",
+            len(chunks),
+        )
 
     # Stage 2: Extract (stamps source_chunk_ordinal inside extract_enriched_graph)
     datapoints = await extract_enriched_graph(
