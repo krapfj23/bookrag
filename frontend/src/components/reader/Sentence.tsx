@@ -39,7 +39,7 @@ export function Sentence({
       ? () => onMarkClick((asked ?? noted)!.cardId)
       : undefined;
   return (
-    <span data-sid={sid} style={style} onClick={onClick}>
+    <span data-sid={sid} data-kind={noted ? "note" : undefined} style={style} onClick={onClick}>
       {text}
     </span>
   );
