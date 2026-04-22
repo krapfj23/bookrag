@@ -42,8 +42,14 @@
 
 /* Peek popover */
 @keyframes annot-fadeUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .annot-peek {
@@ -52,7 +58,9 @@
   background: var(--paper-00);
   border: 1px solid var(--paper-2);
   border-radius: var(--r-lg);
-  box-shadow: 0 12px 32px rgba(32, 28, 22, 0.14), 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 12px 32px rgba(32, 28, 22, 0.14),
+    0 1px 3px rgba(0, 0, 0, 0.04);
   animation: annot-fadeUp 180ms var(--ease-out);
   z-index: 8;
 }
@@ -153,14 +161,30 @@
   user-select: none;
   -webkit-user-select: none;
   pointer-events: none;
-  transition: filter var(--dur-slow) var(--ease-out),
+  transition:
+    filter var(--dur-slow) var(--ease-out),
     opacity var(--dur-slow) var(--ease-out);
 }
-.fog-1 { filter: blur(1.2px); opacity: 0.88; }
-.fog-2 { filter: blur(2.4px); opacity: 0.74; }
-.fog-3 { filter: blur(4px);   opacity: 0.58; }
-.fog-4 { filter: blur(6px);   opacity: 0.42; }
-.fog-5 { filter: blur(8px);   opacity: 0.28; }
+.fog-1 {
+  filter: blur(1.2px);
+  opacity: 0.88;
+}
+.fog-2 {
+  filter: blur(2.4px);
+  opacity: 0.74;
+}
+.fog-3 {
+  filter: blur(4px);
+  opacity: 0.58;
+}
+.fog-4 {
+  filter: blur(6px);
+  opacity: 0.42;
+}
+.fog-5 {
+  filter: blur(8px);
+  opacity: 0.28;
+}
 
 /* Reading-up-to pill (floats above the reading column when a
  * cutoff is set; click × to clear it). */
@@ -178,7 +202,7 @@
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.2px;
-  box-shadow: 0 6px 16px rgba(32,28,22,0.10);
+  box-shadow: 0 6px 16px rgba(32, 28, 22, 0.1);
   z-index: 6;
 }
 .reading-up-to .excerpt {
@@ -201,7 +225,10 @@
   align-items: center;
   justify-content: center;
 }
-.reading-up-to button:hover { opacity: 1; background: rgba(32,28,22,0.06); }
+.reading-up-to button:hover {
+  opacity: 1;
+  background: rgba(32, 28, 22, 0.06);
+}
 
 /* Selection context chip above the chat input: shows the excerpt the
  * user highlighted so they know it'll be attached to their question. */
@@ -239,4 +266,7 @@
   padding: 2px 4px;
   border-radius: 4px;
 }
-.selection-context-chip button:hover { color: var(--ink-0); background: var(--paper-1); }
+.selection-context-chip button:hover {
+  color: var(--ink-0);
+  background: var(--paper-1);
+}

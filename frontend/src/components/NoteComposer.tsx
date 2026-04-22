@@ -104,8 +104,7 @@ export function NoteComposer({ excerpt, onCancel, onSave }: Props) {
         </div>
         <div
           style={{
-            background:
-              "color-mix(in oklab, var(--accent-soft) 85%, transparent)",
+            background: "color-mix(in oklab, var(--accent-soft) 85%, transparent)",
             padding: "8px 12px",
             borderRadius: 4,
             fontFamily: "var(--serif)",
@@ -154,9 +153,7 @@ export function NoteComposer({ excerpt, onCancel, onSave }: Props) {
             <span
               key={t}
               className="annot-tag"
-              onClick={() =>
-                setTags((prev) => prev.filter((x) => x !== t))
-              }
+              onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
               title="Remove tag"
             >
               {t} ×

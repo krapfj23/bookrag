@@ -4,7 +4,11 @@ type ProgressPillProps = {
   variant?: "default" | "soft";
 };
 
-export function ProgressPill({ current, total, variant = "default" }: ProgressPillProps) {
+export function ProgressPill({
+  current,
+  total,
+  variant = "default",
+}: ProgressPillProps) {
   const safeTotal = Math.max(1, total);
   const pct = Math.min(100, Math.max(0, (current / safeTotal) * 100));
   const isSoft = variant === "soft";

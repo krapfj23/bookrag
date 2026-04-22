@@ -14,20 +14,11 @@ import { ChatInput } from "../components/ChatInput";
 import { AnnotatedParagraph, fogLevelFor } from "../components/AnnotatedParagraph";
 import { AnnotationPeek } from "../components/AnnotationPeek";
 import { AnnotationRail } from "../components/AnnotationRail";
-import {
-  AnnotationPanel,
-  type PanelTab,
-} from "../components/AnnotationPanel";
-import {
-  SelectionToolbar,
-  type SelectionAction,
-} from "../components/SelectionToolbar";
+import { AnnotationPanel, type PanelTab } from "../components/AnnotationPanel";
+import { SelectionToolbar, type SelectionAction } from "../components/SelectionToolbar";
 import { NoteComposer } from "../components/NoteComposer";
 import { IcClose } from "../components/icons";
-import {
-  SEED_ANNOTATIONS,
-  type Annotation,
-} from "../lib/annotations";
+import { SEED_ANNOTATIONS, type Annotation } from "../lib/annotations";
 import {
   appendUserAnnotation,
   clearCutoff,
@@ -121,6 +112,9 @@ export function ReadingScreen() {
     return () => {
       cancelled = true;
     };
+    // `book` identity is unused in the body after the current_chapter read;
+    // including it would re-fire the chapter fetch on unrelated reloads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId, n, book?.current_chapter]);
 
   // ── Chat (Thread tab) state ──────────────────────────────────────────
@@ -170,9 +164,7 @@ export function ReadingScreen() {
       const hasResults = resp.result_count > 0 && resp.results.length > 0;
       const sources: AssistantSource[] = hasResults
         ? resp.results
-            .filter((r): r is typeof r & { chapter: number } =>
-              r.chapter != null
-            )
+            .filter((r): r is typeof r & { chapter: number } => r.chapter != null)
             .map((r) => ({ text: r.content, chapter: r.chapter }))
         : [];
       // Prefer the GraphRAG-synthesized answer from the backend. Fall back
@@ -182,12 +174,13 @@ export function ReadingScreen() {
       const proseResults = hasResults
         ? resp.results.filter((r) => r.chapter == null)
         : [];
-      const answerText = synthesized.length > 0
-        ? synthesized
-        : hasResults
-        ? proseResults.map((r) => r.content).join("\n\n") ||
-          sources.map((s) => s.text).join("\n\n")
-        : EMPTY_RESULT_TEXT;
+      const answerText =
+        synthesized.length > 0
+          ? synthesized
+          : hasResults
+            ? proseResults.map((r) => r.content).join("\n\n") ||
+              sources.map((s) => s.text).join("\n\n")
+            : EMPTY_RESULT_TEXT;
 
       setMessages((prev) =>
         prev.map((m) =>
@@ -199,8 +192,8 @@ export function ReadingScreen() {
                 text: answerText,
                 sources: sources.length > 0 ? sources : undefined,
               }
-            : m
-        )
+            : m,
+        ),
       );
       // Query resolved — fog was only a "I'm asking about this" marker, not
       // a persistent reading-position cutoff. Clear it so the reader can
@@ -211,8 +204,8 @@ export function ReadingScreen() {
         err instanceof QueryRateLimitError
           ? ERR_RATELIMIT
           : err instanceof QueryError
-          ? ERR_GENERIC
-          : ERR_GENERIC;
+            ? ERR_GENERIC
+            : ERR_GENERIC;
       setMessages((prev) =>
         prev.map((m) =>
           m.id === thinkingId
@@ -222,8 +215,8 @@ export function ReadingScreen() {
                 status: "error",
                 text: copy,
               }
-            : m
-        )
+            : m,
+        ),
       );
       // Error path: clear the fog too — the user got a response (even if bad)
       // and shouldn't be stuck staring at blurred text.
@@ -267,10 +260,7 @@ export function ReadingScreen() {
     loadUserAnnotations(),
   );
   const bookAnnotations = useMemo(
-    () =>
-      [...SEED_ANNOTATIONS, ...userAnnotations].filter(
-        (a) => a.book_id === bookId,
-      ),
+    () => [...SEED_ANNOTATIONS, ...userAnnotations].filter((a) => a.book_id === bookId),
     [bookId, userAnnotations],
   );
   const chapterAnnotations = useMemo(
@@ -285,9 +275,9 @@ export function ReadingScreen() {
   // Panel state: collapsed (rail) vs expanded; current tab; focused item.
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<PanelTab>("thread");
-  const [focusedAnnotationId, setFocusedAnnotationId] = useState<
-    string | undefined
-  >(undefined);
+  const [focusedAnnotationId, setFocusedAnnotationId] = useState<string | undefined>(
+    undefined,
+  );
 
   // ── Selection + fog state ──────────────────────────────────────────
   // Current text selection (if any) inside the reading column.
@@ -305,9 +295,7 @@ export function ReadingScreen() {
     paragraph_index: number;
   } | null>(null);
   // Selection context chip to show above the chat input after "Ask"
-  const [pendingQuery, setPendingQuery] = useState<{ excerpt: string } | null>(
-    null,
-  );
+  const [pendingQuery, setPendingQuery] = useState<{ excerpt: string } | null>(null);
   // Per-chapter cutoff, loaded from localStorage on chapter change.
   const [cutoff, setCutoffState] = useState<Cutoff | null>(null);
   const readerRef = useRef<HTMLDivElement | null>(null);
@@ -334,10 +322,7 @@ export function ReadingScreen() {
       // Find the enclosing paragraph <p data-paragraph-index="…">
       let node: Node | null = range.commonAncestorContainer;
       while (node && node !== root) {
-        if (
-          node instanceof HTMLElement &&
-          node.dataset.paragraphIndex !== undefined
-        ) {
+        if (node instanceof HTMLElement && node.dataset.paragraphIndex !== undefined) {
           break;
         }
         node = node.parentNode;
@@ -346,10 +331,7 @@ export function ReadingScreen() {
         setSelection(null);
         return;
       }
-      const paragraphIndex = Number.parseInt(
-        node.dataset.paragraphIndex ?? "0",
-        10,
-      );
+      const paragraphIndex = Number.parseInt(node.dataset.paragraphIndex ?? "0", 10);
       const excerpt = sel.toString().trim();
       if (excerpt.length === 0) {
         setSelection(null);
@@ -359,9 +341,7 @@ export function ReadingScreen() {
       const paragraphText = node.textContent ?? "";
       const charOffsetStart = paragraphText.indexOf(excerpt);
       const charOffsetEnd =
-        charOffsetStart >= 0
-          ? charOffsetStart + excerpt.length
-          : paragraphText.length;
+        charOffsetStart >= 0 ? charOffsetStart + excerpt.length : paragraphText.length;
       const rect = range.getBoundingClientRect();
       setSelection({
         excerpt,
@@ -520,16 +500,13 @@ export function ReadingScreen() {
               sources={m.status === "ok" ? m.sources : undefined}
               thinking={m.status === "thinking"}
             />
-          )
+          ),
         )}
         <div ref={transcriptEndRef} />
       </div>
       <div style={{ padding: "14px 16px 18px" }}>
         {pendingQuery && (
-          <div
-            className="selection-context-chip"
-            data-testid="selection-context-chip"
-          >
+          <div className="selection-context-chip" data-testid="selection-context-chip">
             <div style={{ flex: 1 }}>
               <div className="ctx-label">asking about</div>
               <div className="ctx-excerpt">"{pendingQuery.excerpt}"</div>
@@ -554,17 +531,12 @@ export function ReadingScreen() {
   );
 
   return (
-    <div
-      className="br"
-      style={{ minHeight: "100vh", background: "var(--paper-0)" }}
-    >
+    <div className="br" style={{ minHeight: "100vh", background: "var(--paper-0)" }}>
       <NavBar />
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: panelOpen
-            ? "260px 1fr 400px"
-            : "260px 1fr 48px",
+          gridTemplateColumns: panelOpen ? "260px 1fr 400px" : "260px 1fr 48px",
           minHeight: "calc(100vh - 56px)",
           transition: "grid-template-columns var(--dur-slow) var(--ease-out)",
         }}
@@ -630,8 +602,7 @@ export function ReadingScreen() {
                 variant="chapterLock"
                 chapterNum={n}
                 chapterTitle={
-                  chapterList?.find((c) => c.num === n)?.title ??
-                  `Chapter ${n}`
+                  chapterList?.find((c) => c.num === n)?.title ?? `Chapter ${n}`
                 }
               />
             )}
@@ -690,9 +661,7 @@ export function ReadingScreen() {
                         color: "var(--ink-0)",
                       }}
                     >
-                      <p style={{ margin: "0 0 22px" }}>
-                        {body.chapter.paragraphs[0]}
-                      </p>
+                      <p style={{ margin: "0 0 22px" }}>{body.chapter.paragraphs[0]}</p>
                     </div>
                   </ProgressiveBlur>
                 ) : (
@@ -711,8 +680,7 @@ export function ReadingScreen() {
                         (a) => a.paragraph_index === i,
                       );
                       const peekForThisParagraph =
-                        peek !== null &&
-                        peek.annotation.paragraph_index === i
+                        peek !== null && peek.annotation.paragraph_index === i
                           ? peek.annotation
                           : null;
                       // Fog calc: paragraphs strictly AFTER the cutoff paragraph
@@ -721,9 +689,7 @@ export function ReadingScreen() {
                       const isCutoffPara =
                         cutoff !== null && cutoff.paragraph_index === i;
                       const fogDistance =
-                        cutoff !== null
-                          ? i - cutoff.paragraph_index
-                          : 0;
+                        cutoff !== null ? i - cutoff.paragraph_index : 0;
                       const fogLevel = fogLevelFor(
                         isCutoffPara ? 0 : Math.max(0, fogDistance),
                       );
@@ -732,10 +698,7 @@ export function ReadingScreen() {
                           key={i}
                           style={{ position: "relative", margin: "0 0 22px" }}
                         >
-                          <p
-                            data-paragraph-index={i}
-                            style={{ margin: 0 }}
-                          >
+                          <p data-paragraph-index={i} style={{ margin: 0 }}>
                             <AnnotatedParagraph
                               text={p}
                               annotations={paragraphAnnots}
@@ -743,9 +706,7 @@ export function ReadingScreen() {
                               onAnnotationClick={openPeek}
                               fogLevel={fogLevel}
                               cutoffCharOffset={
-                                isCutoffPara
-                                  ? cutoff!.char_offset_end
-                                  : undefined
+                                isCutoffPara ? cutoff!.char_offset_end : undefined
                               }
                             />
                           </p>
@@ -754,9 +715,7 @@ export function ReadingScreen() {
                               annotation={peekForThisParagraph}
                               top={36}
                               left={0}
-                              onOpenInPanel={() =>
-                                openInPanel(peekForThisParagraph)
-                              }
+                              onOpenInPanel={() => openInPanel(peekForThisParagraph)}
                             />
                           )}
                         </div>

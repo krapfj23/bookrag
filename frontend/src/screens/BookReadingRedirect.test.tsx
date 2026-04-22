@@ -26,16 +26,13 @@ describe("BookReadingRedirect", () => {
     render(
       <MemoryRouter initialEntries={["/books/christmas_carol_e6ddcd76/read"]}>
         <Routes>
-          <Route
-            path="/books/:bookId/read"
-            element={<BookReadingRedirect />}
-          />
+          <Route path="/books/:bookId/read" element={<BookReadingRedirect />} />
           <Route
             path="/books/:bookId/read/:chapterNum"
             element={<div data-testid="landed">LANDED</div>}
           />
         </Routes>
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     await waitFor(() => {
@@ -50,7 +47,7 @@ describe("BookReadingRedirect", () => {
         <Routes>
           <Route path="/books/:bookId/read" element={<BookReadingRedirect />} />
         </Routes>
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(screen.getByText(/opening/i)).toBeInTheDocument();
   });
@@ -65,7 +62,7 @@ describe("BookReadingRedirect", () => {
         <Routes>
           <Route path="/books/:bookId/read" element={<BookReadingRedirect />} />
         </Routes>
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();

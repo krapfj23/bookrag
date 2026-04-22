@@ -1,13 +1,6 @@
 import type { Annotation } from "../lib/annotations";
 import { LockState } from "./LockState";
-import {
-  IcBookmark,
-  IcClose,
-  IcEdit,
-  IcHighlight,
-  IcPrivate,
-  IcSpark,
-} from "./icons";
+import { IcBookmark, IcClose, IcEdit, IcHighlight, IcPrivate, IcSpark } from "./icons";
 
 export type PanelTab = "thread" | "notes" | "highlights";
 
@@ -44,8 +37,7 @@ export function AnnotationPanel({
       style={{
         width: 400,
         borderLeft: "var(--hairline)",
-        background:
-          "color-mix(in oklab, var(--paper-0) 92%, var(--paper-1))",
+        background: "color-mix(in oklab, var(--paper-0) 92%, var(--paper-1))",
         display: "flex",
         flexDirection: "column",
         // Pin to the viewport so the chat input is always reachable,
@@ -134,10 +126,7 @@ export function AnnotationPanel({
         </div>
       )}
       {tab === "notes" && (
-        <NotesTabBody
-          notes={notes}
-          focusedAnnotationId={focusedAnnotationId}
-        />
+        <NotesTabBody notes={notes} focusedAnnotationId={focusedAnnotationId} />
       )}
       {tab === "highlights" && (
         <HighlightsTabBody
@@ -235,11 +224,7 @@ function NotesTabBody({
             return 0;
           })
           .map((n) => (
-            <NoteCard
-              key={n.id}
-              note={n}
-              focused={n.id === focusedAnnotationId}
-            />
+            <NoteCard key={n.id} note={n} focused={n.id === focusedAnnotationId} />
           ))}
       </div>
       <NoteComposerStub />
@@ -297,8 +282,7 @@ function NoteCard({ note, focused }: { note: Annotation; focused: boolean }) {
       </div>
       <div
         style={{
-          background:
-            "color-mix(in oklab, var(--accent-soft) 85%, transparent)",
+          background: "color-mix(in oklab, var(--accent-soft) 85%, transparent)",
           padding: "6px 10px",
           borderRadius: 4,
           fontFamily: "var(--serif)",
@@ -402,9 +386,7 @@ function HighlightsTabBody({
             padding: 14,
             marginBottom: 12,
             boxShadow:
-              q.id === focusedAnnotationId
-                ? "0 0 0 1px var(--accent)"
-                : undefined,
+              q.id === focusedAnnotationId ? "0 0 0 1px var(--accent)" : undefined,
           }}
         >
           <div

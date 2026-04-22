@@ -9,15 +9,12 @@ interface Props {
   onClose?: () => void;
 }
 
-export function AnnotationPeek({
-  annotation,
-  top,
-  left,
-  onOpenInPanel,
-}: Props) {
-  return annotation.kind === "note"
-    ? <NotePeekBody a={annotation} top={top} left={left} onOpenInPanel={onOpenInPanel} />
-    : <QueryPeekBody a={annotation} top={top} left={left} onOpenInPanel={onOpenInPanel} />;
+export function AnnotationPeek({ annotation, top, left, onOpenInPanel }: Props) {
+  return annotation.kind === "note" ? (
+    <NotePeekBody a={annotation} top={top} left={left} onOpenInPanel={onOpenInPanel} />
+  ) : (
+    <QueryPeekBody a={annotation} top={top} left={left} onOpenInPanel={onOpenInPanel} />
+  );
 }
 
 function NotePeekBody({
@@ -60,11 +57,7 @@ function NotePeekBody({
         <button type="button" className="annot-peek-action">
           <IcEdit size={11} /> Edit
         </button>
-        <button
-          type="button"
-          className="annot-peek-action"
-          onClick={onOpenInPanel}
-        >
+        <button type="button" className="annot-peek-action" onClick={onOpenInPanel}>
           <IcExpand size={11} /> Open in panel
         </button>
       </div>
@@ -92,9 +85,7 @@ function QueryPeekBody({
     >
       <div className="annot-peek-head">
         <span>Question · 1 answer</span>
-        {a.bookmarked && (
-          <IcBookmark size={11} style={{ color: "var(--accent)" }} />
-        )}
+        {a.bookmarked && <IcBookmark size={11} style={{ color: "var(--accent)" }} />}
       </div>
       <div style={{ padding: "4px 14px 10px" }}>
         <div
@@ -130,11 +121,7 @@ function QueryPeekBody({
         >
           spoiler-safe
         </span>
-        <button
-          type="button"
-          className="annot-peek-action"
-          onClick={onOpenInPanel}
-        >
+        <button type="button" className="annot-peek-action" onClick={onOpenInPanel}>
           <IcExpand size={11} /> Open thread
         </button>
       </div>

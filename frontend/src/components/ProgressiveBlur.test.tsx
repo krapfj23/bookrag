@@ -7,7 +7,7 @@ describe("ProgressiveBlur", () => {
     render(
       <ProgressiveBlur locked={false}>
         <p>Visible paragraph</p>
-      </ProgressiveBlur>
+      </ProgressiveBlur>,
     );
     expect(screen.getByText("Visible paragraph")).toBeInTheDocument();
   });
@@ -16,7 +16,7 @@ describe("ProgressiveBlur", () => {
     render(
       <ProgressiveBlur locked>
         <p>Hidden-ish</p>
-      </ProgressiveBlur>
+      </ProgressiveBlur>,
     );
     expect(screen.getByText(/advance to reveal/i)).toBeInTheDocument();
     expect(screen.getByText("Hidden-ish")).toBeInTheDocument();
@@ -26,7 +26,7 @@ describe("ProgressiveBlur", () => {
     render(
       <ProgressiveBlur locked={false}>
         <p>Open</p>
-      </ProgressiveBlur>
+      </ProgressiveBlur>,
     );
     expect(screen.queryByText(/advance to reveal/i)).toBeNull();
   });

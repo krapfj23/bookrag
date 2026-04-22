@@ -17,28 +17,49 @@ import type { BadgeState } from "../components/StatusBadge";
 type StageDisplay = { key: StageName; label: string; desc: string };
 
 const STAGE_DISPLAY: StageDisplay[] = [
-  { key: "parse_epub",          label: "Parse EPUB",        desc: "Split into chapter-segmented text" },
-  { key: "run_booknlp",         label: "Run BookNLP",       desc: "Entities, coreference, quotes" },
-  { key: "resolve_coref",       label: "Resolve coref",     desc: "Parenthetical insertion pass" },
-  { key: "discover_ontology",   label: "Discover ontology", desc: "BERTopic + TF-IDF → OWL" },
-  { key: "review_ontology",     label: "Review ontology",   desc: "Optional refinement" },
-  { key: "run_cognee_batches",  label: "Cognee batches",    desc: "Claude extracts structured entities" },
-  { key: "validate",            label: "Validate",          desc: "Spoiler-safety + spot checks" },
+  { key: "parse_epub", label: "Parse EPUB", desc: "Split into chapter-segmented text" },
+  { key: "run_booknlp", label: "Run BookNLP", desc: "Entities, coreference, quotes" },
+  {
+    key: "resolve_coref",
+    label: "Resolve coref",
+    desc: "Parenthetical insertion pass",
+  },
+  {
+    key: "discover_ontology",
+    label: "Discover ontology",
+    desc: "BERTopic + TF-IDF → OWL",
+  },
+  { key: "review_ontology", label: "Review ontology", desc: "Optional refinement" },
+  {
+    key: "run_cognee_batches",
+    label: "Cognee batches",
+    desc: "Claude extracts structured entities",
+  },
+  { key: "validate", label: "Validate", desc: "Spoiler-safety + spot checks" },
 ];
 
 type Phase =
   | { kind: "idle" }
   | { kind: "uploading"; filename: string; file: File }
   | { kind: "error"; filename?: string; message: string }
-  | { kind: "tracking"; filename: string; book_id: string; pipelineState: PipelineState | null };
+  | {
+      kind: "tracking";
+      filename: string;
+      book_id: string;
+      pipelineState: PipelineState | null;
+    };
 
 function badgeFor(stage: PipelineStage | undefined): BadgeState {
   if (!stage) return "idle";
   switch (stage.status) {
-    case "pending":  return "idle";
-    case "running":  return "running";
-    case "complete": return "done";
-    case "failed":   return "error";
+    case "pending":
+      return "idle";
+    case "running":
+      return "running";
+    case "complete":
+      return "done";
+    case "failed":
+      return "error";
   }
 }
 
@@ -62,14 +83,20 @@ function formatSeconds(s: number): string {
 
 function dropzoneState(phase: Phase): DropzoneState {
   switch (phase.kind) {
-    case "idle":      return "idle";
-    case "uploading": return "uploading";
-    case "error":     return "error";
-    case "tracking":  return "done";
+    case "idle":
+      return "idle";
+    case "uploading":
+      return "uploading";
+    case "error":
+      return "error";
+    case "tracking":
+      return "done";
   }
 }
 
-function firstFailedStage(state: PipelineState | null): { name: StageName; stage: PipelineStage } | null {
+function firstFailedStage(
+  state: PipelineState | null,
+): { name: StageName; stage: PipelineStage } | null {
   if (!state) return null;
   for (const d of STAGE_DISPLAY) {
     const s = state.stages[d.key];
@@ -104,8 +131,8 @@ export function UploadScreen() {
           err instanceof UploadError
             ? err.message
             : err instanceof Error
-            ? err.message
-            : "Upload failed";
+              ? err.message
+              : "Upload failed";
         setPhase({ kind: "error", filename, message });
       });
 
@@ -202,14 +229,17 @@ export function UploadScreen() {
             marginBottom: 36,
           }}
         >
-          We'll parse the chapters, learn the characters, and build a spoiler-aware index —
-          so you can ask anything, and we'll answer only from what you've already read.
+          We'll parse the chapters, learn the characters, and build a spoiler-aware
+          index — so you can ask anything, and we'll answer only from what you've
+          already read.
         </div>
 
         <Dropzone
           state={dropzoneState(phase)}
           filename={
-            phase.kind === "uploading" || phase.kind === "tracking" || phase.kind === "error"
+            phase.kind === "uploading" ||
+            phase.kind === "tracking" ||
+            phase.kind === "error"
               ? phase.filename
               : undefined
           }

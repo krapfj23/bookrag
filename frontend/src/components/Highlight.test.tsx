@@ -9,9 +9,7 @@ describe("Highlight", () => {
   });
 
   it("accepts a variant prop", () => {
-    const { container } = render(
-      <Highlight variant="entity">Marley</Highlight>
-    );
+    const { container } = render(<Highlight variant="entity">Marley</Highlight>);
     expect(container.querySelector("[data-variant='entity']")).toBeTruthy();
   });
 });

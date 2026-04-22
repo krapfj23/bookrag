@@ -22,13 +22,21 @@ describe("Dropzone", () => {
   });
 
   it("renders the filename when state='uploading'", () => {
-    render(<Dropzone state="uploading" filename="a-christmas-carol.epub" onFile={() => {}} />);
+    render(
+      <Dropzone
+        state="uploading"
+        filename="a-christmas-carol.epub"
+        onFile={() => {}}
+      />,
+    );
     expect(screen.getByText("a-christmas-carol.epub")).toBeInTheDocument();
     expect(screen.getByText(/uploading/i)).toBeInTheDocument();
   });
 
   it("renders the filename and a done marker when state='done'", () => {
-    render(<Dropzone state="done" filename="a-christmas-carol.epub" onFile={() => {}} />);
+    render(
+      <Dropzone state="done" filename="a-christmas-carol.epub" onFile={() => {}} />,
+    );
     expect(screen.getByText("a-christmas-carol.epub")).toBeInTheDocument();
     expect(screen.getByText(/uploaded/i)).toBeInTheDocument();
   });
@@ -39,10 +47,10 @@ describe("Dropzone", () => {
         state="error"
         errorMessage="Only .epub files are accepted"
         onFile={() => {}}
-      />
+      />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent(
-      /only \.epub files are accepted/i
+      /only \.epub files are accepted/i,
     );
   });
 

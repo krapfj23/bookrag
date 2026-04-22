@@ -14,17 +14,17 @@ export function PipelineRow({ title, description, state, meta }: PipelineRowProp
     state === "done"
       ? "var(--ok)"
       : state === "running"
-      ? "var(--accent)"
-      : state === "error"
-      ? "var(--err)"
-      : "var(--ink-4)";
+        ? "var(--accent)"
+        : state === "error"
+          ? "var(--err)"
+          : "var(--ink-4)";
 
   const indicatorBg =
     state === "done"
       ? "color-mix(in oklab, var(--ok) 18%, var(--paper-0))"
       : state === "running"
-      ? "var(--accent-softer)"
-      : "transparent";
+        ? "var(--accent-softer)"
+        : "transparent";
 
   const rootStyle: CSSProperties = {
     display: "grid",

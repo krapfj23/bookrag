@@ -16,9 +16,7 @@ type RowProps = PropsWithChildren<{
 }>;
 export function Row({ gap = 12, align = "center", children, style }: RowProps) {
   return (
-    <div style={{ display: "flex", alignItems: align, gap, ...style }}>
-      {children}
-    </div>
+    <div style={{ display: "flex", alignItems: align, gap, ...style }}>{children}</div>
   );
 }
 

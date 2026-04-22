@@ -1,4 +1,10 @@
-import { useRef, useState, type CSSProperties, type DragEvent, type ChangeEvent } from "react";
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type ChangeEvent,
+} from "react";
 import { IcUpload, IcCheck, IcClose } from "./icons";
 
 export type DropzoneState = "idle" | "hover" | "uploading" | "done" | "error";
@@ -26,18 +32,19 @@ export function Dropzone({ state, filename, errorMessage, onFile }: DropzoneProp
   const bg = isError
     ? "color-mix(in oklab, var(--err) 8%, var(--paper-00))"
     : isHover
-    ? "var(--accent-softer)"
-    : "var(--paper-00)";
+      ? "var(--accent-softer)"
+      : "var(--paper-00)";
 
   const iconBg = isDone
     ? "var(--ok)"
     : isError
-    ? "var(--err)"
-    : isHover || busy
-    ? "var(--accent)"
-    : "var(--paper-1)";
+      ? "var(--err)"
+      : isHover || busy
+        ? "var(--accent)"
+        : "var(--paper-1)";
 
-  const iconFg = isDone || isError || isHover || busy ? "var(--paper-00)" : "var(--ink-2)";
+  const iconFg =
+    isDone || isError || isHover || busy ? "var(--paper-00)" : "var(--ink-2)";
 
   const primaryCopy = (() => {
     if (isError) return filename ?? "Something went wrong";
@@ -116,7 +123,13 @@ export function Dropzone({ state, filename, errorMessage, onFile }: DropzoneProp
           transition: "all var(--dur) var(--ease)",
         }}
       >
-        {isDone ? <IcCheck size={18} /> : isError ? <IcClose size={18} /> : <IcUpload size={18} />}
+        {isDone ? (
+          <IcCheck size={18} />
+        ) : isError ? (
+          <IcClose size={18} />
+        ) : (
+          <IcUpload size={18} />
+        )}
       </div>
 
       <div

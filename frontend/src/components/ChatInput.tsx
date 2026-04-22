@@ -85,8 +85,7 @@ export function ChatInput({
           alignItems: "center",
           justifyContent: "center",
           cursor: canSend ? "pointer" : "not-allowed",
-          transition:
-            "background var(--dur) var(--ease), color var(--dur) var(--ease)",
+          transition: "background var(--dur) var(--ease), color var(--dur) var(--ease)",
         }}
       >
         <IcSend size={15} />

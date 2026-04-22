@@ -77,7 +77,11 @@ export function LibraryScreen() {
           </div>
           <Row gap={10}>
             <div style={{ width: 240 }}>
-              <TextInput size="sm" icon={<IcSearch size={13} />} placeholder="Search your books" />
+              <TextInput
+                size="sm"
+                icon={<IcSearch size={13} />}
+                placeholder="Search your books"
+              />
             </div>
             <Button variant="secondary" icon={<IcPlus size={13} />}>
               Add book

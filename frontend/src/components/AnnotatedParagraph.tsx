@@ -49,16 +49,12 @@ export function AnnotatedParagraph({
     return (
       <>
         {renderAnnotated(beforeText, beforeAnnots, activeId, onAnnotationClick)}
-        {afterText.length > 0 && (
-          <span className="fog fog-1">{afterText}</span>
-        )}
+        {afterText.length > 0 && <span className="fog fog-1">{afterText}</span>}
       </>
     );
   }
 
-  return (
-    <>{renderAnnotated(text, annotations, activeId, onAnnotationClick)}</>
-  );
+  return <>{renderAnnotated(text, annotations, activeId, onAnnotationClick)}</>;
 }
 
 function renderAnnotated(
@@ -91,8 +87,7 @@ function renderAnnotated(
   for (const r of safe) {
     if (r.start > pos) out.push(text.slice(pos, r.start));
     const { annotation } = r;
-    const cls =
-      annotation.kind === "note" ? "annot-note" : "annot-query";
+    const cls = annotation.kind === "note" ? "annot-note" : "annot-query";
     const isActive = annotation.id === activeId;
     out.push(
       <span

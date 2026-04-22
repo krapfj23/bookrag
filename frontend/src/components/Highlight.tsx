@@ -8,8 +8,7 @@ type HighlightProps = PropsWithChildren<{
 
 const STYLES: Record<HighlightVariant, CSSProperties> = {
   mark: {
-    background:
-      "color-mix(in oklab, var(--accent-soft) 70%, transparent)",
+    background: "color-mix(in oklab, var(--accent-soft) 70%, transparent)",
     color: "var(--ink-0)",
   },
   selection: { background: "var(--accent)", color: "var(--paper-00)" },

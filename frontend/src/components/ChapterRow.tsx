@@ -52,8 +52,8 @@ export function ChapterRow({ num, title, state, onClick }: ChapterRowProps) {
           color: isCurrent
             ? "var(--accent)"
             : isLocked
-            ? "var(--ink-4)"
-            : "var(--ink-3)",
+              ? "var(--ink-4)"
+              : "var(--ink-3)",
           fontVariantNumeric: "tabular-nums",
           letterSpacing: 0.3,
         }}
@@ -65,19 +65,13 @@ export function ChapterRow({ num, title, state, onClick }: ChapterRowProps) {
           fontFamily: "var(--serif)",
           fontSize: 16,
           fontWeight: isCurrent ? 500 : 400,
-          color: isLocked
-            ? "var(--ink-3)"
-            : isRead
-            ? "var(--ink-2)"
-            : "var(--ink-0)",
+          color: isLocked ? "var(--ink-3)" : isRead ? "var(--ink-2)" : "var(--ink-0)",
           letterSpacing: -0.2,
         }}
       >
         {title}
       </span>
-      <span
-        style={{ width: 20, display: "inline-flex", justifyContent: "flex-end" }}
-      >
+      <span style={{ width: 20, display: "inline-flex", justifyContent: "flex-end" }}>
         {isCurrent && (
           <span style={{ color: "var(--accent)" }}>
             <IcDot size={10} />

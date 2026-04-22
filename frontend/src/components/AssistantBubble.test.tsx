@@ -5,9 +5,7 @@ import { AssistantBubble, type AssistantSource } from "./AssistantBubble";
 describe("AssistantBubble", () => {
   it("renders its text content", () => {
     render(<AssistantBubble text="Marley is Scrooge's dead partner." />);
-    expect(
-      screen.getByText(/marley is scrooge's dead partner/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/marley is scrooge's dead partner/i)).toBeInTheDocument();
   });
 
   it("renders with data-role='assistant' for the transcript", () => {
@@ -41,9 +39,7 @@ describe("AssistantBubble", () => {
       { text: "Sixth — should be dropped.", chapter: 6 },
       { text: longText, chapter: 7 }, // should not appear (past 5)
     ];
-    const { container } = render(
-      <AssistantBubble text="answer" sources={sources} />
-    );
+    const { container } = render(<AssistantBubble text="answer" sources={sources} />);
     const rendered = container.querySelectorAll("[data-source-index]");
     expect(rendered.length).toBe(5);
     expect(screen.queryByText(/sixth/i)).toBeNull();
@@ -52,10 +48,7 @@ describe("AssistantBubble", () => {
   it("truncates individual source text longer than 200 chars", () => {
     const longText = "A".repeat(250);
     render(
-      <AssistantBubble
-        text="answer"
-        sources={[{ text: longText, chapter: 1 }]}
-      />
+      <AssistantBubble text="answer" sources={[{ text: longText, chapter: 1 }]} />,
     );
     // The rendered text should contain the ellipsis and be shorter than 250.
     const el = screen.getByText(/A{10,}…/);
@@ -71,16 +64,14 @@ describe("AssistantBubble", () => {
           { text: "from ch 1", chapter: 1 },
           { text: "from ch 3", chapter: 3 },
         ]}
-      />
+      />,
     );
     expect(screen.getByText("Ch. 1")).toBeInTheDocument();
     expect(screen.getByText("Ch. 3")).toBeInTheDocument();
   });
 
   it("when thinking=true, renders the blinking cursor", () => {
-    const { container } = render(
-      <AssistantBubble text="Thinking…" thinking />
-    );
+    const { container } = render(<AssistantBubble text="Thinking…" thinking />);
     expect(container.querySelector(".br-cursor")).toBeTruthy();
   });
 

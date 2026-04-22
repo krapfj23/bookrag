@@ -64,20 +64,19 @@ export function LockState(props: LockStateProps) {
     "label" in props && props.label
       ? props.label
       : variant === "locked"
-      ? "Locked"
-      : variant === "unlocked"
-      ? "Unlocked"
-      : variant === "current"
-      ? "You're here"
-      : "Spoiler-safe";
+        ? "Locked"
+        : variant === "unlocked"
+          ? "Unlocked"
+          : variant === "current"
+            ? "You're here"
+            : "Spoiler-safe";
   const Icon =
     variant === "spoilerSafe" || variant === "locked"
       ? IcLock
       : variant === "current"
-      ? IcBookmark
-      : IcUnlock;
-  const color =
-    variant === "locked" ? "var(--ink-3)" : "var(--accent)";
+        ? IcBookmark
+        : IcUnlock;
+  const color = variant === "locked" ? "var(--ink-3)" : "var(--accent)";
 
   return (
     <span

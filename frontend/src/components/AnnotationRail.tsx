@@ -16,8 +16,7 @@ export function AnnotationRail({ onOpen, pips = {} }: Props) {
       style={{
         width: 48,
         borderLeft: "var(--hairline)",
-        background:
-          "color-mix(in oklab, var(--paper-0) 94%, var(--paper-1))",
+        background: "color-mix(in oklab, var(--paper-0) 94%, var(--paper-1))",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -29,11 +28,7 @@ export function AnnotationRail({ onOpen, pips = {} }: Props) {
         alignSelf: "start",
       }}
     >
-      <RailButton
-        label="Thread"
-        pip={pips.thread}
-        onClick={() => onOpen("thread")}
-      >
+      <RailButton label="Thread" pip={pips.thread} onClick={() => onOpen("thread")}>
         <IcSpark size={14} />
       </RailButton>
       <RailButton
@@ -94,12 +89,12 @@ function RailButton({
         position: "relative",
       }}
       onMouseOver={(e) => {
-        (e.currentTarget.style.background = "var(--paper-1)"),
-          (e.currentTarget.style.color = "var(--ink-0)");
+        e.currentTarget.style.background = "var(--paper-1)";
+        e.currentTarget.style.color = "var(--ink-0)";
       }}
       onMouseOut={(e) => {
-        (e.currentTarget.style.background = "none"),
-          (e.currentTarget.style.color = "var(--ink-2)");
+        e.currentTarget.style.background = "none";
+        e.currentTarget.style.color = "var(--ink-2)";
       }}
     >
       {children}

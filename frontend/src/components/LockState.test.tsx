@@ -19,7 +19,7 @@ describe("LockState", () => {
         variant="chapterLock"
         chapterTitle="The Last of the Spirits"
         chapterNum={4}
-      />
+      />,
     );
     expect(screen.getByText("The Last of the Spirits")).toBeInTheDocument();
     expect(screen.getByText(/locked/i)).toBeInTheDocument();

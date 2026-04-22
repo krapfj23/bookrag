@@ -126,7 +126,7 @@ describe("uploadBook", () => {
       await uploadBook(makeFile());
     } catch (err) {
       expect((err as UploadError).message).toBe(
-        "Too many pipelines running, try again later"
+        "Too many pipelines running, try again later",
       );
     }
   });
@@ -194,7 +194,7 @@ describe("fetchStatus", () => {
     const result = await fetchStatus("a_christmas_carol_a1b2c3d4");
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/books/a_christmas_carol_a1b2c3d4/status"
+      "http://localhost:8000/books/a_christmas_carol_a1b2c3d4/status",
     );
     expect(result).toEqual(state);
   });
@@ -226,7 +226,7 @@ describe("fetchChapters", () => {
     globalThis.fetch = mockFetch as unknown as typeof fetch;
     const result = await fetchChapters("christmas_carol_e6ddcd76");
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters"
+      "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters",
     );
     expect(result).toEqual(body);
   });
@@ -262,7 +262,7 @@ describe("fetchChapter", () => {
     globalThis.fetch = mockFetch as unknown as typeof fetch;
     const result = await fetchChapter("christmas_carol_e6ddcd76", 2);
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters/2"
+      "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters/2",
     );
     expect(result).toEqual(body);
   });
@@ -371,7 +371,7 @@ describe("queryBook", () => {
     }) as unknown as typeof fetch;
 
     await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
-      QueryRateLimitError
+      QueryRateLimitError,
     );
     await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(QueryError);
   });
@@ -383,9 +383,7 @@ describe("queryBook", () => {
       json: () => Promise.resolve({ detail: "boom" }),
     }) as unknown as typeof fetch;
 
-    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
-      QueryServerError
-    );
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(QueryServerError);
   });
 
   it("throws QueryServerError on 503", async () => {
@@ -395,9 +393,7 @@ describe("queryBook", () => {
       json: () => Promise.resolve({}),
     }) as unknown as typeof fetch;
 
-    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
-      QueryServerError
-    );
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(QueryServerError);
   });
 
   it("throws QueryServerError on 4xx other than 429", async () => {
@@ -407,9 +403,7 @@ describe("queryBook", () => {
       json: () => Promise.resolve({ detail: "nope" }),
     }) as unknown as typeof fetch;
 
-    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
-      QueryServerError
-    );
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(QueryServerError);
   });
 
   it("throws QueryNetworkError when fetch itself rejects", async () => {
@@ -417,9 +411,7 @@ describe("queryBook", () => {
       .fn()
       .mockRejectedValue(new TypeError("network down")) as unknown as typeof fetch;
 
-    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(
-      QueryNetworkError
-    );
+    await expect(queryBook(BOOK_ID, "q", 1)).rejects.toBeInstanceOf(QueryNetworkError);
   });
 
   it("sets status property on thrown errors for the UI to branch on", async () => {

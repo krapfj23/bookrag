@@ -23,10 +23,7 @@ export function AssistantBubble({
 }: AssistantBubbleProps) {
   const visibleSources = (sources ?? []).slice(0, MAX_SOURCES);
   return (
-    <div
-      data-role="assistant"
-      style={{ display: "flex", gap: 12, marginRight: 48 }}
-    >
+    <div data-role="assistant" style={{ display: "flex", gap: 12, marginRight: 48 }}>
       <div
         aria-hidden="true"
         style={{

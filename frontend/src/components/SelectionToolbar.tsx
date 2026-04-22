@@ -23,8 +23,7 @@ export function SelectionToolbar({ top, left, onAction }: Props) {
         background: "var(--paper-00)",
         border: "1px solid var(--paper-2)",
         borderRadius: "var(--r-lg)",
-        boxShadow:
-          "0 10px 28px rgba(32,28,22,0.14), 0 1px 3px rgba(0,0,0,0.04)",
+        boxShadow: "0 10px 28px rgba(32,28,22,0.14), 0 1px 3px rgba(0,0,0,0.04)",
         padding: 4,
         display: "inline-flex",
         gap: 2,
@@ -43,11 +42,7 @@ export function SelectionToolbar({ top, left, onAction }: Props) {
       >
         <IcChat size={13} /> Ask
       </ToolbarButton>
-      <ToolbarButton
-        label="Add a note"
-        shortcut="N"
-        onClick={() => onAction("note")}
-      >
+      <ToolbarButton label="Add a note" shortcut="N" onClick={() => onAction("note")}>
         <IcEdit size={13} /> Note
       </ToolbarButton>
       <ToolbarButton

@@ -14,7 +14,7 @@ describe("BookCard", () => {
           total_chapters={3}
           current_chapter={1}
         />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(screen.getAllByText("Christmas Carol").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("1")).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe("BookCard", () => {
           total_chapters={3}
           current_chapter={1}
         />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(container.querySelector("[data-mood]")).toBeTruthy();
   });
@@ -51,12 +51,9 @@ describe("BookCard", () => {
               />
             }
           />
-          <Route
-            path="/books/:bookId/read"
-            element={<div>READING-LANDING</div>}
-          />
+          <Route path="/books/:bookId/read" element={<div>READING-LANDING</div>} />
         </Routes>
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     await user.click(screen.getByRole("button", { name: /christmas carol/i }));
     expect(await screen.findByText("READING-LANDING")).toBeInTheDocument();

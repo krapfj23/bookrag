@@ -16,7 +16,7 @@ function renderLib() {
   return render(
     <MemoryRouter initialEntries={["/"]}>
       <LibraryScreen />
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 }
 

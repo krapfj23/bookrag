@@ -23,8 +23,7 @@ export function IconBtn({ children, onClick, title, active }: IconBtnProps) {
         background: active ? "var(--paper-1)" : "transparent",
         border: 0,
         cursor: "pointer",
-        transition:
-          "background var(--dur) var(--ease), color var(--dur) var(--ease)",
+        transition: "background var(--dur) var(--ease), color var(--dur) var(--ease)",
       }}
     >
       {children}

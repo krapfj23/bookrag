@@ -19,7 +19,7 @@ describe("App router", () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
         <App />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(screen.getByText(/your shelf/i)).toBeInTheDocument();
   });
@@ -28,7 +28,7 @@ describe("App router", () => {
     render(
       <MemoryRouter initialEntries={["/upload"]}>
         <App />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(screen.getByText(/add a book/i)).toBeInTheDocument();
   });
@@ -37,11 +37,9 @@ describe("App router", () => {
     // The ReadingScreen's own data fetches will fail against the stub, but
     // the route-level assertion is that the NavBar Reading tab becomes active.
     render(
-      <MemoryRouter
-        initialEntries={["/books/christmas_carol_e6ddcd76/read/1"]}
-      >
+      <MemoryRouter initialEntries={["/books/christmas_carol_e6ddcd76/read/1"]}>
         <App />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     await waitFor(() => {
       expect(screen.getByText("Reading")).toHaveAttribute("data-active", "true");

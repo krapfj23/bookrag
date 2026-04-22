@@ -15,7 +15,7 @@ describe("moodForBookId", () => {
 
   it("is deterministic across different inputs", () => {
     expect(moodForBookId("red_rising_abc12345")).toBe(
-      moodForBookId("red_rising_abc12345")
+      moodForBookId("red_rising_abc12345"),
     );
   });
 

@@ -51,10 +51,7 @@ function cutoffMapKey(bookId: string, chapter: number): string {
 
 export function loadCutoffs(): Record<string, Cutoff> {
   if (typeof localStorage === "undefined") return {};
-  return safeParse<Record<string, Cutoff>>(
-    localStorage.getItem(CUTOFF_KEY),
-    {},
-  );
+  return safeParse<Record<string, Cutoff>>(localStorage.getItem(CUTOFF_KEY), {});
 }
 
 export function getCutoff(bookId: string, chapter: number): Cutoff | null {

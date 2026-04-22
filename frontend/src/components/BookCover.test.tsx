@@ -10,7 +10,7 @@ describe("BookCover", () => {
 
   it("derives a stable mood attribute from book_id", () => {
     const { container, rerender } = render(
-      <BookCover book_id="abc_12345678" title="X" />
+      <BookCover book_id="abc_12345678" title="X" />,
     );
     const first = container.querySelector("[data-mood]")?.getAttribute("data-mood");
     rerender(<BookCover book_id="abc_12345678" title="X" />);

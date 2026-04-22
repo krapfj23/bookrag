@@ -137,7 +137,7 @@ export async function fetchChapter(book_id: string, n: number): Promise<Chapter>
 
 export async function setProgress(
   book_id: string,
-  current_chapter: number
+  current_chapter: number,
 ): Promise<ProgressResponse> {
   const resp = await fetch(`${BASE_URL}/books/${book_id}/progress`, {
     method: "POST",
@@ -213,7 +213,7 @@ export async function queryBook(
   book_id: string,
   question: string,
   max_chapter: number,
-  search_type: QuerySearchType = "GRAPH_COMPLETION"
+  search_type: QuerySearchType = "GRAPH_COMPLETION",
 ): Promise<QueryResponse> {
   let resp: Response;
   try {

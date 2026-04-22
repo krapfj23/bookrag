@@ -33,8 +33,7 @@ export const SEED_ANNOTATIONS: Annotation[] = [
     kind: "note",
     created_at: "2h ago",
     tags: ["#idiom", "#opening"],
-    body:
-      "Dickens opens with the dead-metaphor pun — \"dead as a door-nail\" — and then immediately interrogates the phrase. Sets the tone: the book will question what \"dead\" even means.",
+    body: 'Dickens opens with the dead-metaphor pun — "dead as a door-nail" — and then immediately interrogates the phrase. Sets the tone: the book will question what "dead" even means.',
   },
   {
     id: "q1",
@@ -46,7 +45,7 @@ export const SEED_ANNOTATIONS: Annotation[] = [
     created_at: "2h ago",
     question: "Why does Dickens linger on the door-nail vs coffin-nail distinction?",
     answer_excerpt:
-      "Dickens is foregrounding language itself — the narrator self-corrects and questions idiom, which sets up a whole book about what words like \"dead,\" \"merry,\" and \"wealth\" really mean.",
+      'Dickens is foregrounding language itself — the narrator self-corrects and questions idiom, which sets up a whole book about what words like "dead," "merry," and "wealth" really mean.',
   },
   {
     id: "n2",
@@ -57,8 +56,7 @@ export const SEED_ANNOTATIONS: Annotation[] = [
     kind: "note",
     created_at: "just now",
     tags: ["#structure"],
-    body:
-      "Chapter title as incantation. The definite article (\"The Last\") does a lot of work — it tells you before you read a word that this is the terminal spirit, the one who closes the frame.",
+    body: 'Chapter title as incantation. The definite article ("The Last") does a lot of work — it tells you before you read a word that this is the terminal spirit, the one who closes the frame.',
   },
   {
     id: "q2",
@@ -68,18 +66,13 @@ export const SEED_ANNOTATIONS: Annotation[] = [
     match: "that man who lay upon the bed",
     kind: "query",
     created_at: "just now",
-    question: "Who is the \"man\" Scrooge is asking about?",
+    question: 'Who is the "man" Scrooge is asking about?',
     answer_excerpt:
       "Scrooge is looking at his own corpse — the Spirit has shown him a future in which he has died unloved. The question is rhetorical dread, not confusion.",
     bookmarked: true,
   },
 ];
 
-export function annotationsForChapter(
-  bookId: string,
-  chapter: number,
-): Annotation[] {
-  return SEED_ANNOTATIONS.filter(
-    (a) => a.book_id === bookId && a.chapter === chapter,
-  );
+export function annotationsForChapter(bookId: string, chapter: number): Annotation[] {
+  return SEED_ANNOTATIONS.filter((a) => a.book_id === bookId && a.chapter === chapter);
 }

@@ -7,7 +7,9 @@ import type { PipelineState, StageName } from "../lib/api";
 
 const BOOK_ID = "a_christmas_carol_a1b2c3d4";
 
-function stagesWith(overrides: Partial<Record<StageName, api.PipelineStage>> = {}): PipelineState["stages"] {
+function stagesWith(
+  overrides: Partial<Record<StageName, api.PipelineStage>> = {},
+): PipelineState["stages"] {
   const base: PipelineState["stages"] = {
     parse_epub: { status: "pending" },
     run_booknlp: { status: "pending" },
@@ -42,7 +44,7 @@ function renderScreen() {
   return render(
     <MemoryRouter initialEntries={["/upload"]}>
       <UploadScreen />
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 }
 
@@ -75,7 +77,7 @@ describe("UploadScreen", () => {
           parse_epub: { status: "complete", duration_seconds: 0.4 },
           run_booknlp: { status: "running" },
         }),
-      })
+      }),
     );
 
     renderScreen();
@@ -89,7 +91,9 @@ describe("UploadScreen", () => {
 
     // Filename and book_id appear
     await waitFor(() => {
-      expect(screen.getAllByText("a-christmas-carol.epub").length).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText("a-christmas-carol.epub").length,
+      ).toBeGreaterThanOrEqual(1);
       expect(screen.getByText(BOOK_ID)).toBeInTheDocument();
     });
 
@@ -131,7 +135,7 @@ describe("UploadScreen", () => {
       .mockResolvedValueOnce(
         mkState({
           stages: stagesWith({ parse_epub: { status: "running" } }),
-        })
+        }),
       )
       .mockResolvedValueOnce(
         mkState({
@@ -146,7 +150,7 @@ describe("UploadScreen", () => {
             run_cognee_batches: { status: "complete" },
             validate: { status: "complete" },
           }),
-        })
+        }),
       );
 
     renderScreen();
@@ -163,11 +167,13 @@ describe("UploadScreen", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /back to library/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("link", { name: /back to library/i }),
+      ).toBeInTheDocument();
     });
     expect(screen.getByRole("link", { name: /back to library/i })).toHaveAttribute(
       "href",
-      "/"
+      "/",
     );
 
     const callsAtReady = statusSpy.mock.calls.length;
@@ -189,7 +195,7 @@ describe("UploadScreen", () => {
           parse_epub: { status: "complete", duration_seconds: 0.4 },
           run_booknlp: { status: "failed", error: "OOM killed" },
         }),
-      })
+      }),
     );
 
     renderScreen();
@@ -217,7 +223,7 @@ describe("UploadScreen", () => {
 
   it("shows the mapped error in the Dropzone when uploadBook rejects", async () => {
     vi.spyOn(api, "uploadBook").mockRejectedValue(
-      new api.UploadError(400, "Only .epub files are accepted")
+      new api.UploadError(400, "Only .epub files are accepted"),
     );
 
     renderScreen();
@@ -228,7 +234,7 @@ describe("UploadScreen", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        /only \.epub files are accepted/i
+        /only \.epub files are accepted/i,
       );
     });
   });

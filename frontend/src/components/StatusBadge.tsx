@@ -15,11 +15,16 @@ type Variant = {
 };
 
 const VARIANTS: Record<BadgeState, Variant> = {
-  idle:    { bg: "var(--paper-1)",     fg: "var(--ink-2)",      dot: "var(--ink-3)" },
-  queued:  { bg: "var(--paper-1)",     fg: "var(--ink-1)",      dot: "var(--ink-3)" },
-  running: { bg: "var(--accent-softer)", fg: "var(--accent-ink)", dot: "var(--accent)", pulse: true },
-  done:    { bg: "var(--accent-softer)", fg: "var(--accent-ink)", dot: "var(--ok)" },
-  error:   {
+  idle: { bg: "var(--paper-1)", fg: "var(--ink-2)", dot: "var(--ink-3)" },
+  queued: { bg: "var(--paper-1)", fg: "var(--ink-1)", dot: "var(--ink-3)" },
+  running: {
+    bg: "var(--accent-softer)",
+    fg: "var(--accent-ink)",
+    dot: "var(--accent)",
+    pulse: true,
+  },
+  done: { bg: "var(--accent-softer)", fg: "var(--accent-ink)", dot: "var(--ok)" },
+  error: {
     bg: "color-mix(in oklab, var(--err) 12%, var(--paper-0))",
     fg: "var(--err)",
     dot: "var(--err)",
