@@ -12,6 +12,7 @@ converter from extraction output to DataPoints.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -330,6 +331,16 @@ class ExtractionResult(BaseModel):
     relationships: list[RelationshipExtraction] = []
     themes: list[ThemeExtraction] = []
     factions: list[FactionExtraction] = []
+
+    # Item 12 (Phase A Stage 1): extractor-version + cache-key metadata.
+    # All default to empty / None so pre-Phase-A batch JSONs deserialize;
+    # new extractions stamp these during extract_enriched_graph.
+    extractor_version: str = ""
+    prompt_hash: str = ""
+    model_id: str = ""
+    schema_version: str = "v1"
+    cache_key: str = ""
+    created_at: datetime | None = None
 
     def to_datapoints(self, source_chunk_ordinal: int | None = None) -> list[DataPoint]:
         """

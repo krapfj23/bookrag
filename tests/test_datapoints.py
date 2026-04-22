@@ -936,3 +936,51 @@ class TestCharacterCorefId:
         dps = ex.to_datapoints()
         char = next(d for d in dps if isinstance(d, Character))
         assert char.booknlp_coref_id == 42
+
+
+# ===========================================================================
+# Item 12 (Phase A Stage 1): ExtractionResult version metadata
+# ===========================================================================
+
+
+class TestExtractionResultMetadata:
+    def test_metadata_defaults_empty(self):
+        from models.datapoints import ExtractionResult
+        er = ExtractionResult()
+        assert er.extractor_version == ""
+        assert er.prompt_hash == ""
+        assert er.model_id == ""
+        assert er.schema_version == "v1"
+        assert er.cache_key == ""
+        assert er.created_at is None
+
+    def test_metadata_roundtrip(self):
+        from datetime import datetime, timezone
+        from models.datapoints import ExtractionResult
+        now = datetime.now(timezone.utc)
+        er = ExtractionResult(
+            extractor_version="phase-a@2026-04-22",
+            prompt_hash="deadbeef",
+            model_id="openai/gpt-4o-mini",
+            schema_version="v2",
+            cache_key="abc123",
+            created_at=now,
+        )
+        assert er.extractor_version == "phase-a@2026-04-22"
+        assert er.created_at == now
+
+    def test_metadata_json_roundtrip(self):
+        from datetime import datetime, timezone
+        from models.datapoints import ExtractionResult
+        now = datetime.now(timezone.utc)
+        er = ExtractionResult(
+            extractor_version="phase-a@2026-04-22",
+            prompt_hash="deadbeef",
+            model_id="openai/gpt-4o-mini",
+            schema_version="v1",
+            cache_key="abc123",
+            created_at=now,
+        )
+        restored = ExtractionResult.model_validate_json(er.model_dump_json())
+        assert restored.extractor_version == er.extractor_version
+        assert restored.created_at == er.created_at
