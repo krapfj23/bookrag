@@ -1,5 +1,6 @@
 import { Paragraph } from "./Paragraph";
 import type { Page } from "../../lib/reader/paginator";
+import type { SentenceMark } from "./Sentence";
 
 function PageSide({
   page,
@@ -7,12 +8,16 @@ function PageSide({
   dropCapFirst,
   folio,
   chapterHeader,
+  marksBySid,
+  onMarkClick,
 }: {
   page: Page;
   cursor: string;
   dropCapFirst: boolean;
   folio: number;
   chapterHeader?: { num: number; title: string; totalChapters: number };
+  marksBySid?: Map<string, SentenceMark[]>;
+  onMarkClick?: (cardId: string) => void;
 }) {
   return (
     <div
@@ -63,6 +68,8 @@ function PageSide({
           sentences={p.sentences}
           fogStartSid={cursor}
           dropCap={dropCapFirst && i === 0 && !p.isContinuation}
+          marksBySid={marksBySid}
+          onMarkClick={onMarkClick}
         />
       ))}
       <div
@@ -95,6 +102,8 @@ export function BookSpread({
   folioRight,
   cursor,
   isFirstSpread = false,
+  marksBySid,
+  onMarkClick,
 }: {
   chapterNum: number;
   chapterTitle: string;
@@ -105,6 +114,8 @@ export function BookSpread({
   folioRight: number;
   cursor: string;
   isFirstSpread?: boolean;
+  marksBySid?: Map<string, SentenceMark[]>;
+  onMarkClick?: (cardId: string) => void;
 }) {
   return (
     <div
@@ -127,8 +138,17 @@ export function BookSpread({
         dropCapFirst={isFirstSpread}
         folio={folioLeft}
         chapterHeader={{ num: chapterNum, title: chapterTitle, totalChapters }}
+        marksBySid={marksBySid}
+        onMarkClick={onMarkClick}
       />
-      <PageSide page={right} cursor={cursor} dropCapFirst={false} folio={folioRight} />
+      <PageSide
+        page={right}
+        cursor={cursor}
+        dropCapFirst={false}
+        folio={folioRight}
+        marksBySid={marksBySid}
+        onMarkClick={onMarkClick}
+      />
       <div
         aria-hidden="true"
         style={{
