@@ -51,6 +51,7 @@ export function SelectionToolbar({ top, left, onAction, disabled = {} }: Props) 
       role="toolbar"
       aria-label="Selection actions"
       data-testid="selection-toolbar"
+      className="rr-toolbar-enter"
       style={{ ...pillStyle, top, left }}
       onMouseDown={(e) => e.preventDefault()}
     >
