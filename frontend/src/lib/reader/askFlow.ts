@@ -62,6 +62,9 @@ export async function askAndStream(input: AskFlowInput): Promise<string> {
       input.updateAsk(id, (prev) => ({ ...prev, answer: soFar }));
     },
   });
+  // Use setTimeout to ensure streaming=false is scheduled in a separate
+  // React batch from the final chunk, so the cursor remains visible briefly.
+  await new Promise<void>((r) => setTimeout(r, 0));
   input.setAskStreaming?.(id, false);
   return id;
 }

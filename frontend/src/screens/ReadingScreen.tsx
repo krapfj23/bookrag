@@ -30,6 +30,8 @@ export function ReadingScreen() {
   const [spreadIdx, setSpreadIdx] = useState(0);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const bookRef = useRef<HTMLDivElement | null>(null);
+  // bookRootEl is a state mirror of bookRef so MarginColumn rerenders when ref is set.
+  const [bookRootEl, setBookRootEl] = useState<HTMLDivElement | null>(null);
 
   // Load chapter and paginate.
   useEffect(() => {
@@ -119,6 +121,7 @@ export function ReadingScreen() {
 
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [newlyCreatedNoteId, setNewlyCreatedNoteId] = useState<string | null>(null);
+  const [focusedComposerCardId, setFocusedComposerCardId] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flash = useCallback((id: string) => {
@@ -127,16 +130,22 @@ export function ReadingScreen() {
     flashTimer.current = setTimeout(() => setFocusedCardId(null), 620);
   }, []);
 
+  // visibleSids = all sids seen in spreads 0..spreadIdx (accumulated so cards from
+  // previous pages remain visible with a cross-page prefix after turning).
   const visibleSids: Set<string> = useMemo(() => {
-    if (!current) return new Set();
+    if (body.kind !== "ok") return new Set();
     const s = new Set<string>();
-    for (const page of [current.left, current.right]) {
-      for (const para of page) {
-        for (const sent of para.sentences) s.add(sent.sid);
+    for (let i = 0; i <= spreadIdx; i++) {
+      const spread = body.spreads[i];
+      if (!spread) continue;
+      for (const page of [spread.left, spread.right]) {
+        for (const para of page) {
+          for (const sent of para.sentences) s.add(sent.sid);
+        }
       }
     }
     return s;
-  }, [current]);
+  }, [body, spreadIdx]);
 
   // Compute left/right sids and folios from the current spread.
   const leftSids: Set<string> = useMemo(() => {
@@ -159,6 +168,30 @@ export function ReadingScreen() {
 
   const leftFolio = spreadIdx * 2 + 1;
   const rightFolio = spreadIdx * 2 + 2;
+
+  // currentSpreadSids = ONLY the current spread's sids (for cross-page detection).
+  const currentSpreadSids: Set<string> = useMemo(() => {
+    const s = new Set<string>();
+    for (const sid of leftSids) s.add(sid);
+    for (const sid of rightSids) s.add(sid);
+    return s;
+  }, [leftSids, rightSids]);
+
+  // Map every sid to the left-folio of its spread (used by MarginColumn to
+  // render cross-page prefix for cards from previous spreads).
+  const sidToFolio = useMemo<Map<string, number>>(() => {
+    if (body.kind !== "ok") return new Map();
+    const m = new Map<string, number>();
+    body.spreads.forEach((spread, si) => {
+      const folio = si * 2 + 1; // left-page folio for this spread
+      for (const page of [spread.left, spread.right]) {
+        for (const para of page) {
+          for (const sent of para.sentences) m.set(sent.sid, folio);
+        }
+      }
+    });
+    return m;
+  }, [body]);
 
   const marksBySid: Map<string, SentenceMark[]> = useMemo(() => {
     const m = new Map<string, SentenceMark[]>();
@@ -202,10 +235,11 @@ export function ReadingScreen() {
         clearSelection();
         return;
       }
-      // ask — S5: duplicate focuses card + follow-up composer
+      // ask — S5: duplicate focuses card AND follow-up composer
       const existing = findByAnchorAndKind(anchorSid, "ask");
       if (existing) {
         flash(existing.id);
+        setFocusedComposerCardId(existing.id);
         clearSelection();
         return;
       }
@@ -225,6 +259,8 @@ export function ReadingScreen() {
         queryBook: (b, q, mc) => queryBook(b, q, mc),
         setAskLoading,
         setAskStreaming,
+        streamMinMs: 40,
+        streamMaxMs: 80,
       });
       flash(id);
     },
@@ -270,6 +306,8 @@ export function ReadingScreen() {
         appendFollowup,
         updateAsk,
         queryBook: (b, q, mc) => queryBook(b, q, mc),
+        streamMinMs: 40,
+        streamMaxMs: 80,
       });
     },
     [bookId, n, appendFollowup, updateAsk],
@@ -361,7 +399,7 @@ export function ReadingScreen() {
               width: "min(1240px, 100%)",
             }}
           >
-            <div ref={bookRef}>
+            <div ref={(el) => { bookRef.current = el; setBookRootEl(el); }}>
               <BookSpread
                 chapterNum={body.chapter.num}
                 chapterTitle={body.chapter.title}
@@ -387,9 +425,12 @@ export function ReadingScreen() {
               rightSids={rightSids}
               leftFolio={leftFolio}
               rightFolio={rightFolio}
-              bookRoot={bookRef.current}
+              currentSpreadSids={currentSpreadSids}
+              sidToFolio={sidToFolio}
+              bookRoot={bookRootEl}
               onJump={onJump}
               onFollowup={onFollowup}
+              focusedComposerCardId={focusedComposerCardId}
             />
           </div>
         )}

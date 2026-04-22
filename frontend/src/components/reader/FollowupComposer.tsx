@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 
-export function FollowupComposer({
-  onSubmit,
-}: {
-  onSubmit: (question: string) => void;
-}) {
+export const FollowupComposer = forwardRef<
+  HTMLInputElement,
+  { onSubmit: (question: string) => void }
+>(function FollowupComposer({ onSubmit }, ref) {
   const [value, setValue] = useState("");
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -18,6 +17,7 @@ export function FollowupComposer({
 
   return (
     <input
+      ref={ref}
       type="text"
       placeholder="Ask a follow-up…"
       value={value}
@@ -38,4 +38,4 @@ export function FollowupComposer({
       }}
     />
   );
-}
+});

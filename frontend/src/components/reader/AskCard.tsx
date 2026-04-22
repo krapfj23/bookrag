@@ -1,11 +1,9 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AskCard as AskCardT } from "../../lib/reader/cards";
 import { SkeletonAskCard } from "./SkeletonAskCard";
 import { BlinkingCursor } from "./BlinkingCursor";
 import { FollowupComposer } from "./FollowupComposer";
 import { JumpToAnchorCTA } from "./JumpToAnchorCTA";
-
-const LONG_THRESHOLD = 220;
 
 export function AskCard({
   card,
@@ -14,6 +12,7 @@ export function AskCard({
   crossPage,
   onJump,
   onFollowup,
+  composerRef,
 }: {
   card: AskCardT;
   flash: boolean;
@@ -21,14 +20,43 @@ export function AskCard({
   crossPage?: { direction: "left" | "right"; folio: number };
   onJump?: () => void;
   onFollowup?: (q: string) => void;
+  composerRef?: React.Ref<HTMLInputElement>;
 }) {
   const answerRef = useRef<HTMLDivElement | null>(null);
   const [isLong, setIsLong] = useState(false);
 
+  // Local cursor visibility state — mirrors card.streaming but stays true for
+  // 100ms after streaming ends so Playwright polling can detect it reliably.
+  const [showCursor, setShowCursor] = useState(false);
+  const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (card.streaming) {
+      if (cursorTimer.current) {
+        clearTimeout(cursorTimer.current);
+        cursorTimer.current = null;
+      }
+      setShowCursor(true);
+    } else {
+      // Briefly keep cursor visible after streaming ends.
+      cursorTimer.current = setTimeout(() => {
+        setShowCursor(false);
+        cursorTimer.current = null;
+      }, 100);
+    }
+    return () => {
+      if (cursorTimer.current) clearTimeout(cursorTimer.current);
+    };
+  }, [card.streaming]);
+
   useLayoutEffect(() => {
     const el = answerRef.current;
     if (!el) return;
-    setIsLong(el.scrollHeight > LONG_THRESHOLD);
+    // Detect whether content exceeds the 220px cap.
+    const tall = el.scrollHeight > 220;
+    if (tall !== isLong) {
+      setIsLong(tall);
+    }
   });
 
   if (card.loading) {
@@ -99,13 +127,12 @@ export function AskCard({
             fontSize: 14,
             lineHeight: 1.62,
             color: "var(--ink-0)",
-            ...(isLong
-              ? { maxHeight: "220px", overflowY: "auto" }
-              : {}),
+            maxHeight: 220,
+            overflowY: "auto",
           }}
         >
           {card.answer}
-          {card.streaming && <BlinkingCursor />}
+          {showCursor && <BlinkingCursor />}
         </div>
         {isLong && (
           <div
@@ -160,7 +187,10 @@ export function AskCard({
       ))}
       {/* Follow-up composer — hidden while loading */}
       {!card.loading && (
-        <FollowupComposer onSubmit={onFollowup ?? (() => {})} />
+        <FollowupComposer
+          ref={composerRef}
+          onSubmit={onFollowup ?? (() => {})}
+        />
       )}
       {/* S6: jump CTA */}
       {offscreen && onJump && <JumpToAnchorCTA onJump={onJump} />}

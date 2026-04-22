@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Card } from "../../lib/reader/cards";
 import { AskCard } from "./AskCard";
 import { NoteCard } from "./NoteCard";
@@ -6,6 +6,7 @@ import { S1EmptyCard } from "./S1EmptyCard";
 import { CollapsedCardRow } from "./CollapsedCardRow";
 import { LatestExpandedDivider } from "./LatestExpandedDivider";
 import { AnchorConnector } from "./AnchorConnector";
+import { AnchorEdgeBar } from "./AnchorEdgeBar";
 import { useAnchorVisibility } from "../../lib/reader/useAnchorVisibility";
 import { computeCrossPage } from "../../lib/reader/pageSide";
 import { getAnchorRect } from "../../lib/reader/anchorGeometry";
@@ -60,9 +61,12 @@ export function MarginColumn({
   rightSids,
   leftFolio,
   rightFolio,
+  currentSpreadSids,
+  sidToFolio,
   bookRoot,
   onJump,
   onFollowup,
+  focusedComposerCardId,
 }: {
   cards: Card[];
   visibleSids: Set<string>;
@@ -74,9 +78,14 @@ export function MarginColumn({
   rightSids?: Set<string>;
   leftFolio?: number;
   rightFolio?: number;
+  /** Sids only from the current spread (used to distinguish current vs previous spread cards). */
+  currentSpreadSids?: Set<string>;
+  /** Maps every sid to the left-page folio of the spread it belongs to. */
+  sidToFolio?: Map<string, number>;
   bookRoot?: Element | null;
   onJump?: (sid: string) => void;
   onFollowup?: (cardId: string, question: string) => void;
+  focusedComposerCardId?: string | null;
 }) {
   const [manuallyExpandedIds, setManuallyExpandedIds] = useState<Set<string>>(
     new Set(),
@@ -88,7 +97,14 @@ export function MarginColumn({
     manuallyExpandedIds,
   );
 
-  const anchorSids = new Set(visible.map((c) => c.anchor));
+  const anchorSidsKey = visible.map((c) => c.anchor).sort().join(",");
+  // Stable Set reference — only recreated when the set of anchors actually changes.
+  const anchorSids = useMemo(
+    () => new Set(visible.map((c) => c.anchor)),
+    // anchorSidsKey is a derived primitive — safe to use as dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [anchorSidsKey],
+  );
   const anchorVisibility = useAnchorVisibility(
     anchorSids,
     bookRoot ?? null,
@@ -104,6 +120,36 @@ export function MarginColumn({
     },
     [],
   );
+
+  // Ref map for follow-up composers keyed by card id.
+  const composerRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const setComposerRef = useCallback(
+    (id: string) => (el: HTMLInputElement | null) => {
+      if (el) {
+        composerRefs.current.set(id, el);
+      } else {
+        composerRefs.current.delete(id);
+      }
+    },
+    [],
+  );
+
+  // Focus the composer when focusedComposerCardId changes.
+  useEffect(() => {
+    if (!focusedComposerCardId) return;
+    const el = composerRefs.current.get(focusedComposerCardId);
+    if (el) el.focus();
+  }, [focusedComposerCardId]);
+
+  // Determine if any expanded card's anchor is off-screen (for AnchorEdgeBar).
+  const offscreenDirections = expanded
+    .map((card) => {
+      const e = anchorVisibility.get(card.anchor);
+      return e && !e.visible && e.direction ? e.direction : null;
+    })
+    .filter(Boolean) as ("up" | "down")[];
+  const hasOffscreenUp = offscreenDirections.includes("up");
+  const hasOffscreenDown = offscreenDirections.includes("down");
 
   // Compute AnchorConnector geometry for single-card case.
   const showConnector = expanded.length === 1 && bookRoot;
@@ -149,16 +195,35 @@ export function MarginColumn({
             ? { direction: visEntry.direction as "up" | "down" }
             : undefined;
 
-        const crossPage =
-          leftSids && rightSids && leftFolio !== undefined && rightFolio !== undefined
-            ? computeCrossPage({
-                sid: card.anchor,
-                leftSids,
-                rightSids,
-                leftFolio,
-                rightFolio,
-              }) ?? undefined
-            : undefined;
+        // Cross-page prefix applies in two cases:
+        // 1. Card is on a PREVIOUS spread (anchor not in currentSpreadSids): always
+        //    show "← FROM p. {folio}" where folio is the spread's left-page folio.
+        // 2. Card is on the CURRENT spread's LEFT page: show cross-page prefix only
+        //    when the anchor is NOT off-screen (i.e., don't double-label with
+        //    both offscreen + crossPage).
+        let crossPage: { direction: "left" | "right"; folio: number } | undefined;
+        const isOnCurrentSpread = currentSpreadSids
+          ? currentSpreadSids.has(card.anchor)
+          : true; // assume current if prop not provided
+        if (!isOnCurrentSpread && sidToFolio) {
+          // Anchor is from a previous spread — show cross-page with that spread's folio.
+          const folio = sidToFolio.get(card.anchor);
+          if (folio !== undefined) {
+            crossPage = { direction: "left", folio };
+          }
+        } else if (isOnCurrentSpread && !offscreen) {
+          // Anchor is on the current spread's left page and not off-screen —
+          // show cross-page prefix if the anchor is on the left (opposite) page.
+          if (leftSids && rightSids && leftFolio !== undefined && rightFolio !== undefined) {
+            crossPage = computeCrossPage({
+              sid: card.anchor,
+              leftSids,
+              rightSids,
+              leftFolio,
+              rightFolio,
+            }) ?? undefined;
+          }
+        }
 
         const handleJump = onJump ? () => onJump(card.anchor) : undefined;
         const handleFollowup = onFollowup
@@ -174,6 +239,7 @@ export function MarginColumn({
             crossPage={crossPage}
             onJump={handleJump}
             onFollowup={handleFollowup}
+            composerRef={setComposerRef(card.id)}
           />
         ) : (
           <NoteCard
@@ -189,6 +255,14 @@ export function MarginColumn({
           />
         );
       })}
+
+      {/* S6: AnchorEdgeBar — shown when any expanded card's anchor is off-screen */}
+      {hasOffscreenUp && (
+        <AnchorEdgeBar top={0} color="var(--accent)" />
+      )}
+      {hasOffscreenDown && (
+        <AnchorEdgeBar top={200} color="var(--accent)" />
+      )}
 
       {/* S2: AnchorConnector — only with exactly 1 expanded card */}
       {showConnector && (

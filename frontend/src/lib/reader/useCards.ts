@@ -35,7 +35,9 @@ export function useCards(bookId: string) {
     }
   }, [bookId]);
 
-  const commit = useCallback(
+  // Write to localStorage and update React state.
+  // Note: always writes the passed `next` (not re-reading state).
+  const commitDirect = useCallback(
     (next: Card[]) => {
       writeStoredCards(bookId, next);
       setCards(next);
@@ -59,10 +61,10 @@ export function useCards(bookId: string) {
         createdAt: now,
         updatedAt: now,
       };
-      commit([...readStoredCards(bookId), card]);
+      commitDirect([...readStoredCards(bookId), card]);
       return card.id;
     },
-    [bookId, commit],
+    [bookId, commitDirect],
   );
 
   const createNote = useCallback(
@@ -79,23 +81,29 @@ export function useCards(bookId: string) {
         createdAt: now,
         updatedAt: now,
       };
-      commit([...readStoredCards(bookId), card]);
+      commitDirect([...readStoredCards(bookId), card]);
       return card.id;
     },
-    [bookId, commit],
+    [bookId, commitDirect],
   );
 
+  // updateAsk uses a functional state update to read from CURRENT React state
+  // (not localStorage) so that transient in-memory flags (loading, streaming)
+  // are preserved across rapid successive calls.
   const updateAsk = useCallback(
     (id: string, updater: (prev: AskCard) => AskCard) => {
-      const current = readStoredCards(bookId);
-      const next = current.map((c) => {
-        if (c.id !== id || c.kind !== "ask") return c;
-        const updated = updater(c);
-        return { ...updated, updatedAt: new Date().toISOString() };
+      setCards((current) => {
+        const next = current.map((c) => {
+          if (c.id !== id || c.kind !== "ask") return c;
+          const updated = updater(c);
+          return { ...updated, updatedAt: new Date().toISOString() };
+        });
+        // Persist to localStorage (strips transient flags).
+        writeStoredCards(bookId, next);
+        return next;
       });
-      commit(next);
     },
-    [bookId, commit],
+    [bookId],
   );
 
   const updateNote = useCallback(
@@ -105,16 +113,16 @@ export function useCards(bookId: string) {
         if (c.id !== id || c.kind !== "note") return c;
         return { ...c, body, updatedAt: new Date().toISOString() };
       });
-      commit(next);
+      commitDirect(next);
     },
-    [bookId, commit],
+    [bookId, commitDirect],
   );
 
   const removeCard = useCallback(
     (id: string) => {
-      commit(readStoredCards(bookId).filter((c) => c.id !== id));
+      commitDirect(readStoredCards(bookId).filter((c) => c.id !== id));
     },
-    [bookId, commit],
+    [bookId, commitDirect],
   );
 
   const findByAnchorAndKind = useCallback(

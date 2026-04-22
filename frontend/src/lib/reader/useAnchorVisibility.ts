@@ -20,6 +20,7 @@ export function useAnchorVisibility(
 
   useEffect(() => {
     if (!root) return;
+    if (typeof IntersectionObserver === "undefined") return;
 
     const observer = new IntersectionObserver((entries) => {
       setState((prev) => {
