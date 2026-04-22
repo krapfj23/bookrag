@@ -165,9 +165,9 @@ class TestUploadEndpoint:
 
     def test_upload_too_large_rejected(self, client):
         """Vuln fix: uploads exceeding MAX_UPLOAD_BYTES must be rejected."""
-        import main as main_module
-        original = main_module.MAX_UPLOAD_BYTES
-        main_module.MAX_UPLOAD_BYTES = 100  # temporarily shrink limit
+        from api.routes import books as books_routes
+        original = books_routes.MAX_UPLOAD_BYTES
+        books_routes.MAX_UPLOAD_BYTES = 100  # temporarily shrink limit
 
         test_client, _, _ = client
         epub_content = b"PK\x03\x04" + b"x" * 200
@@ -177,7 +177,7 @@ class TestUploadEndpoint:
         )
         assert resp.status_code == 413
 
-        main_module.MAX_UPLOAD_BYTES = original  # restore
+        books_routes.MAX_UPLOAD_BYTES = original  # restore
 
     def test_upload_concurrent_limit(self, client):
         """Vuln fix: too many concurrent pipelines returns 429."""

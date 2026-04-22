@@ -36,39 +36,9 @@ load_dotenv(_REPO_ROOT / ".env")
 from models.config import load_config, ensure_directories
 from pipeline.batcher import get_batcher
 from pipeline.booknlp_runner import parse_booknlp_output
+from pipeline.booknlp_utils import booknlp_output_to_dict
 from pipeline.cognee_pipeline import configure_cognee, run_bookrag_pipeline
 from loguru import logger
-
-
-def _booknlp_to_dict(output) -> dict:
-    """Normalize BookNLPOutput (dataclass) into the dict shape
-    run_bookrag_pipeline expects: {'entities': [...], 'quotes': [...]}
-    where each element is a plain dict with the fields the cognee_pipeline
-    formatters look up (prop, cat, text for entities; speaker, text for quotes).
-    """
-    from dataclasses import asdict, is_dataclass
-
-    def _to_dict(obj):
-        if is_dataclass(obj):
-            return asdict(obj)
-        if isinstance(obj, dict):
-            return obj
-        return dict(obj.__dict__) if hasattr(obj, "__dict__") else {}
-
-    entities = [_to_dict(e) for e in getattr(output, "entities", [])]
-    raw_quotes = [_to_dict(q) for q in getattr(output, "quotes", [])]
-    # Resolve speaker_coref_id -> name for the prompt formatter
-    coref_to_name = getattr(output, "coref_id_to_name", {}) or {}
-    for q in raw_quotes:
-        cid = q.get("speaker_coref_id")
-        if cid is not None and cid in coref_to_name:
-            q["speaker_name"] = coref_to_name[cid]
-
-    return {
-        "entities": entities,
-        "entities_tsv": entities,
-        "quotes": raw_quotes,
-    }
 
 
 async def reextract(book_id: str) -> int:
@@ -100,7 +70,7 @@ async def reextract(book_id: str) -> int:
     booknlp_dir = book_dir / "booknlp"
     if booknlp_dir.exists():
         parsed = parse_booknlp_output(booknlp_dir, book_id)
-        booknlp_output = _booknlp_to_dict(parsed)
+        booknlp_output = booknlp_output_to_dict(parsed)
         logger.info(
             "Loaded BookNLP: {} entity rows, {} quotes",
             len(booknlp_output.get("entities_tsv") or booknlp_output.get("entities") or []),

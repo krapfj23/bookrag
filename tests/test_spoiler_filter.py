@@ -410,7 +410,7 @@ class TestConsolidationDoesNotLeak:
         from unittest.mock import AsyncMock, patch
 
         from models.datapoints import CharacterExtraction, ExtractionResult
-        from pipeline.cognee_pipeline import consolidate_entities
+        from pipeline.consolidation import consolidate_entities
 
         ch1_a = CharacterExtraction(
             name="Scrooge",
@@ -442,7 +442,7 @@ class TestConsolidationDoesNotLeak:
         class _MockConsolidated:
             answer = clean_ch1
 
-        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm:
+        with patch("pipeline.consolidation.LLMGateway") as mock_llm:
             mock_llm.acreate_structured_output = AsyncMock(return_value=_MockConsolidated())
             consolidated = asyncio.run(consolidate_entities(extraction))
 
@@ -485,7 +485,7 @@ class TestConsolidationDoesNotLeak:
         chapter buckets would merge — catastrophic for spoiler safety.
         """
         from models.datapoints import CharacterExtraction, ExtractionResult
-        from pipeline.cognee_pipeline import _group_entities_for_consolidation
+        from pipeline.consolidation import _group_entities_for_consolidation
 
         ch1 = CharacterExtraction(name="Scrooge",
                                   description="miser", first_chapter=1, last_known_chapter=1)

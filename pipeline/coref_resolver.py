@@ -611,13 +611,6 @@ def _build_demo_data() -> tuple[
 
 
 def main() -> None:
-    logger.remove()
-    logger.add(
-        lambda msg: print(msg, end=""),
-        format="<level>{level: <8}</level> | {message}",
-        level="DEBUG",
-    )
-
     tokens, entities, characters, chapter_texts, chapter_boundaries = _build_demo_data()
 
     config = CorefConfig(distance_threshold=DEFAULT_DISTANCE_THRESHOLD, ambiguity_window=2, annotate_ambiguous=True)
@@ -631,29 +624,29 @@ def main() -> None:
         config=config,
     )
 
-    print("\n" + "=" * 70)
-    print("RESOLVED TEXT")
-    print("=" * 70)
-    print(result.resolved_full_text)
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("RESOLVED TEXT")
+    logger.info("=" * 70)
+    logger.info(result.resolved_full_text)
+    logger.info("=" * 70)
 
-    print(f"\nTotal insertions: {len(result.resolution_log)}")
+    logger.info(f"\nTotal insertions: {len(result.resolution_log)}")
     for ev in result.resolution_log:
-        print(
+        logger.info(
             f"  token {ev.token_id}: \"{ev.original_text}\" → "
             f"[{ev.inserted_annotation}]  (rule: {ev.rule_triggered})"
         )
 
-    print("\nCluster summary:")
+    logger.info("\nCluster summary:")
     for cid, cl in result.clusters.items():
-        print(
+        logger.info(
             f"  [{cid}] {cl.canonical_name}: "
             f"{len(cl.mentions)} mentions, {cl.resolution_count} annotated"
         )
 
     # Save to disk
     save_coref_outputs(result, book_id="christmas_carol_demo")
-    print("\nOutputs saved to data/processed/christmas_carol_demo/")
+    logger.info("\nOutputs saved to data/processed/christmas_carol_demo/")
 
 
 if __name__ == "__main__":
