@@ -12,17 +12,19 @@ and the ExtractionResult structured output model for Claude via LLMGateway.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 from jinja2 import BaseLoader
 from jinja2.sandbox import SandboxedEnvironment
 from loguru import logger
-
-import os
 
 import cognee
 from cognee.infrastructure.engine import DataPoint
@@ -166,6 +168,115 @@ def _persist_raw_to_cognee_docstore() -> bool:
         return bool(getattr(load_config(), "persist_raw_to_cognee_docstore", False))
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Item 12 (Phase A Stage 1.5): content-addressed extraction cache
+# ---------------------------------------------------------------------------
+
+EXTRACTOR_VERSION = "phase-a@2026-04-22"
+EXTRACTION_SCHEMA_VERSION = "v1"
+_DEFAULT_CACHE_DIR = Path("data/cache/extractions")
+
+
+def _sha256(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _compute_cache_key(
+    *,
+    prompt_hash: str,
+    model_id: str,
+    schema_version: str,
+    ontology_hash: str,
+    chunk_text_hash: str,
+    max_gleanings: int,
+) -> str:
+    """Deterministic cache key. Any change in any component invalidates the
+    entry. Format: sha256 of '|'-joined inputs. See
+    docs/superpowers/plans/2026-04-22-phase-a-stage-1-plan.md Task 6.
+    """
+    parts = [
+        prompt_hash, model_id, schema_version,
+        ontology_hash, chunk_text_hash, str(max_gleanings),
+    ]
+    return _sha256("|".join(parts))
+
+
+def _cache_dir() -> Path:
+    override = os.environ.get("BOOKRAG_EXTRACTION_CACHE_DIR")
+    return Path(override) if override else _DEFAULT_CACHE_DIR
+
+
+def _cache_path(cache_key: str) -> Path:
+    return _cache_dir() / f"{cache_key}.json"
+
+
+def _extraction_cache_enabled() -> bool:
+    from models.config import load_config
+    try:
+        return bool(getattr(load_config(), "extraction_cache_enabled", False))
+    except Exception:
+        return False
+
+
+def _cache_read(cache_key: str) -> "ExtractionResult | None":
+    """Best-effort cache read. Any parse error = cache miss."""
+    path = _cache_path(cache_key)
+    if not path.exists():
+        return None
+    try:
+        return ExtractionResult.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.debug("Cache entry {} unreadable, treating as miss: {}", cache_key, exc)
+        return None
+
+
+def _cache_write(cache_key: str, extraction: "ExtractionResult") -> None:
+    """Atomic cache write via tempfile + rename. Never raises — a cache
+    failure must not break extraction.
+    """
+    path = _cache_path(cache_key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w", delete=False, dir=path.parent, suffix=".tmp", encoding="utf-8",
+        ) as tmp:
+            tmp.write(extraction.model_dump_json())
+            tmp.flush()
+            tmp_name = tmp.name
+        Path(tmp_name).replace(path)
+    except Exception as exc:
+        logger.warning("Cache write failed for {}: {}", cache_key, exc)
+
+
+def _hash_ontology(ontology: dict[str, Any]) -> str:
+    """Stable hash of an ontology dict. Uses sorted json so insertion order
+    doesn't leak into the key.
+    """
+    try:
+        return _sha256(json.dumps(ontology or {}, sort_keys=True, default=str))
+    except Exception:
+        return _sha256(str(ontology))
+
+
+def _stamp_extraction_metadata(
+    extraction: "ExtractionResult",
+    *,
+    prompt_hash: str,
+    model_id: str,
+    cache_key: str,
+) -> None:
+    """Fill in the metadata fields added by Stage 1 Task 5 so the cache
+    entry is self-describing when re-read.
+    """
+    extraction.extractor_version = EXTRACTOR_VERSION
+    extraction.prompt_hash = prompt_hash
+    extraction.model_id = model_id
+    extraction.schema_version = EXTRACTION_SCHEMA_VERSION
+    extraction.cache_key = cache_key
+    if extraction.created_at is None:
+        extraction.created_at = datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -508,12 +619,46 @@ async def extract_enriched_graph(
     # preserved because gather returns results in input order.
     sem = asyncio.Semaphore(EXTRACTION_CONCURRENCY)
 
+    # Item 12 (Phase A Stage 1.5): content-addressed cache inputs that are
+    # stable across chunks — prompt template, ontology, model id. Computed
+    # once per call to extract_enriched_graph so the per-chunk loop just
+    # adds chunk-text-hash + max_gleanings.
+    _cache_on = _extraction_cache_enabled()
+    _prompt_hash = _sha256(_load_extraction_prompt())
+    _ontology_hash = _hash_ontology(ontology)
+    try:
+        from models.config import load_config
+        _cfg = load_config()
+        _model_id = f"{getattr(_cfg, 'llm_provider', 'openai')}/{getattr(_cfg, 'llm_model', 'unknown')}"
+    except Exception:
+        _model_id = "unknown/unknown"
+
     async def _extract_one(i: int, chunk: ChapterChunk) -> tuple[int, ChapterChunk, ExtractionResult | None]:
         async with sem:
             logger.info(
                 "Extracting from chunk {}/{} (chapters {}, ~{} tokens)",
                 i + 1, len(chunks), chunk.chapter_numbers, chunk.token_estimate,
             )
+
+            # Cache lookup before any LLM call.
+            cache_key = ""
+            if _cache_on:
+                cache_key = _compute_cache_key(
+                    prompt_hash=_prompt_hash,
+                    model_id=_model_id,
+                    schema_version=EXTRACTION_SCHEMA_VERSION,
+                    ontology_hash=_ontology_hash,
+                    chunk_text_hash=_sha256(chunk.text),
+                    max_gleanings=max_gleanings,
+                )
+                cached = _cache_read(cache_key)
+                if cached is not None:
+                    logger.info(
+                        "  Chunk {}: cache HIT ({}…) — skipping LLM",
+                        i + 1, cache_key[:8],
+                    )
+                    return i, chunk, cached
+
             system_prompt, text_input = render_prompt(chunk, booknlp, ontology)
             last_error: Exception | None = None
             extraction: ExtractionResult | None = None
@@ -578,6 +723,18 @@ async def extract_enriched_graph(
                         "continuing with prior extraction",
                         glean_idx + 1, max_gleanings, i + 1, exc,
                     )
+
+            # Cache write after gleaning completes — we cache the final
+            # merged result, not the intermediate first-pass. Stamp metadata
+            # so the on-disk entry is self-describing.
+            if _cache_on and cache_key and extraction is not None:
+                _stamp_extraction_metadata(
+                    extraction,
+                    prompt_hash=_prompt_hash,
+                    model_id=_model_id,
+                    cache_key=cache_key,
+                )
+                _cache_write(cache_key, extraction)
 
             return i, chunk, extraction
 

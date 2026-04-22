@@ -80,6 +80,13 @@ class BookRAGConfig(BaseSettings):
     retrieval_expand_neighbors: bool = True
     retrieval_seed_count: int = 5
     retrieval_expansion_cap: int = 20
+    # Item 12 (Phase A Stage 1.5): content-addressed extraction cache.
+    # When enabled, per-chunk extractions are cached under
+    # data/cache/extractions/{key}.json keyed by (prompt_hash, model_id,
+    # schema_version, ontology_hash, chunk_text_hash, max_gleanings). Cache
+    # hits skip the LLM call entirely — zero cost for re-ingests. Any change
+    # to any key input invalidates the entry automatically.
+    extraction_cache_enabled: bool = True
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 

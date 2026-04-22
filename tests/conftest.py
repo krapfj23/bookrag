@@ -108,6 +108,23 @@ _install_cognee_mock()
 
 
 # ---------------------------------------------------------------------------
+# Isolate Phase A Stage 1.5 extraction cache per test
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _isolate_extraction_cache(tmp_path, monkeypatch):
+    """Point BOOKRAG_EXTRACTION_CACHE_DIR at a per-test tmp dir.
+
+    Without this, tests that exercise extract_enriched_graph would
+    read/write ``data/cache/extractions/`` and pollute each other. Autouse
+    so every test gets the isolation transparently.
+    """
+    monkeypatch.setenv("BOOKRAG_EXTRACTION_CACHE_DIR", str(tmp_path / "_extract_cache"))
+    yield
+
+
+# ---------------------------------------------------------------------------
 # BookNLP fixtures — modeled on A Christmas Carol
 # ---------------------------------------------------------------------------
 
