@@ -1,0 +1,39 @@
+{
+  "book_id": "christmas_carol",
+  "source": "A Christmas Carol by Charles Dickens (public domain)",
+  "notes": "Hand-curated gold set for chunk-size ablation (Phase A Stage 3). 'name' fields are canonical; 'aliases' capture common alternates. Chapters use the 'Stave' numbering (1-5).",
+  "characters": [
+    {"name": "Scrooge", "aliases": ["Ebenezer Scrooge", "Ebenezer", "Mr. Scrooge"], "first_chapter": 1, "tier": "major"},
+    {"name": "Jacob Marley", "aliases": ["Marley", "Marley's Ghost"], "first_chapter": 1, "tier": "major"},
+    {"name": "Bob Cratchit", "aliases": ["Bob", "the clerk", "Cratchit"], "first_chapter": 1, "tier": "major"},
+    {"name": "Fred", "aliases": ["Scrooge's nephew"], "first_chapter": 1, "tier": "major"},
+    {"name": "Tiny Tim", "aliases": ["Tim"], "first_chapter": 3, "tier": "major"},
+    {"name": "Mrs. Cratchit", "aliases": ["Cratchit's wife"], "first_chapter": 3, "tier": "major"},
+    {"name": "Ghost of Christmas Past", "aliases": ["The Ghost of Christmas Past"], "first_chapter": 2, "tier": "major"},
+    {"name": "Ghost of Christmas Present", "aliases": ["The Ghost of Christmas Present"], "first_chapter": 3, "tier": "major"},
+    {"name": "Ghost of Christmas Yet to Come", "aliases": ["The Last of the Spirits"], "first_chapter": 4, "tier": "major"},
+    {"name": "Fan", "aliases": ["little Fan", "Scrooge's sister"], "first_chapter": 2, "tier": "minor"},
+    {"name": "Fezziwig", "aliases": ["Mr. Fezziwig", "old Fezziwig"], "first_chapter": 2, "tier": "minor"},
+    {"name": "Mrs. Fezziwig", "aliases": [], "first_chapter": 2, "tier": "minor"},
+    {"name": "Dick Wilkins", "aliases": ["Dick"], "first_chapter": 2, "tier": "minor"},
+    {"name": "Belle", "aliases": ["Scrooge's former fiancee"], "first_chapter": 2, "tier": "minor"},
+    {"name": "Martha Cratchit", "aliases": ["Martha"], "first_chapter": 3, "tier": "minor"},
+    {"name": "Peter Cratchit", "aliases": ["Peter"], "first_chapter": 3, "tier": "minor"},
+    {"name": "Topper", "aliases": [], "first_chapter": 3, "tier": "minor"},
+    {"name": "Old Joe", "aliases": ["Joe"], "first_chapter": 4, "tier": "minor"},
+    {"name": "Mrs. Dilber", "aliases": ["the laundress"], "first_chapter": 4, "tier": "minor"}
+  ],
+  "relationships": [
+    {"source": "Scrooge", "target": "Bob Cratchit", "type": "ally", "valence_sign": -1, "first_chapter": 1},
+    {"source": "Scrooge", "target": "Jacob Marley", "type": "ally", "valence_sign": 0, "first_chapter": 1},
+    {"source": "Scrooge", "target": "Fred", "type": "family", "valence_sign": -1, "first_chapter": 1},
+    {"source": "Scrooge", "target": "Fan", "type": "family", "valence_sign": 1, "first_chapter": 2},
+    {"source": "Scrooge", "target": "Belle", "type": "romantic", "valence_sign": 1, "first_chapter": 2},
+    {"source": "Scrooge", "target": "Fezziwig", "type": "subordinate", "valence_sign": 1, "first_chapter": 2},
+    {"source": "Bob Cratchit", "target": "Mrs. Cratchit", "type": "family", "valence_sign": 1, "first_chapter": 3},
+    {"source": "Bob Cratchit", "target": "Tiny Tim", "type": "family", "valence_sign": 1, "first_chapter": 3},
+    {"source": "Bob Cratchit", "target": "Martha Cratchit", "type": "family", "valence_sign": 1, "first_chapter": 3},
+    {"source": "Bob Cratchit", "target": "Peter Cratchit", "type": "family", "valence_sign": 1, "first_chapter": 3},
+    {"source": "Dick Wilkins", "target": "Fezziwig", "type": "subordinate", "valence_sign": 1, "first_chapter": 2}
+  ]
+}
