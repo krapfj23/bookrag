@@ -64,6 +64,16 @@ Every entity and event you extract MUST include the chapter number where it firs
 - Extract themes only when the text provides clear evidence — a recurring motif, an explicit thematic statement, or a pattern across multiple passages.
 - For factions/organizations, list their known members from this text.
 
+### Relation Labels (CRITICAL)
+
+`relation_type` must name the SEMANTIC tie between the two entities, not the narrative surface action. A relation describes who the characters ARE to each other, not what they happen to be doing in one sentence.
+
+- **Prefer these kinds of labels:** `employs`, `works_for`, `is_nephew_of`, `is_parent_of`, `is_sibling_of`, `is_partner_of`, `haunts`, `warns`, `owes`, `owns`, `is_rival_of`, `loves`, `is_engaged_to`.
+- **Do NOT use dialogue verbs as relations.** If one character `said`, `asked`, `replied`, `told`, or `answered` another, that is narrative surface, not a relationship. Skip the relationship unless the dialogue reveals a new semantic tie.
+- **Do NOT use motion verbs as relations.** If one character took, came, went, walked, or met the other, that is a mere scene — skip the relationship. Only extract if the motion reveals an enduring tie ("Scrooge employs Bob Cratchit" is a relation; "Scrooge took the coal-scuttle" is not).
+- **Test:** if you can replace the two characters with different characters on the next page without changing the meaning, the verb is too generic — skip it.
+- Relationships should name a tie that is stable across multiple scenes (employment, kinship, partnership, enmity), not a single interaction.
+
 ### What NOT to Do
 - Do NOT invent events, relationships, or details not present in the text.
 - Do NOT use your prior knowledge of this book. Extract only from the provided text.

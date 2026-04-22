@@ -405,3 +405,74 @@ class TestForwardLeakPrevention:
         next_section = tail.find("\n## ", 5)
         section = tail if next_section < 0 else tail[:next_section]
         assert "{{ chapter_numbers }}" in section
+
+
+# ===================================================================
+# Relation-label quality — prevents generic dialogue/motion verbs
+# ("said", "took", "came") from polluting relation_type. Stronger
+# labels make triplet retrieval citations far more useful.
+# ===================================================================
+
+
+class TestRelationLabelQuality:
+    """Relation-labels must be semantic (employs, warns, is_nephew_of),
+    not dialogue or motion verbs from the narrative surface."""
+
+    def test_rejects_dialogue_verbs_as_relations(self):
+        """The prompt must explicitly forbid generic dialogue verbs like
+        'said', 'asked', 'replied' from being used as relation_type."""
+        prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
+        assert "said" in prompt, (
+            "prompt must name 'said' as a disallowed relation_type example"
+        )
+        # Prompt should frame dialogue verbs as NOT being relations.
+        # Look for the instruction near the word "said".
+        idx = prompt.find("said")
+        window = prompt[max(0, idx - 200): idx + 200]
+        assert any(
+            marker in window
+            for marker in ("do not", "don't", "not ", "avoid", "never", "exclude")
+        ), f"no negative framing near 'said'; context: {window!r}"
+
+    def test_rejects_motion_verbs_as_relations(self):
+        """Generic motion verbs (took, came, went, walked) must not land as relations."""
+        prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
+        # Require at least one of the motion verbs to be called out.
+        motion_verbs = ["took", "came", "went", "walked"]
+        assert any(v in prompt for v in motion_verbs), (
+            "prompt must name at least one motion verb as a disallowed relation_type"
+        )
+
+    def test_gives_concrete_semantic_relation_examples(self):
+        """The prompt must provide specific semantic relation labels the LLM
+        should emit — otherwise 'snake_case' alone leaves room for verbs."""
+        prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
+        # Hit rate of at least 4 strong examples (works_for / employs already
+        # exist; we add family/enmity relations alongside).
+        strong_examples = [
+            "employs", "works_for", "is_nephew_of", "haunts", "warns",
+            "is_partner_of", "owes", "is_parent_of", "is_sibling_of",
+            "is_rival_of", "owns",
+        ]
+        hit_count = sum(1 for e in strong_examples if e in prompt)
+        assert hit_count >= 4, (
+            f"prompt should list at least 4 strong semantic relation examples; found {hit_count}"
+        )
+
+    def test_skip_rule_for_trivial_interactions(self):
+        """If the connection is only dialogue or motion, the LLM should skip
+        emitting a relationship — that's a key instruction to prevent
+        'Scrooge → said → nephew' from showing up as a triplet."""
+        prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
+        # Look for language that says: skip relationships that are only dialogue
+        # or mere narrative motion.
+        assert any(
+            marker in prompt
+            for marker in (
+                "skip the relationship",
+                "do not emit a relationship",
+                "don't extract a relationship",
+                "only extract relationships that are semantic",
+                "only extract semantic relationships",
+            )
+        ), "prompt must direct the LLM to skip trivial/dialogue-only relationships"
