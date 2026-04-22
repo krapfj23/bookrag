@@ -37,14 +37,30 @@ from pipeline.batcher import Batch
 def configure_cognee(config: Any) -> None:
     """Configure Cognee's LLM and embedding settings from BookRAGConfig.
 
-    Reads llm_provider, llm_model from our config and the API key from
-    the corresponding environment variable (OPENAI_API_KEY or ANTHROPIC_API_KEY).
-    Must be called before any Cognee LLM operations.
+    Reads llm_provider, llm_model, llm_temperature, and llm_seed from our
+    config and the API key from the corresponding environment variable
+    (OPENAI_API_KEY or ANTHROPIC_API_KEY). Must be called before any
+    Cognee LLM operations.
+
+    Plan 1 — extraction determinism: llm_temperature flows through here so
+    extraction is reproducible across runs. Cognee's internal default is
+    0.0, but OpenAI's API default is 1.0 at call-time; without explicitly
+    setting temperature here, extraction is effectively random.
+
+    Note on llm_seed: Cognee 0.5.6's LLMConfig does not accept a seed key
+    (verified at cognee/infrastructure/llm/config.py — only llm_temperature,
+    llm_model, llm_api_key, llm_endpoint, etc. are recognized). We store
+    llm_seed on our config for future use (if Cognee adds the parameter,
+    or if we bypass Cognee for a direct OpenAI call path), but do not send
+    it to cognee.config.set_llm_config today. Temperature=0 plus OpenAI's
+    server-side caching covers the reproducibility needs of Plan 1 on
+    Christmas Carol's scale.
     """
     import cognee
 
     provider = getattr(config, "llm_provider", "openai")
     model = getattr(config, "llm_model", "gpt-4.1-mini")
+    temperature = getattr(config, "llm_temperature", 0.0)
 
     # Resolve API key from environment based on provider
     key_env_map = {
@@ -60,11 +76,14 @@ def configure_cognee(config: Any) -> None:
             env_var, provider,
         )
 
-    cognee.config.set_llm_config({
+    llm_config: dict[str, Any] = {
         "llm_provider": provider,
         "llm_model": f"{provider}/{model}" if "/" not in model else model,
         "llm_api_key": api_key,
-    })
+        "llm_temperature": temperature,
+    }
+
+    cognee.config.set_llm_config(llm_config)
 
     logger.info("Cognee LLM configured: provider={}, model={}", provider, model)
 

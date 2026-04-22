@@ -64,6 +64,15 @@ class TestBookRAGConfigDefaults:
     def test_llm_model(self):
         assert BookRAGConfig().llm_model == "gpt-4.1-mini"
 
+    def test_llm_temperature_defaults_to_zero(self):
+        """Plan 1: extraction determinism requires temperature=0 by default."""
+        assert BookRAGConfig().llm_temperature == 0.0
+
+    def test_llm_seed_defaults_to_fixed_value(self):
+        """Plan 1: OpenAI seed pinned so repeated extractions are reproducible.
+        Default chosen arbitrarily (42) — must be stable across runs."""
+        assert BookRAGConfig().llm_seed == 42
+
     def test_graph_db(self):
         """Plan: 'graph_db: kuzu'. CLAUDE.md: 'Cognee defaults: Kuzu + LanceDB + SQLite'."""
         assert BookRAGConfig().graph_db == "kuzu"

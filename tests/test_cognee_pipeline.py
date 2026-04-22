@@ -48,6 +48,7 @@ from pipeline.cognee_pipeline import (
     _format_ontology_relations,
     _save_batch_artifacts,
     chunk_with_chapter_awareness,
+    configure_cognee,
     extract_enriched_graph,
     render_prompt,
     run_bookrag_pipeline,
@@ -148,6 +149,71 @@ def prompt_file(tmp_path) -> Path:
 # ===================================================================
 # ChapterChunk
 # ===================================================================
+
+class TestConfigureCognee:
+    """Plan 1: configure_cognee must propagate temperature+seed to Cognee.
+
+    Without these keys, Cognee defaults to temperature=0.0 but OpenAI
+    defaults to 1.0 at call-time — meaning extraction is effectively
+    random unless we explicitly set the config. The tests below pin
+    the expected key names and values.
+    """
+
+    def _make_config(self, **overrides):
+        """Minimal config object with the attributes configure_cognee reads."""
+        defaults = {
+            "llm_provider": "openai",
+            "llm_model": "gpt-4.1-mini",
+            "llm_temperature": 0.0,
+            "llm_seed": 42,
+        }
+        defaults.update(overrides)
+        ns = MagicMock()
+        for k, v in defaults.items():
+            setattr(ns, k, v)
+        return ns
+
+    def _install_config_stub(self, monkeypatch):
+        """Ensure cognee.config exists with a capturable set_llm_config.
+
+        The conftest mock creates the cognee module skeleton but doesn't add
+        `config` — that's fine for existing tests, but configure_cognee()
+        calls cognee.config.set_llm_config. We install a simple stub here
+        that records the dict it was passed.
+        """
+        import cognee
+        captured: dict = {}
+        stub = MagicMock()
+        stub.set_llm_config = MagicMock(side_effect=lambda d: captured.update(d))
+        monkeypatch.setattr(cognee, "config", stub, raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-stub")
+        return captured
+
+    def test_temperature_is_passed_to_set_llm_config(self, monkeypatch):
+        """configure_cognee reads llm_temperature from the config and includes
+        it in the dict passed to cognee.config.set_llm_config."""
+        captured = self._install_config_stub(monkeypatch)
+        configure_cognee(self._make_config(llm_temperature=0.0, llm_seed=42))
+        assert captured.get("llm_temperature") == 0.0, (
+            f"llm_temperature must be forwarded to Cognee; got {captured}"
+        )
+
+    def test_non_default_temperature_flows_through(self, monkeypatch):
+        """Config with llm_temperature=0.7 reaches Cognee as 0.7."""
+        captured = self._install_config_stub(monkeypatch)
+        configure_cognee(self._make_config(llm_temperature=0.7, llm_seed=123))
+        assert captured["llm_temperature"] == 0.7
+
+    def test_seed_is_not_forwarded_to_cognee_0_5_6(self, monkeypatch):
+        """Cognee 0.5.6's LLMConfig does NOT accept llm_seed — sending it
+        raises InvalidConfigAttributeError at runtime. We keep the field on
+        BookRAGConfig for future use but must NOT send it to Cognee yet."""
+        captured = self._install_config_stub(monkeypatch)
+        configure_cognee(self._make_config(llm_seed=42))
+        assert "llm_seed" not in captured, (
+            f"llm_seed must not be forwarded to Cognee 0.5.6; got {captured}"
+        )
+
 
 class TestChapterChunk:
     def test_construction(self):

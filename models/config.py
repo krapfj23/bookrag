@@ -45,6 +45,12 @@ class BookRAGConfig(BaseSettings):
     # Cognee / LLM
     llm_provider: str = "openai"
     llm_model: str = "gpt-4.1-mini"
+    # Determinism controls (Plan 1 — extraction determinism):
+    # - temperature=0.0 removes top-p sampling randomness.
+    # - seed pins OpenAI's server-side routing so the same input produces
+    #   the same output across re-runs. Set seed=None to disable.
+    llm_temperature: float = 0.0
+    llm_seed: int | None = 42
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 
