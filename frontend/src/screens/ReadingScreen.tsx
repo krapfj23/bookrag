@@ -12,11 +12,20 @@ import { useSelectionToolbar } from "../lib/reader/useSelectionToolbar";
 import { askAndStream, followupAndStream } from "../lib/reader/askFlow";
 import { compareSid } from "../lib/reader/sidCompare";
 import type { SentenceMark } from "../components/reader/Sentence";
+import { useReadingMode } from "../lib/reader/useReadingMode";
+import { ReadingModeToggle } from "../components/reader/ReadingModeToggle";
+import { PacingLabel } from "../components/reader/PacingLabel";
+import { PageTurnArrow } from "../components/reader/PageTurnArrow";
+import { ProgressHairline } from "../components/reader/ProgressHairline";
+import { ReadingModeLegend } from "../components/reader/ReadingModeLegend";
+import { NotePeekPopover } from "../components/reader/NotePeekPopover";
 
 type Body =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "ok"; chapter: Chapter; spreads: Spread[] };
+
+type PeekState = { body: string; x: number; y: number } | null;
 
 export function ReadingScreen() {
   const { bookId = "", chapterNum = "1" } = useParams<{
@@ -33,6 +42,9 @@ export function ReadingScreen() {
   const bookRef = useRef<HTMLDivElement | null>(null);
   // bookRootEl is a state mirror of bookRef so MarginColumn rerenders when ref is set.
   const [bookRootEl, setBookRootEl] = useState<HTMLDivElement | null>(null);
+
+  const { mode, toggle } = useReadingMode(bookId);
+  const [peek, setPeek] = useState<PeekState>(null);
 
   // Load chapter and paginate.
   useEffect(() => {
@@ -307,11 +319,87 @@ export function ReadingScreen() {
   const askDisabled =
     !!selection && compareSid(selection.anchorSid, cursor) > 0;
 
+  // Progress computation for the hairline.
+  const progress = useMemo(() => {
+    if (body.kind !== "ok" || !current) return 0;
+    const totalParagraphs = body.chapter.paragraphs_anchored.length;
+    if (totalParagraphs === 0) return 0;
+    // Find the last paragraph on the right page; fall back to left if right empty.
+    const rightPage = current.right;
+    const leftPage = current.left;
+    const lastRightPara = rightPage[rightPage.length - 1];
+    const lastLeftPara = leftPage[leftPage.length - 1];
+    const lastPara = lastRightPara ?? lastLeftPara;
+    if (!lastPara) return 0;
+    // paragraph_idx is 1-based; compute progress as fraction of paragraphs read.
+    return Math.min(Math.max(lastPara.paragraph_idx / totalParagraphs, 0), 1);
+  }, [body, current]);
+
+  // Hover delegation for note-peek (only when reading mode is on).
+  const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (mode !== "on") {
+      // Clear any pending peek and hide the popover when turning off.
+      if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+      setPeek(null);
+      return;
+    }
+
+    const root = bookRef.current;
+    if (!root) return;
+
+    function onMouseOver(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const noteSpan = target.closest<HTMLElement>('[data-kind="note"]');
+      if (!noteSpan) return;
+      if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+      peekTimerRef.current = setTimeout(() => {
+        const sid = noteSpan.getAttribute("data-sid");
+        if (!sid) return;
+        // Find the note card for this sid.
+        const noteCard = cards.find((c) => c.kind === "note" && c.anchor === sid);
+        if (!noteCard || noteCard.kind !== "note") return;
+        const rect = noteSpan.getBoundingClientRect();
+        setPeek({
+          body: noteCard.body,
+          x: rect.left + rect.width / 2,
+          y: rect.top,
+        });
+      }, 150);
+    }
+
+    function onMouseOut(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const noteSpan = target.closest<HTMLElement>('[data-kind="note"]');
+      if (!noteSpan) return;
+      if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+      setPeek(null);
+    }
+
+    root.addEventListener("mouseover", onMouseOver);
+    root.addEventListener("mouseout", onMouseOut);
+    return () => {
+      root.removeEventListener("mouseover", onMouseOver);
+      root.removeEventListener("mouseout", onMouseOut);
+      if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+    };
+  }, [mode, cards, bookRootEl]); // bookRootEl included to re-run when ref is set
+
+  const isAtFirstSpread = spreadIdx === 0 && (body.kind !== "ok" || body.chapter.num === 1);
+  const isAtLastSpread =
+    body.kind === "ok" &&
+    spreadIdx === body.spreads.length - 1 &&
+    body.chapter.num === body.chapter.total_chapters;
+
   return (
     <div
       className="br"
       style={{ minHeight: "100vh", background: "var(--paper-0)" }}
       data-testid="reading-screen"
+      data-reading-mode={mode}
     >
       <NavBar />
       <div
@@ -322,6 +410,8 @@ export function ReadingScreen() {
           padding: "14px 28px",
           height: 52,
           borderBottom: "var(--hairline)",
+          opacity: mode === "on" ? 0.55 : 1,
+          transition: "opacity 240ms ease",
         }}
       >
         <button
@@ -351,12 +441,17 @@ export function ReadingScreen() {
           {title}
         </div>
         <div
-          aria-hidden="true"
-          style={{ justifySelf: "end", color: "var(--ink-3)", fontSize: 12 }}
+          style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: 12 }}
         >
-          {body.kind === "ok"
-            ? `${spreadIdx + 1} / ${body.spreads.length}`
-            : ""}
+          <div
+            aria-hidden="true"
+            style={{ color: "var(--ink-3)", fontSize: 12 }}
+          >
+            {body.kind === "ok"
+              ? `${spreadIdx + 1} / ${body.spreads.length}`
+              : ""}
+          </div>
+          <ReadingModeToggle mode={mode} onToggle={toggle} />
         </div>
       </div>
 
@@ -420,6 +515,7 @@ export function ReadingScreen() {
               onJump={onJump}
               onFollowup={onFollowup}
               focusedComposerCardId={focusedComposerCardId}
+              hidden={mode === "on"}
             />
           </div>
         )}
@@ -432,6 +528,32 @@ export function ReadingScreen() {
           />
         )}
       </div>
+
+      {/* Reading mode chrome — conditionally rendered when mode is on */}
+      {mode === "on" && body.kind === "ok" && (
+        <>
+          <PacingLabel num={body.chapter.num} total={body.chapter.total_chapters} />
+          <PageTurnArrow
+            direction="left"
+            onClick={turnBackward}
+            disabled={isAtFirstSpread}
+          />
+          <PageTurnArrow
+            direction="right"
+            onClick={turnForward}
+            disabled={isAtLastSpread}
+          />
+          <ProgressHairline progress={progress} />
+          <ReadingModeLegend />
+        </>
+      )}
+
+      <NotePeekPopover
+        visible={!!peek}
+        body={peek?.body ?? ""}
+        x={peek?.x ?? 0}
+        y={peek?.y ?? 0}
+      />
     </div>
   );
 }
