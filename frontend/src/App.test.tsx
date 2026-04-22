@@ -34,15 +34,14 @@ describe("App router", () => {
   });
 
   it("mounts ReadingScreen at /books/:bookId/read/:chapterNum", async () => {
-    // The ReadingScreen's own data fetches will fail against the stub, but
-    // the route-level assertion is that the NavBar Reading tab becomes active.
+    // The ReadingScreen renders the reader-topbar (no global NavBar on the reading surface).
     render(
       <MemoryRouter initialEntries={["/books/christmas_carol_e6ddcd76/read/1"]}>
         <App />
       </MemoryRouter>,
     );
     await waitFor(() => {
-      expect(screen.getByText("Reading")).toHaveAttribute("data-active", "true");
+      expect(screen.getByTestId("reader-topbar")).toBeInTheDocument();
     });
   });
 });

@@ -4,7 +4,7 @@ import { fetchChapter, fetchBook, queryBook, type Chapter } from "../lib/api";
 import { paginate, type Spread } from "../lib/reader/paginator";
 import { BookSpread } from "../components/reader/BookSpread";
 import { useReadingCursor } from "../lib/reader/useReadingCursor";
-import { NavBar } from "../components/NavBar";
+import { ReaderTopBar } from "../components/reader/ReaderTopBar";
 import { SelectionToolbar, type SelectionAction } from "../components/SelectionToolbar";
 import { MarginColumn } from "../components/reader/MarginColumn";
 import { useCards } from "../lib/reader/useCards";
@@ -13,7 +13,6 @@ import { askAndStream, followupAndStream } from "../lib/reader/askFlow";
 import { compareSid } from "../lib/reader/sidCompare";
 import type { SentenceMark } from "../components/reader/Sentence";
 import { useReadingMode } from "../lib/reader/useReadingMode";
-import { ReadingModeToggle } from "../components/reader/ReadingModeToggle";
 import { PacingLabel } from "../components/reader/PacingLabel";
 import { PageTurnArrow } from "../components/reader/PageTurnArrow";
 import { ProgressHairline } from "../components/reader/ProgressHairline";
@@ -421,59 +420,11 @@ export function ReadingScreen() {
       data-testid="reading-screen"
       data-reading-mode={mode}
     >
-      <NavBar />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr auto 1fr",
-          alignItems: "center",
-          padding: "14px 28px",
-          height: 52,
-          borderBottom: "var(--hairline)",
-          opacity: mode === "on" ? 0.55 : 1,
-          transition: "opacity 240ms ease",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => navigate("/")}
-          style={{
-            fontFamily: "var(--sans)",
-            fontSize: 13,
-            color: "var(--ink-1)",
-            justifySelf: "start",
-            background: "transparent",
-            border: 0,
-            cursor: "pointer",
-          }}
-          aria-label="Back to library"
-        >
-          ← Library
-        </button>
-        <div
-          style={{
-            fontFamily: "var(--serif)",
-            fontStyle: "italic",
-            fontSize: 14,
-            color: "var(--ink-0)",
-          }}
-        >
-          {title}
-        </div>
-        <div
-          style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: 12 }}
-        >
-          <div
-            aria-hidden="true"
-            style={{ color: "var(--ink-3)", fontSize: 12 }}
-          >
-            {body.kind === "ok"
-              ? `${spreadIdx + 1} / ${body.spreads.length}`
-              : ""}
-          </div>
-          <ReadingModeToggle mode={mode} onToggle={toggle} />
-        </div>
-      </div>
+      <ReaderTopBar
+        title={title}
+        mode={mode}
+        onToggleMode={toggle}
+      />
 
       <div
         ref={stageRef}
