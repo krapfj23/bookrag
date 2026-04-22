@@ -659,3 +659,42 @@ class TestSetProgressWithParagraph:
             "current_chapter": 3, "current_paragraph": -1,
         })
         assert resp.status_code == 400
+
+
+class TestLoadParagraphsUpTo:
+    """_load_paragraphs_up_to returns paragraphs 0..cursor from the requested chapter."""
+
+    def _seed_chapter(self, tmp_path, book_id, chapter_n, paragraphs: list[str]):
+        chapters = tmp_path / book_id / "raw" / "chapters"
+        chapters.mkdir(parents=True, exist_ok=True)
+        for i in range(1, chapter_n):
+            (chapters / f"chapter_{i:02d}.txt").write_text("filler", encoding="utf-8")
+        text = "\n\n".join(paragraphs)
+        (chapters / f"chapter_{chapter_n:02d}.txt").write_text(text, encoding="utf-8")
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+
+    def test_returns_paragraphs_through_cursor_inclusive(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_chapter(tmp_path, "bk", 3, ["p0", "p1", "p2", "p3", "p4"])
+        assert _load_paragraphs_up_to("bk", 3, 2) == ["p0", "p1", "p2"]
+
+    def test_cursor_past_end_clamps(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_chapter(tmp_path, "bk", 1, ["p0", "p1"])
+        assert _load_paragraphs_up_to("bk", 1, 99) == ["p0", "p1"]
+
+    def test_cursor_zero_returns_single(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed_chapter(tmp_path, "bk", 1, ["p0", "p1"])
+        assert _load_paragraphs_up_to("bk", 1, 0) == ["p0"]
+
+    def test_missing_chapter_returns_empty(self, tmp_path, monkeypatch):
+        from main import _load_paragraphs_up_to, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        assert _load_paragraphs_up_to("missing", 1, 0) == []

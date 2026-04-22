@@ -484,6 +484,22 @@ def _load_chapter(book_id: str, n: int) -> Chapter | None:
     )
 
 
+def _load_paragraphs_up_to(
+    book_id: str,
+    chapter: int,
+    paragraph_cursor: int,
+) -> list[str]:
+    """Return paragraphs 0..paragraph_cursor (inclusive) from `chapter`.
+
+    Empty list if the book/chapter doesn't exist. Cursor values past the last
+    paragraph are clamped. Reuses _load_chapter's paragraph splitting.
+    """
+    ch = _load_chapter(book_id, chapter)
+    if ch is None:
+        return []
+    return ch.paragraphs[: max(paragraph_cursor + 1, 0)]
+
+
 def _get_reading_progress(book_id: str) -> tuple[int, int | None]:
     """Load current reading progress. Returns (chapter, paragraph_or_None).
 
