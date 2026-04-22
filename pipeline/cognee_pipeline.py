@@ -390,6 +390,10 @@ async def extract_enriched_graph(
             )
             continue
 
+        # Plan 2: validate relationships before downstream processing drops
+        # orphan endpoints and dedupes (src, rel, tgt) triples.
+        extraction = _validate_relationships(extraction)
+
         # Accumulate stats
         extraction_stats["characters"] += len(extraction.characters)
         extraction_stats["locations"] += len(extraction.locations)
@@ -473,6 +477,73 @@ def _save_batch_artifacts(
     )
 
 
+def _validate_relationships(extraction: "ExtractionResult") -> "ExtractionResult":
+    """Plan 2 — drop orphan + duplicate relationships before persistence.
+
+    Invariants after this pass:
+
+    1. Every surviving Relationship's ``source_name`` AND ``target_name`` match
+       a ``name`` field on some extracted Character, Location, or Faction in
+       the same ExtractionResult. Relationships whose endpoints don't appear
+       in the extracted entity set are dropped — the LLM hallucinated a name
+       that isn't grounded in this batch.
+
+    2. Duplicates — multiple Relationships with the same
+       ``(source_name, relation_type, target_name)`` — are collapsed to a
+       single record. When descriptions differ, keep the longest (most
+       information-dense). When all descriptions are None/empty, keep the
+       first one encountered.
+
+    This mirrors Cognee's cascade-extract validation pattern (dedup by triple
+    key, validate endpoints against discovered nodes) — see
+    cognee/tasks/graph/cascade_extract/utils/extract_edge_triplets.py.
+
+    Non-Relationship DataPoints are passed through unchanged.
+    """
+    # Local import to avoid circular-import shenanigans; ExtractionResult
+    # is defined in models.datapoints and also referenced in the function
+    # signature string above for forward-ref purposes.
+    from models.datapoints import ExtractionResult  # noqa: F401
+
+    # Build the allowed-name set from the extracted entities.
+    allowed_names = set()
+    for collection in (extraction.characters, extraction.locations, extraction.factions):
+        for entity in collection:
+            name = getattr(entity, "name", None)
+            if name:
+                allowed_names.add(name)
+
+    # Dedupe by (source, relation, target). When a duplicate is seen, keep
+    # whichever has the longer description.
+    kept: dict[tuple[str, str, str], Any] = {}
+    dropped_orphans = 0
+    for rel in extraction.relationships:
+        if rel.source_name not in allowed_names or rel.target_name not in allowed_names:
+            dropped_orphans += 1
+            continue
+        key = (rel.source_name, rel.relation_type, rel.target_name)
+        existing = kept.get(key)
+        if existing is None:
+            kept[key] = rel
+            continue
+        new_desc_len = len(rel.description or "")
+        old_desc_len = len(existing.description or "")
+        if new_desc_len > old_desc_len:
+            kept[key] = rel
+
+    surviving = list(kept.values())
+    n_before = len(extraction.relationships)
+    n_after = len(surviving)
+    if dropped_orphans or n_after != n_before:
+        logger.info(
+            "Relationship validation: {} → {} (dropped {} orphans, collapsed {} duplicates)",
+            n_before, n_after, dropped_orphans,
+            n_before - dropped_orphans - n_after,
+        )
+    extraction.relationships = surviving
+    return extraction
+
+
 async def run_bookrag_pipeline(
     batch: Batch,
     booknlp_output: dict[str, Any],
@@ -481,6 +552,7 @@ async def run_bookrag_pipeline(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     max_retries: int = DEFAULT_MAX_RETRIES,
     output_dir: Path | None = None,
+    embed_triplets: bool = False,
 ) -> list[DataPoint]:
     """Run the full BookRAG Cognee pipeline for a single batch.
 
@@ -500,6 +572,11 @@ async def run_bookrag_pipeline(
         chunk_size: Target tokens per chunk (default 1500).
         max_retries: LLM retry count per chunk (default 3, per CLAUDE.md).
         output_dir: Override output directory. Defaults to data/processed/{book_id}/batches.
+        embed_triplets: Plan 2 — when True, Cognee's add_data_points also
+            builds triplet (source→relation→target) vector embeddings for
+            semantic retrieval over relationships. Default False to keep
+            this call-site backward compatible; orchestrator threads
+            config.embed_triplets through to flip it on by default.
 
     Returns:
         List of DataPoint objects that were extracted and stored.
@@ -531,10 +608,20 @@ async def run_bookrag_pipeline(
 
     # Stage 3: Persist via Cognee (best-effort — extraction data is already saved)
     if datapoints:
-        logger.info("Persisting {} DataPoints via Cognee add_data_points...", len(datapoints))
+        logger.info(
+            "Persisting {} DataPoints via Cognee add_data_points (embed_triplets={})...",
+            len(datapoints), embed_triplets,
+        )
         try:
+            # Task forwards **kwargs to the executable (verified at
+            # cognee/modules/pipelines/tasks/task.py:39-41). Passing
+            # embed_triplets here wires it through to add_data_points.
             tasks = [
-                Task(add_data_points, task_config={"batch_size": 30}),
+                Task(
+                    add_data_points,
+                    task_config={"batch_size": 30},
+                    embed_triplets=embed_triplets,
+                ),
             ]
             async for status in run_pipeline(
                 tasks=tasks, data=datapoints, datasets=[book_id]

@@ -73,6 +73,12 @@ class TestBookRAGConfigDefaults:
         Default chosen arbitrarily (42) — must be stable across runs."""
         assert BookRAGConfig().llm_seed == 42
 
+    def test_embed_triplets_defaults_to_true(self):
+        """Plan 2: triplet vector index is on by default; disable via
+        BOOKRAG_EMBED_TRIPLETS=false only if a re-ingest needs to skip
+        the extra embedding cost."""
+        assert BookRAGConfig().embed_triplets is True
+
     def test_graph_db(self):
         """Plan: 'graph_db: kuzu'. CLAUDE.md: 'Cognee defaults: Kuzu + LanceDB + SQLite'."""
         assert BookRAGConfig().graph_db == "kuzu"

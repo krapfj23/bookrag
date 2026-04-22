@@ -552,6 +552,7 @@ class PipelineOrchestrator:
                         book_id=state.book_id,
                         chunk_size=chunk_size,
                         max_retries=max_retries,
+                        embed_triplets=getattr(self.config, "embed_triplets", False),
                     )
                     success = True
                     break

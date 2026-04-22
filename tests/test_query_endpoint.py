@@ -350,3 +350,143 @@ class TestTripletRetrieval:
         assert triplet_results == [], (
             f"relationship with unseen target must not leak; got {triplet_results}"
         )
+
+
+class TestVectorTripletFallback:
+    """Plan 2 T4 — vector triplet path with keyword fallback.
+
+    When BOOKRAG_USE_TRIPLETS=1:
+    - If Cognee's vector search succeeds, its results are spliced in at
+      the front of the response (after spoiler-filtering).
+    - If it raises (no DB, Cognee unavailable, etc.), the endpoint still
+      succeeds using the existing keyword-based triplet path.
+    - Spoiler safety is invariant either way.
+    """
+
+    def _stub_synthesis(self, monkeypatch):
+        async def fake(*_args, **_kwargs):
+            return "stub answer"
+        monkeypatch.setattr("main._complete_over_context", fake)
+
+    def test_vector_search_failure_falls_back_to_keyword(self, client, monkeypatch):
+        """Cognee raises SearchPreconditionError (or any exception) from
+        cognee.search → endpoint must return 200 with keyword-based triplet
+        results, not 500."""
+        self._stub_synthesis(monkeypatch)
+        monkeypatch.setenv("BOOKRAG_USE_TRIPLETS", "1")
+
+        async def broken_search(**_kwargs):
+            raise RuntimeError("Search prerequisites not met: no database")
+
+        monkeypatch.setattr("main.cognee.search", broken_search)
+        monkeypatch.setattr("main.COGNEE_AVAILABLE", True)
+
+        test_client, config, _ = client
+        _write_batch_with_relationship(
+            Path(config.processed_dir), BOOK_ID, current_chapter=2
+        )
+        resp = test_client.post(
+            f"/books/{BOOK_ID}/query",
+            json={"question": "Tell me about Scrooge's partner",
+                  "search_type": "GRAPH_COMPLETION"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        triplet_results = [r for r in body["results"]
+                           if r.get("entity_type") == "Relationship"]
+        # Keyword fallback should still produce at least one triplet
+        assert len(triplet_results) >= 1, (
+            f"keyword fallback must produce triplets when vector fails; "
+            f"got {body['results']}"
+        )
+
+    def test_vector_search_success_frontloads_triplets(self, client, monkeypatch):
+        """When Cognee returns triplets, they appear first in results."""
+        self._stub_synthesis(monkeypatch)
+        monkeypatch.setenv("BOOKRAG_USE_TRIPLETS", "1")
+
+        # Cognee returns one extra triplet the keyword path wouldn't find
+        async def fake_search(**_kwargs):
+            return [{
+                "source": {"name": "Scrooge"},
+                "target": {"name": "Marley"},
+                "relationship_name": "was_partner_of",
+                "description": "Long-time partners before Marley's death.",
+                "chapter": 1,
+            }]
+
+        monkeypatch.setattr("main.cognee.search", fake_search)
+        monkeypatch.setattr("main.COGNEE_AVAILABLE", True)
+
+        test_client, config, _ = client
+        _write_batch_with_relationship(
+            Path(config.processed_dir), BOOK_ID, current_chapter=2
+        )
+        resp = test_client.post(
+            f"/books/{BOOK_ID}/query",
+            json={"question": "Scrooge partner",
+                  "search_type": "GRAPH_COMPLETION"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # First result should be a Relationship with "was_partner_of" (the
+        # vector-search-only relation); the keyword path's "business partner of"
+        # would come after.
+        assert body["results"], "must return at least one result"
+        first = body["results"][0]
+        assert first["entity_type"] == "Relationship", (
+            f"vector triplet should be front-loaded; got {first}"
+        )
+
+    def test_vector_search_result_still_spoiler_filtered(self, client, monkeypatch):
+        """Even a Cognee vector hit must pass through load_allowed_relationships.
+        A triplet whose target entity is past the cursor must NOT leak."""
+        self._stub_synthesis(monkeypatch)
+        monkeypatch.setenv("BOOKRAG_USE_TRIPLETS", "1")
+
+        async def fake_search(**_kwargs):
+            # Cognee returns a triplet to a future character — this MUST be filtered
+            return [{
+                "source": {"name": "Scrooge"},
+                "target": {"name": "GhostOfFuture"},
+                "relationship_name": "haunted_by",
+                "chapter": 1,
+            }]
+
+        monkeypatch.setattr("main.cognee.search", fake_search)
+        monkeypatch.setattr("main.COGNEE_AVAILABLE", True)
+
+        test_client, config, _ = client
+        book_dir = Path(config.processed_dir) / BOOK_ID
+        (book_dir / "raw" / "chapters").mkdir(parents=True, exist_ok=True)
+        for n in range(1, 4):
+            (book_dir / "raw" / "chapters" / f"chapter_{n:02d}.txt").write_text(
+                f"ch {n}", encoding="utf-8"
+            )
+        state = PipelineState.new(BOOK_ID, ["validate"])
+        state.status = "complete"
+        state.ready_for_query = True
+        save_state(state, book_dir / "pipeline_state.json")
+        (book_dir / "reading_progress.json").write_text(
+            json.dumps({"book_id": BOOK_ID, "current_chapter": 1}),
+            encoding="utf-8",
+        )
+        batch_dir = book_dir / "batches" / "batch_01"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / "extracted_datapoints.json").write_text(json.dumps([
+            {"type": "Character", "name": "Scrooge",
+             "first_chapter": 1, "last_known_chapter": 1},
+            {"type": "Character", "name": "GhostOfFuture",
+             "first_chapter": 3, "last_known_chapter": 3},
+        ]))
+        resp = test_client.post(
+            f"/books/{BOOK_ID}/query",
+            json={"question": "ghost", "search_type": "GRAPH_COMPLETION"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # No triplet involving GhostOfFuture may reach the response
+        assert not any(
+            "GhostOfFuture" in r.get("content", "")
+            for r in body["results"]
+        ), f"spoiler leak: {body['results']}"

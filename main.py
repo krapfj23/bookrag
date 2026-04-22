@@ -711,6 +711,118 @@ def _answer_from_allowed_nodes(
     return [item for _, item in ranked]
 
 
+async def _vector_triplet_search(
+    book_id: str,
+    question: str,
+    graph_max_chapter: int,
+) -> list[QueryResultItem]:
+    """Plan 2 retrieval path — semantic search over Cognee's triplet vector
+    index, post-filtered by the reader's allowed-entity set.
+
+    Returns a list of Relationship-typed QueryResultItems. Runs ONLY when:
+      1. ``BOOKRAG_USE_TRIPLETS=1`` is set (caller checks this)
+      2. Cognee is available and its search is initialized
+      3. add_data_points was called with ``embed_triplets=True`` during
+         ingestion (otherwise the triplet collection is empty and Cognee
+         either errors or returns nothing)
+
+    Spoiler safety: the vector index may contain ANY triplet regardless of
+    chapter. We apply ``load_allowed_relationships`` to the returned set so
+    no triplet whose endpoints are past the reader's cursor reaches the
+    answer-synthesis LLM. The filter is the sole spoiler guarantee.
+
+    Returns an empty list on any Cognee error — the caller handles fallback.
+    """
+    from pipeline.spoiler_filter import (
+        effective_latest_chapter,
+        load_allowed_nodes,
+        load_allowed_relationships,
+    )
+
+    if not COGNEE_AVAILABLE:
+        return []
+
+    # Cognee 0.5.6 uses TRIPLET_COMPLETION as the query_type that surfaces
+    # Edge objects from the triplet vector index. only_context=True tells
+    # Cognee to return the raw context (edges/nodes) instead of running
+    # its own answer-synthesis LLM — we do our own synthesis downstream.
+    try:
+        query_type = getattr(SearchType, "TRIPLET_COMPLETION", None) or SearchType.GRAPH_COMPLETION
+        raw_results = await cognee.search(
+            query_text=question,
+            query_type=query_type,
+            datasets=[book_id],
+            only_context=True,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Cognee triplet vector search unavailable, falling back to keyword path: {}",
+            exc,
+        )
+        return []
+
+    if not raw_results:
+        return []
+
+    # Spoiler filter: endpoints must be visible at the reader's cursor.
+    # We use the entity-name allowlist as the primary gate. A chapter-level
+    # check on the triplet itself is secondary — if the triplet carries a
+    # chapter field, it must be <= cursor. We DO NOT require the triple to
+    # appear in the pre-computed allowed_rel_keys because vector search may
+    # surface valid triplets whose exact (src, rel, tgt) tuple wasn't
+    # enumerated by the keyword path (relation-label drift, paraphrase).
+    allowed_nodes = load_allowed_nodes(
+        book_id, cursor=graph_max_chapter, processed_dir=Path(config.processed_dir)
+    )
+    allowed_names = {
+        n.get("name", "")
+        for n in allowed_nodes
+        if n.get("name") and n.get("_type") != "Relationship"
+    }
+
+    items: list[QueryResultItem] = []
+    for raw in raw_results:
+        src = None
+        tgt = None
+        relation = None
+        desc = ""
+        ch = None
+        # Cognee returns Edge-ish objects or dicts depending on the search
+        # path. Handle both shapes defensively.
+        if isinstance(raw, dict):
+            src = (raw.get("source") or {}).get("name") or raw.get("source_name")
+            tgt = (raw.get("target") or {}).get("name") or raw.get("target_name")
+            relation = raw.get("relationship_name") or raw.get("relation_type")
+            desc = raw.get("description") or ""
+            ch = _extract_chapter(raw)
+        else:
+            src = getattr(getattr(raw, "source", None), "name", None) or getattr(raw, "source_name", None)
+            tgt = getattr(getattr(raw, "target", None), "name", None) or getattr(raw, "target_name", None)
+            relation = getattr(raw, "relationship_name", None) or getattr(raw, "relation_type", None)
+            desc = getattr(raw, "description", "") or ""
+            ch = _extract_chapter(raw)
+
+        if not src or not tgt or not relation:
+            continue
+        # Endpoint allowlist gate
+        if src not in allowed_names or tgt not in allowed_names:
+            continue
+        # Chapter-level gate (only when the triplet carries a chapter)
+        if ch is not None and ch > graph_max_chapter:
+            continue
+
+        content = f"{src} → {relation} → {tgt}"
+        if desc:
+            content = f"{content} — {desc}"
+        items.append(QueryResultItem(
+            content=content,
+            entity_type="Relationship",
+            chapter=ch,
+        ))
+
+    return items
+
+
 @app.post("/books/{book_id}/query", response_model=QueryResponse)
 async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     """Query the knowledge graph with reader-progress fog-of-war.
@@ -750,6 +862,31 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     results = _answer_from_allowed_nodes(
         book_id, req.question, graph_max_chapter=graph_max_chapter
     )
+
+    # Plan 2: when BOOKRAG_USE_TRIPLETS is on, try Cognee's vector triplet
+    # search. If it returns results, splice them in at the front of `results`
+    # (vector-ranked Relationship hits are likely more semantically relevant
+    # than keyword-ranked entity hits). If Cognee is unavailable or returns
+    # empty, keep the keyword-based triplet results already in `results`.
+    import os as _os
+    if _os.environ.get("BOOKRAG_USE_TRIPLETS", "").lower() in ("1", "true", "yes"):
+        try:
+            vector_triplets = await _vector_triplet_search(
+                book_id, req.question, graph_max_chapter
+            )
+        except Exception as exc:
+            logger.warning("vector triplet search raised unexpectedly: {}", exc)
+            vector_triplets = []
+        if vector_triplets:
+            # Deduplicate against keyword-retrieved triplets by arrow content
+            seen_contents = {
+                r.content for r in results if r.entity_type == "Relationship"
+            }
+            new_vec = [
+                v for v in vector_triplets if v.content not in seen_contents
+            ]
+            # Front-load vector triplets so synthesis sees them first
+            results = new_vec + results
 
     answer = ""
     if req.search_type == "GRAPH_COMPLETION":

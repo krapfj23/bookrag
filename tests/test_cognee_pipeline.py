@@ -644,6 +644,139 @@ class TestSaveBatchArtifacts:
 # run_bookrag_pipeline — integration
 # ===================================================================
 
+class TestValidateRelationships:
+    """Plan 2 — extraction-time triplet validation.
+
+    The LLM occasionally emits relationships whose source or target names
+    don't match any extracted Character/Location/Faction in the same
+    batch (hallucinated endpoint), or emits the same (src, rel, tgt)
+    triple twice with slightly different descriptions. The retrieval-
+    time spoiler filter catches the former but near-duplicates still
+    reach disk. Validate at extraction time so persisted artifacts stay
+    clean.
+
+    Invariants pinned below:
+      1. If source_name or target_name doesn't match any extracted
+         Character/Location/Faction in the same ExtractionResult, the
+         relationship is dropped.
+      2. Duplicate (source_name, relation_type, target_name) triples are
+         deduplicated; when there's a choice, keep the one with the
+         longer description (more information-dense).
+    """
+
+    def _make_character(self, name, first_chapter=1):
+        from models.datapoints import CharacterExtraction
+        return CharacterExtraction(name=name, first_chapter=first_chapter)
+
+    def _make_relationship(self, src, tgt, rel, description=None, first_chapter=1):
+        from models.datapoints import RelationshipExtraction
+        return RelationshipExtraction(
+            source_name=src, target_name=tgt, relation_type=rel,
+            description=description, first_chapter=first_chapter,
+        )
+
+    def _make_extraction(self, characters=None, relationships=None):
+        from models.datapoints import ExtractionResult
+        return ExtractionResult(
+            characters=characters or [],
+            relationships=relationships or [],
+        )
+
+    def test_valid_relationship_passes_through(self):
+        from pipeline.cognee_pipeline import _validate_relationships
+
+        ext = self._make_extraction(
+            characters=[self._make_character("Scrooge"), self._make_character("Marley")],
+            relationships=[self._make_relationship("Scrooge", "Marley", "was_partner_of")],
+        )
+        result = _validate_relationships(ext)
+        assert len(result.relationships) == 1
+
+    def test_orphan_source_is_dropped(self):
+        from pipeline.cognee_pipeline import _validate_relationships
+
+        ext = self._make_extraction(
+            characters=[self._make_character("Marley")],
+            # Scrooge is not in the extracted characters — orphan
+            relationships=[self._make_relationship("Scrooge", "Marley", "was_partner_of")],
+        )
+        result = _validate_relationships(ext)
+        assert result.relationships == [], (
+            f"orphan-source relationship must be dropped; got {result.relationships}"
+        )
+
+    def test_orphan_target_is_dropped(self):
+        from pipeline.cognee_pipeline import _validate_relationships
+
+        ext = self._make_extraction(
+            characters=[self._make_character("Scrooge")],
+            # Marley not extracted
+            relationships=[self._make_relationship("Scrooge", "Marley", "was_partner_of")],
+        )
+        result = _validate_relationships(ext)
+        assert result.relationships == []
+
+    def test_duplicate_keeps_longest_description(self):
+        from pipeline.cognee_pipeline import _validate_relationships
+
+        ext = self._make_extraction(
+            characters=[self._make_character("Scrooge"), self._make_character("Marley")],
+            relationships=[
+                self._make_relationship("Scrooge", "Marley", "was_partner_of",
+                                         description="Short desc."),
+                self._make_relationship("Scrooge", "Marley", "was_partner_of",
+                                         description="A much longer description with more information about this long-time partnership."),
+                self._make_relationship("Scrooge", "Marley", "was_partner_of",
+                                         description="Medium length description."),
+            ],
+        )
+        result = _validate_relationships(ext)
+        assert len(result.relationships) == 1
+        assert "longer description" in (result.relationships[0].description or ""), (
+            f"must keep the longest description; got {result.relationships[0].description}"
+        )
+
+    def test_duplicate_when_all_none_descriptions_keeps_one(self):
+        """Edge: if both duplicates have description=None, still dedupe to one."""
+        from pipeline.cognee_pipeline import _validate_relationships
+
+        ext = self._make_extraction(
+            characters=[self._make_character("A"), self._make_character("B")],
+            relationships=[
+                self._make_relationship("A", "B", "knows", description=None),
+                self._make_relationship("A", "B", "knows", description=None),
+            ],
+        )
+        result = _validate_relationships(ext)
+        assert len(result.relationships) == 1
+
+    def test_locations_count_as_valid_endpoints(self):
+        """The ontology allows some Relationships between a Character and a
+        Location (e.g. Character owns Location). Treat Locations, Factions,
+        and Characters as valid endpoints."""
+        from pipeline.cognee_pipeline import _validate_relationships
+        from models.datapoints import LocationExtraction, ExtractionResult
+
+        ext = ExtractionResult(
+            characters=[self._make_character("Scrooge")],
+            locations=[LocationExtraction(name="Counting House", first_chapter=1)],
+            relationships=[self._make_relationship("Scrooge", "Counting House", "owns")],
+        )
+        result = _validate_relationships(ext)
+        assert len(result.relationships) == 1
+
+    def test_no_relationships_input_is_noop(self):
+        from pipeline.cognee_pipeline import _validate_relationships
+
+        ext = self._make_extraction(
+            characters=[self._make_character("Scrooge")],
+            relationships=[],
+        )
+        result = _validate_relationships(ext)
+        assert result.relationships == []
+        assert len(result.characters) == 1, "validator must not touch characters"
+
+
 class TestRunBookragPipeline:
     @pytest.fixture
     def mock_everything(self, sample_extraction_result):
@@ -711,6 +844,82 @@ class TestRunBookragPipeline:
         import inspect
         sig = inspect.signature(run_bookrag_pipeline)
         assert sig.parameters["max_retries"].default == 3
+
+    # --- Plan 2 — triplet embedding wiring ---------------------------
+
+    def test_embed_triplets_param_exists_and_defaults_false(self):
+        """Plan 2: run_bookrag_pipeline accepts embed_triplets and it
+        defaults to False so existing callers remain backward compatible.
+        The orchestrator flips the default via BookRAGConfig.embed_triplets."""
+        import inspect
+        sig = inspect.signature(run_bookrag_pipeline)
+        assert "embed_triplets" in sig.parameters
+        assert sig.parameters["embed_triplets"].default is False
+
+    def test_embed_triplets_true_is_forwarded_to_add_data_points_task(
+        self, sample_extraction_result, sample_batch, sample_booknlp,
+        sample_ontology, tmp_path
+    ):
+        """When embed_triplets=True is passed, the Task constructor that
+        wraps add_data_points must receive embed_triplets=True as a kwarg.
+
+        Verified by patching Task to a recording MagicMock and inspecting
+        its call args after run_bookrag_pipeline completes."""
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+             patch("pipeline.cognee_pipeline.render_prompt", return_value=("sys", "text")), \
+             patch("pipeline.cognee_pipeline.run_pipeline") as mock_pipeline, \
+             patch("pipeline.cognee_pipeline.Task") as mock_task:
+            mock_llm.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
+
+            async def empty_pipeline(**kwargs):
+                return
+                yield
+            mock_pipeline.return_value = empty_pipeline()
+
+            asyncio.run(
+                run_bookrag_pipeline(
+                    batch=sample_batch, booknlp_output=sample_booknlp,
+                    ontology=sample_ontology, book_id="christmas_carol",
+                    output_dir=tmp_path / "batches",
+                    embed_triplets=True,
+                )
+            )
+
+            # Task was called with add_data_points + embed_triplets=True
+            assert mock_task.called, "Task constructor must be invoked"
+            call_args = mock_task.call_args
+            assert call_args.kwargs.get("embed_triplets") is True, (
+                f"Task must be constructed with embed_triplets=True; got "
+                f"args={call_args.args}, kwargs={call_args.kwargs}"
+            )
+
+    def test_embed_triplets_default_false_is_forwarded(
+        self, sample_extraction_result, sample_batch, sample_booknlp,
+        sample_ontology, tmp_path
+    ):
+        """When the caller omits embed_triplets, the Task must still
+        receive an explicit embed_triplets=False (not absent)."""
+        with patch("pipeline.cognee_pipeline.LLMGateway") as mock_llm, \
+             patch("pipeline.cognee_pipeline.render_prompt", return_value=("sys", "text")), \
+             patch("pipeline.cognee_pipeline.run_pipeline") as mock_pipeline, \
+             patch("pipeline.cognee_pipeline.Task") as mock_task:
+            mock_llm.acreate_structured_output = AsyncMock(return_value=sample_extraction_result)
+
+            async def empty_pipeline(**kwargs):
+                return
+                yield
+            mock_pipeline.return_value = empty_pipeline()
+
+            asyncio.run(
+                run_bookrag_pipeline(
+                    batch=sample_batch, booknlp_output=sample_booknlp,
+                    ontology=sample_ontology, book_id="christmas_carol",
+                    output_dir=tmp_path / "batches",
+                )
+            )
+
+            call_args = mock_task.call_args
+            assert call_args.kwargs.get("embed_triplets") is False
 
 
 # ===================================================================

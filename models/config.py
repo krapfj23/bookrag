@@ -51,6 +51,11 @@ class BookRAGConfig(BaseSettings):
     #   the same output across re-runs. Set seed=None to disable.
     llm_temperature: float = 0.0
     llm_seed: int | None = 42
+    # Plan 2 — triplet indexing: when True, add_data_points builds and
+    # indexes a dedicated vector collection over (source, relation, target)
+    # triplets, enabling semantic retrieval over relationships instead of
+    # keyword match on relation_type descriptions.
+    embed_triplets: bool = True
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 

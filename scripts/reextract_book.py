@@ -152,6 +152,7 @@ async def reextract(book_id: str) -> int:
                 book_id=book_id,
                 chunk_size=chunk_size,
                 max_retries=max_retries,
+                embed_triplets=getattr(config, "embed_triplets", False),
             )
         except Exception as exc:
             logger.exception("Batch {} failed: {}", idx, exc)
