@@ -50,8 +50,38 @@ export class UploadError extends Error {
 
 const BASE_URL = "http://localhost:8000";
 
+// Thrown when a request exceeds `timeoutMs` and the AbortController fires.
+export class NetworkError extends Error {
+  constructor(message = "Request timed out") {
+    super(message);
+    this.name = "NetworkError";
+  }
+}
+
+// Wrap fetch() with an AbortController so every request has a finite lifetime.
+// Default 30s; uploads pass 120s. Aborts surface as NetworkError so callers
+// can distinguish "request died" from "server said no".
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 30_000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new NetworkError(`Request to ${url} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 export async function fetchBooks(): Promise<Book[]> {
-  const resp = await fetch(`${BASE_URL}/books`);
+  const resp = await fetchWithTimeout(`${BASE_URL}/books`);
   if (!resp.ok) {
     throw new Error(`GET /books failed: ${resp.status}`);
   }
@@ -62,10 +92,14 @@ export async function uploadBook(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file, file.name);
 
-  const resp = await fetch(`${BASE_URL}/books/upload`, {
-    method: "POST",
-    body: form,
-  });
+  const resp = await fetchWithTimeout(
+    `${BASE_URL}/books/upload`,
+    {
+      method: "POST",
+      body: form,
+    },
+    120_000,
+  );
 
   if (resp.ok) {
     return (await resp.json()) as UploadResponse;
@@ -92,7 +126,7 @@ function mapUploadError(status: number, detail: string): string {
 }
 
 export async function fetchStatus(book_id: string): Promise<PipelineState> {
-  const resp = await fetch(`${BASE_URL}/books/${book_id}/status`);
+  const resp = await fetchWithTimeout(`${BASE_URL}/books/${book_id}/status`);
   if (!resp.ok) {
     throw new Error(`GET /books/${book_id}/status failed: ${resp.status}`);
   }
@@ -120,7 +154,7 @@ export type ProgressResponse = {
 };
 
 export async function fetchChapters(book_id: string): Promise<ChapterSummary[]> {
-  const resp = await fetch(`${BASE_URL}/books/${book_id}/chapters`);
+  const resp = await fetchWithTimeout(`${BASE_URL}/books/${book_id}/chapters`);
   if (!resp.ok) {
     throw new Error(`GET /books/${book_id}/chapters failed: ${resp.status}`);
   }
@@ -128,7 +162,7 @@ export async function fetchChapters(book_id: string): Promise<ChapterSummary[]> 
 }
 
 export async function fetchChapter(book_id: string, n: number): Promise<Chapter> {
-  const resp = await fetch(`${BASE_URL}/books/${book_id}/chapters/${n}`);
+  const resp = await fetchWithTimeout(`${BASE_URL}/books/${book_id}/chapters/${n}`);
   if (!resp.ok) {
     throw new Error(`GET /books/${book_id}/chapters/${n} failed: ${resp.status}`);
   }
@@ -139,7 +173,7 @@ export async function setProgress(
   book_id: string,
   current_chapter: number,
 ): Promise<ProgressResponse> {
-  const resp = await fetch(`${BASE_URL}/books/${book_id}/progress`, {
+  const resp = await fetchWithTimeout(`${BASE_URL}/books/${book_id}/progress`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ current_chapter }),
@@ -217,12 +251,17 @@ export async function queryBook(
 ): Promise<QueryResponse> {
   let resp: Response;
   try {
-    resp = await fetch(`${BASE_URL}/books/${book_id}/query`, {
+    resp = await fetchWithTimeout(`${BASE_URL}/books/${book_id}/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, search_type, max_chapter }),
     });
-  } catch {
+  } catch (err) {
+    // Preserve the existing error-class discriminator: both raw fetch failures
+    // and NetworkError timeouts surface as QueryNetworkError for UI branching.
+    if (err instanceof NetworkError) {
+      throw new QueryNetworkError();
+    }
     throw new QueryNetworkError();
   }
 

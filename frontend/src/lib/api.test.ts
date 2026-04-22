@@ -6,11 +6,46 @@ import {
   fetchChapters,
   fetchChapter,
   setProgress,
+  fetchWithTimeout,
+  NetworkError,
   UploadError,
   type PipelineState,
   type Chapter,
   type ChapterSummary,
 } from "./api";
+
+describe("fetchWithTimeout", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.useRealTimers();
+  });
+
+  it("aborts and throws NetworkError after timeoutMs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url, init) => {
+        const signal = (init as RequestInit | undefined)?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          if (signal) {
+            signal.addEventListener("abort", () => {
+              const err = new Error("aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          }
+        });
+      }),
+    );
+    vi.useFakeTimers();
+    const p = fetchWithTimeout("http://x/y", {}, 100);
+    // Attach a rejection handler synchronously so the runtime never sees
+    // it as an unhandled rejection.
+    const captured = p.catch((e) => e);
+    await vi.advanceTimersByTimeAsync(101);
+    await expect(captured).resolves.toBeInstanceOf(NetworkError);
+  });
+});
 
 describe("fetchBooks", () => {
   const originalFetch = globalThis.fetch;
@@ -35,7 +70,10 @@ describe("fetchBooks", () => {
     });
     globalThis.fetch = mockFetch as unknown as typeof fetch;
     const result = await fetchBooks();
-    expect(mockFetch).toHaveBeenCalledWith("http://localhost:8000/books");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/books",
+      expect.anything(),
+    );
     expect(result).toEqual(body);
   });
 
@@ -195,6 +233,7 @@ describe("fetchStatus", () => {
 
     expect(mockFetch).toHaveBeenCalledWith(
       "http://localhost:8000/books/a_christmas_carol_a1b2c3d4/status",
+      expect.anything(),
     );
     expect(result).toEqual(state);
   });
@@ -227,6 +266,7 @@ describe("fetchChapters", () => {
     const result = await fetchChapters("christmas_carol_e6ddcd76");
     expect(mockFetch).toHaveBeenCalledWith(
       "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters",
+      expect.anything(),
     );
     expect(result).toEqual(body);
   });
@@ -263,6 +303,7 @@ describe("fetchChapter", () => {
     const result = await fetchChapter("christmas_carol_e6ddcd76", 2);
     expect(mockFetch).toHaveBeenCalledWith(
       "http://localhost:8000/books/christmas_carol_e6ddcd76/chapters/2",
+      expect.anything(),
     );
     expect(result).toEqual(body);
   });
