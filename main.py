@@ -658,11 +658,13 @@ def _answer_from_allowed_nodes(
 async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     """Query the knowledge graph with reader-progress fog-of-war.
 
-    Retrieval is PRE-FILTERED: a node allowlist is computed from disk based
-    on the reader's current chapter, and only allowed nodes are ever
-    considered. No Cognee default search is run, because it retrieves over
-    the full dataset before we can filter and may leak spoilers through
-    graph-completion reasoning.
+    Filter semantics:
+    - If current_paragraph is set, the graph is filtered to chapters
+      STRICTLY BEFORE current_chapter, and paragraphs 0..current_paragraph
+      of the current chapter are loaded from raw text and injected as
+      additional context.
+    - If current_paragraph is not set, Phase 0 behavior applies:
+      graph is filtered INCLUSIVE of current_chapter, no raw-text injection.
     """
     if req.search_type not in _ALLOWED_SEARCH_TYPES:
         raise HTTPException(
@@ -674,17 +676,29 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     if not book_dir.exists():
         raise HTTPException(status_code=404, detail=f"Book '{book_id}' not found")
 
-    disk_max, _ = _get_reading_progress(book_id)
+    disk_chapter, disk_paragraph = _get_reading_progress(book_id)
     current_chapter = (
-        min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
+        min(req.max_chapter, disk_chapter) if req.max_chapter is not None else disk_chapter
     )
 
-    results = _answer_from_allowed_nodes(book_id, req.question, graph_max_chapter=current_chapter)
+    if disk_paragraph is not None:
+        graph_max_chapter = max(current_chapter - 1, 0)
+        current_chapter_paragraphs = _load_paragraphs_up_to(
+            book_id, current_chapter, disk_paragraph
+        )
+    else:
+        graph_max_chapter = current_chapter
+        current_chapter_paragraphs = []
+
+    results = _answer_from_allowed_nodes(
+        book_id, req.question, graph_max_chapter=graph_max_chapter
+    )
 
     answer = ""
     if req.search_type == "GRAPH_COMPLETION":
-        context = [r.content for r in results[:15]]
-        answer = await _complete_over_context(req.question, context)
+        graph_context = [r.content for r in results[:15]]
+        combined = graph_context + current_chapter_paragraphs
+        answer = await _complete_over_context(req.question, combined)
 
     return QueryResponse(
         book_id=book_id,

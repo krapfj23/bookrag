@@ -728,3 +728,106 @@ class TestAnswerFromAllowedNodesExplicitBound:
         self._seed(tmp_path)
         items = _answer_from_allowed_nodes("bk", "later", graph_max_chapter=3)
         assert any("ch3" in i.content for i in items)
+
+
+class TestQueryEndpointParagraphGate:
+    """/books/{id}/query respects current_paragraph for raw-text context."""
+
+    def _seed(self, tmp_path, book_id="bk"):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Marley", "description": "dead partner",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c3", "name": "Future", "description": "GRAPH_SPOILER",
+                 "first_chapter": 1, "last_known_chapter": 3},
+            ],
+        }))
+        # Current chapter 3 has 5 paragraphs. Reader at paragraph 1.
+        # NOTE: _load_chapter indexes files[n-1] after sorting; need chapters 1..3 to exist.
+        chapters = tmp_path / book_id / "raw" / "chapters"
+        chapters.mkdir(parents=True)
+        (chapters / "chapter_01.txt").write_text("ch1 p0\n\nch1 p1", encoding="utf-8")
+        (chapters / "chapter_02.txt").write_text("ch2 p0\n\nch2 p1", encoding="utf-8")
+        (chapters / "chapter_03.txt").write_text(
+            "READ_P0\n\nREAD_P1\n\nUNREAD_P2\n\nUNREAD_P3\n\nUNREAD_P4",
+            encoding="utf-8",
+        )
+        (tmp_path / book_id / "pipeline_state.json").write_text(json.dumps({
+            "book_id": book_id, "ready_for_query": True,
+            "current_stage": "complete", "stages": {},
+        }))
+        (tmp_path / book_id / "reading_progress.json").write_text(json.dumps({
+            "book_id": book_id, "current_chapter": 3, "current_paragraph": 1,
+        }))
+
+    def _real_orch(self, monkeypatch, main_mod, cfg):
+        from pipeline.orchestrator import PipelineOrchestrator
+        monkeypatch.setattr(main_mod, "orchestrator", PipelineOrchestrator(cfg))
+
+    def test_paragraph_cursor_excludes_current_chapter_graph_nodes(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "Future",
+            "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        for r in body["results"]:
+            assert "GRAPH_SPOILER" not in r["content"], f"leaked: {r}"
+
+    def test_paragraph_cursor_injects_raw_read_paragraphs(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+
+        captured: dict = {}
+
+        async def fake_complete(question, context):
+            captured["context"] = context
+            return "ok"
+
+        monkeypatch.setattr(main_mod, "_complete_over_context", fake_complete)
+        self._seed(tmp_path)
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "Marley",
+            "search_type": "GRAPH_COMPLETION",
+        })
+        assert resp.status_code == 200
+        combined = " ".join(captured["context"])
+        assert "READ_P0" in combined
+        assert "READ_P1" in combined
+        assert "UNREAD_P2" not in combined
+        assert "UNREAD_P3" not in combined
+        assert "UNREAD_P4" not in combined
+
+    def test_no_paragraph_preserves_phase0_inclusive(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from main import app, config as main_config
+        import main as main_mod
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._real_orch(monkeypatch, main_mod, main_config)
+        self._seed(tmp_path)
+        # Drop paragraph cursor from progress.
+        (tmp_path / "bk" / "reading_progress.json").write_text(json.dumps({
+            "book_id": "bk", "current_chapter": 3,
+        }))
+        client = TestClient(app)
+        resp = client.post("/books/bk/query", json={
+            "question": "Future",
+            "search_type": "RAG_COMPLETION",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert any("GRAPH_SPOILER" in r["content"] for r in body["results"])
