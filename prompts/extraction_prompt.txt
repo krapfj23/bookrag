@@ -37,6 +37,7 @@ Every entity and event you extract MUST include the chapter number where it firs
 - Use snake_case for all relationship types (e.g., employs, works_for, loves).
 - Do not create separate nodes for dates or numbers — attach them as properties.
 - If an entity was already extracted in a previous batch, re-extract it only if you have NEW information (new description, new chapter appearance, new relationship).
+- For each character/location/faction/theme/relationship, include `last_known_chapter`: the LATEST chapter number from the current batch whose text contributed evidence for this entity's description. If the entity only appears in one chapter of this batch, `last_known_chapter` equals `first_chapter`. This is used for reader-progress filtering — do not set it higher than chapters actually shown in the input.
 
 ### Episodic Content (Plot Events, Character Actions)
 - Extract concrete events that happen in the narrative: who did what, where, and when (chapter).
@@ -67,6 +68,7 @@ Return valid JSON matching this exact schema:
       "aliases": ["alias1", "alias2"],
       "description": "brief description based on this text",
       "first_chapter": 1,
+      "last_known_chapter": 1,
       "chapters_present": [1, 2]
     }
   ],
@@ -74,7 +76,8 @@ Return valid JSON matching this exact schema:
     {
       "name": "location name",
       "description": "brief description",
-      "first_chapter": 1
+      "first_chapter": 1,
+      "last_known_chapter": 1
     }
   ],
   "factions": [
@@ -82,6 +85,7 @@ Return valid JSON matching this exact schema:
       "name": "faction name",
       "description": "brief description",
       "first_chapter": 1,
+      "last_known_chapter": 1,
       "member_names": ["character name 1", "character name 2"]
     }
   ],
@@ -99,7 +103,8 @@ Return valid JSON matching this exact schema:
       "target_name": "character B",
       "relation_type": "snake_case_relation",
       "description": "brief description of the relationship",
-      "first_chapter": 1
+      "first_chapter": 1,
+      "last_known_chapter": 1
     }
   ],
   "themes": [
@@ -107,6 +112,7 @@ Return valid JSON matching this exact schema:
       "name": "theme name",
       "description": "how this theme manifests in the text",
       "first_chapter": 1,
+      "last_known_chapter": 1,
       "related_character_names": ["character name"]
     }
   ]

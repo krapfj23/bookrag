@@ -353,3 +353,15 @@ class TestStructuralCompleteness:
 
     def test_has_output_format(self, prompt_text):
         assert "Output Format" in prompt_text or "output format" in prompt_text.lower()
+
+
+class TestLastKnownChapterInPrompt:
+    """Prompt must instruct the LLM to populate last_known_chapter."""
+
+    def test_field_appears_in_json_schema(self):
+        prompt = Path("prompts/extraction_prompt.txt").read_text()
+        assert "last_known_chapter" in prompt, "prompt must document last_known_chapter"
+
+    def test_prompt_explains_semantics(self):
+        prompt = Path("prompts/extraction_prompt.txt").read_text().lower()
+        assert "latest chapter" in prompt or "last chapter" in prompt
