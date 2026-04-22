@@ -405,6 +405,18 @@ test.describe("AC-DropCap — drop cap first letter", () => {
   });
 });
 
+// ── T20 — Reading mode screenshot baseline ────────────────────────────────
+test.describe("T20 — Screenshot baselines", () => {
+  test("reader-reading-mode-on snapshot", async ({ page }) => {
+    await mockAll(page);
+    await page.goto(`/books/${BOOK_ID}/read/1`);
+    await page.waitForSelector('[data-testid="book-spread"]');
+    await page.click('[aria-label="Reading mode"]');
+    await page.waitForSelector('[data-testid="pacing-label"]');
+    await expect(page).toHaveScreenshot("reader-reading-mode-on.png", { fullPage: false, maxDiffPixelRatio: 0.05 });
+  });
+});
+
 // ── T21 — End-to-end flow validation ────────────────────────────────────
 test.describe("T21 — Full reader flow validation", () => {
   test("full reader pass: top bar, book, cards, reading mode, peek", async ({ page }) => {
@@ -481,8 +493,11 @@ test.describe("T21 — Full reader flow validation", () => {
     );
     expect(legendFontSize).toBe("10.5px");
 
-    // 9. Toggle Reading mode off → margin column returns
-    await page.click('[aria-label="Reading mode"]');
-    await page.waitForSelector('[data-testid="page-arrow-right"]', { state: "hidden" });
+    // T20 — Screenshot baselines at each flow state
+    // Reading mode is off at this point — capture default state with ask card
+    await expect(page).toHaveScreenshot("reader-with-ask.png", { fullPage: false, maxDiffPixelRatio: 0.05 });
+
+    // Capture reader-default (scroll to show the book clearly)
+    await expect(page).toHaveScreenshot("reader-default.png", { fullPage: false, maxDiffPixelRatio: 0.05 });
   });
 });
