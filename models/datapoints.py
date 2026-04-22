@@ -13,9 +13,36 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from cognee.infrastructure.engine import DataPoint
+
+
+# ===========================================================================
+# Provenance — evidence for every extraction claim
+# ===========================================================================
+
+
+class Provenance(BaseModel):
+    """Evidence for an extracted entity/event/relationship.
+
+    Emitted by the LLM alongside each DataPoint so downstream validators
+    can confirm the extraction is grounded in actual chunk text (not
+    hallucinated). See pipeline.cognee_pipeline._validate_provenance for
+    the consumer. Phase A Stage 1 / Item 2.
+    """
+
+    chunk_id: str = Field(..., description="<book_id>::chunk_<ordinal:04d>")
+    quote: str = Field(..., description="Verbatim snippet from chunk text, <=200 chars")
+    char_start: int = Field(..., ge=0)
+    char_end: int = Field(..., ge=0)
+
+    @field_validator("quote")
+    @classmethod
+    def _quote_bounded(cls, v: str) -> str:
+        if len(v) > 200:
+            raise ValueError(f"quote must be <=200 chars, got {len(v)}")
+        return v
 
 
 # ===========================================================================
@@ -31,6 +58,7 @@ class Character(DataPoint):
     last_known_chapter: int | None = None
     chapters_present: list[int] = []
     source_chunk_ordinal: int | None = None
+    provenance: list[Provenance] = []
     metadata: dict = {"index_fields": ["name", "description"]}
 
     @model_validator(mode="after")
@@ -46,6 +74,7 @@ class Location(DataPoint):
     first_chapter: int
     last_known_chapter: int | None = None
     source_chunk_ordinal: int | None = None
+    provenance: list[Provenance] = []
     metadata: dict = {"index_fields": ["name", "description"]}
 
     @model_validator(mode="after")
@@ -62,6 +91,7 @@ class Faction(DataPoint):
     last_known_chapter: int | None = None
     members: list[Character] = []
     source_chunk_ordinal: int | None = None
+    provenance: list[Provenance] = []
     metadata: dict = {"index_fields": ["name"]}
 
     @model_validator(mode="after")
@@ -77,6 +107,7 @@ class PlotEvent(DataPoint):
     participants: list[Character] = []
     location: Location | None = None
     source_chunk_ordinal: int | None = None
+    provenance: list[Provenance] = []
     metadata: dict = {"index_fields": ["description"]}
 
 
@@ -88,6 +119,7 @@ class Relationship(DataPoint):
     first_chapter: int
     last_known_chapter: int | None = None
     source_chunk_ordinal: int | None = None
+    provenance: list[Provenance] = []
     metadata: dict = {"index_fields": ["relation_type", "description"]}
 
     @model_validator(mode="after")
@@ -104,6 +136,7 @@ class Theme(DataPoint):
     last_known_chapter: int | None = None
     related_characters: list[Character] = []
     source_chunk_ordinal: int | None = None
+    provenance: list[Provenance] = []
     metadata: dict = {"index_fields": ["name", "description"]}
 
     @model_validator(mode="after")
@@ -132,6 +165,7 @@ class CharacterExtraction(BaseModel):
         description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
     )
     chapters_present: list[int] = []
+    provenance: list[Provenance] = []
 
     @model_validator(mode="after")
     def _default_last_known_chapter(self):
@@ -149,6 +183,7 @@ class LocationExtraction(BaseModel):
         default=None,
         description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
     )
+    provenance: list[Provenance] = []
 
     @model_validator(mode="after")
     def _default_last_known_chapter(self):
@@ -170,6 +205,7 @@ class FactionExtraction(BaseModel):
         default=[],
         description="Names of characters who belong to this faction",
     )
+    provenance: list[Provenance] = []
 
     @model_validator(mode="after")
     def _default_last_known_chapter(self):
@@ -190,6 +226,7 @@ class EventExtraction(BaseModel):
         default=None,
         description="Name of the location where the event occurs",
     )
+    provenance: list[Provenance] = []
 
 
 class RelationshipExtraction(BaseModel):
@@ -205,6 +242,7 @@ class RelationshipExtraction(BaseModel):
         default=None,
         description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
     )
+    provenance: list[Provenance] = []
 
     @model_validator(mode="after")
     def _default_last_known_chapter(self):
@@ -223,6 +261,7 @@ class ThemeExtraction(BaseModel):
         description="Latest chapter (in this extraction batch) whose text contributed to this entity's description. Defaults to first_chapter when omitted.",
     )
     related_character_names: list[str] = []
+    provenance: list[Provenance] = []
 
     @model_validator(mode="after")
     def _default_last_known_chapter(self):
@@ -268,6 +307,7 @@ class ExtractionResult(BaseModel):
                 last_known_chapter=c.last_known_chapter,
                 chapters_present=c.chapters_present,
                 source_chunk_ordinal=source_chunk_ordinal,
+                provenance=list(c.provenance),
             )
             char_map[c.name] = dp
             datapoints.append(dp)
@@ -282,6 +322,7 @@ class ExtractionResult(BaseModel):
                 first_chapter=loc.first_chapter,
                 last_known_chapter=loc.last_known_chapter,
                 source_chunk_ordinal=source_chunk_ordinal,
+                provenance=list(loc.provenance),
             )
             loc_map[loc.name] = dp
             datapoints.append(dp)
@@ -297,6 +338,7 @@ class ExtractionResult(BaseModel):
                 last_known_chapter=f.last_known_chapter,
                 members=members,
                 source_chunk_ordinal=source_chunk_ordinal,
+                provenance=list(f.provenance),
             )
             datapoints.append(dp)
 
@@ -312,6 +354,7 @@ class ExtractionResult(BaseModel):
                 participants=participants,
                 location=location,
                 source_chunk_ordinal=source_chunk_ordinal,
+                provenance=list(ev.provenance),
             )
             datapoints.append(dp)
 
@@ -333,6 +376,7 @@ class ExtractionResult(BaseModel):
                 first_chapter=rel.first_chapter,
                 last_known_chapter=rel.last_known_chapter,
                 source_chunk_ordinal=source_chunk_ordinal,
+                provenance=list(rel.provenance),
             )
             datapoints.append(dp)
 
@@ -347,6 +391,7 @@ class ExtractionResult(BaseModel):
                 last_known_chapter=th.last_known_chapter,
                 related_characters=related,
                 source_chunk_ordinal=source_chunk_ordinal,
+                provenance=list(th.provenance),
             )
             datapoints.append(dp)
 

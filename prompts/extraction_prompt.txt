@@ -80,6 +80,24 @@ Every entity and event you extract MUST include the chapter number where it firs
 - Do NOT create duplicate entities — if "Ebenezer Scrooge" and "Scrooge" refer to the same person, use one canonical name.
 - Do NOT extract from chapter summaries, table of contents, or metadata — only from narrative text.
 
+### Provenance (CRITICAL)
+
+For every character, location, faction, event, relationship, and theme you
+extract, emit at least one `provenance` entry that evidences it. Each
+provenance entry has:
+
+- `chunk_id`: the exact chunk id shown in the user message header.
+- `quote`: the VERBATIM text from the chunk (<=200 chars) that supports
+  this extraction. Copy character-for-character — do NOT paraphrase, do
+  NOT "tidy up" punctuation, do NOT normalize whitespace.
+- `char_start`, `char_end`: character offsets of the quote within the
+  chunk text.
+
+If you cannot find a supporting quote in the chunk, do NOT extract the
+entity. Fabricated provenance is worse than missing data — a downstream
+validator will drop any extraction whose quote does not appear verbatim
+in the chunk text.
+
 ## Self-Check Before Returning
 
 Before you return your JSON, verify:
@@ -103,7 +121,10 @@ Return valid JSON matching this exact schema:
       "description": "brief description based on this text",
       "first_chapter": 1,
       "last_known_chapter": 1,
-      "chapters_present": [1, 2]
+      "chapters_present": [1, 2],
+      "provenance": [
+        {"chunk_id": "book_id::chunk_0001", "quote": "verbatim text from chunk", "char_start": 0, "char_end": 24}
+      ]
     }
   ],
   "locations": [
