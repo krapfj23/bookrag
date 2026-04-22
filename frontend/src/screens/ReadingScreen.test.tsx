@@ -556,6 +556,46 @@ describe("ReadingScreen — chat panel (slice 4 + Margin Marks)", () => {
     ).toBeInTheDocument();
   });
 
+  it("uses the GraphRAG-synthesized answer from the backend when present", async () => {
+    mockApi();
+    vi.spyOn(api, "queryBook").mockResolvedValue({
+      book_id: BOOK_ID,
+      question: "Who is Marley?",
+      search_type: "GRAPH_COMPLETION",
+      current_chapter: 2,
+      answer:
+        "Marley is Scrooge's dead business partner whose ghost sets the story in motion.",
+      results: [
+        {
+          content: "Marley — business partner",
+          entity_type: "Character",
+          chapter: 1,
+        },
+      ],
+      result_count: 1,
+    });
+    const user = userEvent.setup();
+    renderAt(`/books/${BOOK_ID}/read/2`);
+    await waitFor(() =>
+      expect(screen.getByText(/am i that man/i)).toBeInTheDocument()
+    );
+    await openThreadPanel(user);
+    await user.type(
+      screen.getByLabelText(/ask about what you've read/i),
+      "Who is Marley?"
+    );
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          /marley is scrooge's dead business partner whose ghost sets the story in motion/i
+        )
+      ).toBeInTheDocument()
+    );
+    // Source card still renders from the raw results
+    expect(screen.getByText(/marley — business partner/i)).toBeInTheDocument();
+  });
+
   it("clicking the panel close button collapses back to the rail", async () => {
     mockApi();
     const user = userEvent.setup();

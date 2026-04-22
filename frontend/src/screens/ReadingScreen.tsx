@@ -175,11 +175,18 @@ export function ReadingScreen() {
             )
             .map((r) => ({ text: r.content, chapter: r.chapter }))
         : [];
+      // Prefer the GraphRAG-synthesized answer from the backend. Fall back
+      // to chapter-less raw results only if the LLM synthesis was empty
+      // (e.g., Cognee unavailable). Final fallback: the empty-result copy.
+      const synthesized = resp.answer?.trim() ?? "";
       const proseResults = hasResults
         ? resp.results.filter((r) => r.chapter == null)
         : [];
-      const answerText = hasResults
-        ? proseResults.map((r) => r.content).join("\n\n")
+      const answerText = synthesized.length > 0
+        ? synthesized
+        : hasResults
+        ? proseResults.map((r) => r.content).join("\n\n") ||
+          sources.map((s) => s.text).join("\n\n")
         : EMPTY_RESULT_TEXT;
 
       setMessages((prev) =>
@@ -456,6 +463,19 @@ export function ReadingScreen() {
     clearCutoff(bookId, n);
     setCutoffState(null);
   }
+
+  // Pressing Escape anywhere on the page clears the fog — a fast out for
+  // readers who set a cutoff, then want back to unobstructed reading.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && cutoff) {
+        clearCurrentCutoff();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cutoff, bookId, n]);
 
   const spoilerSafeLabel = `safe through ch. ${book?.current_chapter ?? 1}`;
 
@@ -842,6 +862,10 @@ export function ReadingScreen() {
             onClose={() => {
               setPanelOpen(false);
               setFocusedAnnotationId(undefined);
+              // Leaving the panel = done with the current question.
+              // Drop any lingering fog so the reader gets their book back.
+              setPendingQuery(null);
+              clearCurrentCutoff();
             }}
             thread={threadContent}
             notes={notes}

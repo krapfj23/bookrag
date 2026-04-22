@@ -98,6 +98,9 @@ test.describe("chat flow (hermetic)", () => {
             question: "Who is Marley?",
             search_type: "GRAPH_COMPLETION",
             current_chapter: 2,
+            // GraphRAG synthesis: LLM answer in the bubble, raw sources below.
+            answer:
+              "Marley is Scrooge's deceased business partner whose ghost visits to warn him.",
             results: [
               {
                 content: "Marley is Scrooge's dead business partner.",
@@ -125,10 +128,12 @@ test.describe("chat flow (hermetic)", () => {
     await expect(page.getByText("Who is Marley?")).toBeVisible();
     // Thinking bubble is visible while the request is in flight
     await expect(page.getByText(/thinking…/i)).toBeVisible();
-    // Response lands
+    // Response lands: synthesized answer appears in the assistant bubble,
+    // raw source card below.
     await expect(
-      page.getByText(/marley is scrooge's dead business partner/i)
+      page.getByText(/whose ghost visits to warn him/i)
     ).toBeVisible();
+    await expect(page.getByText(/marley is scrooge's dead business partner/i).first()).toBeVisible();
     await expect(page.getByText("Ch. 1")).toBeVisible();
     // Thinking has been replaced
     await expect(page.getByText(/thinking…/i)).toHaveCount(0);

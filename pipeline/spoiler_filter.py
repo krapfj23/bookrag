@@ -52,6 +52,12 @@ def load_allowed_nodes(
     """Return every node in `book_id`'s batch JSONs whose effective latest
     chapter is <= cursor. Each returned dict has an added "_type" field.
 
+    Supports two on-disk shapes:
+      1. New:  batches/batch_NN.json   with {"characters": [...], ...}
+      2. Current pipeline output:
+         batches/batch_NN/extracted_datapoints.json  — flat list of dicts
+         where each has a "type" field ("Character"/"Location"/etc).
+
     Missing book directory returns []. Nodes with no chapter info are dropped
     (safer to hide an uncategorized node than leak one).
     """
@@ -60,6 +66,8 @@ def load_allowed_nodes(
         return []
 
     allowed: list[dict] = []
+
+    # Shape 1: flat batch JSON files at batches/*.json
     for batch_file in sorted(batches_dir.glob("*.json")):
         try:
             payload = json.loads(batch_file.read_text(encoding="utf-8"))
@@ -73,4 +81,26 @@ def load_allowed_nodes(
                 enriched = dict(node)
                 enriched["_type"] = type_label
                 allowed.append(enriched)
+
+    # Shape 2: per-batch subdirectories with extracted_datapoints.json
+    for dp_file in sorted(
+        batches_dir.glob("batch_*/extracted_datapoints.json")
+    ):
+        try:
+            payload = json.loads(dp_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        items = payload if isinstance(payload, list) else payload.get("datapoints", [])
+        for node in items:
+            if not isinstance(node, dict):
+                continue
+            ch = effective_latest_chapter(node)
+            if ch is None or ch > cursor:
+                continue
+            enriched = dict(node)
+            # Prefer explicit type label. The flat-list shape carries it in
+            # "type"; the collection shape carries the label in the key.
+            enriched["_type"] = enriched.get("type") or enriched.get("__type__") or "Entity"
+            allowed.append(enriched)
+
     return allowed

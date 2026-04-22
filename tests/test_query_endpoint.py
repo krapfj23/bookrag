@@ -199,3 +199,7 @@ class TestQueryMaxChapter:
         assert isinstance(body["current_chapter"], int)
         assert isinstance(body["results"], list)
         assert body["result_count"] == len(body["results"])
+        # GraphRAG synthesis: response must include an answer field (may be
+        # empty string when Cognee is mocked out).
+        assert "answer" in body
+        assert isinstance(body["answer"], str)
