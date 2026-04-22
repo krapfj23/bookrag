@@ -1,4 +1,4 @@
-import type { AnchoredParagraph, AnchoredSentence } from "../api";
+import type { AnchoredParagraph, AnchoredSentence, ParagraphKind } from "../api";
 
 export type PaginatorBox = {
   pageWidth: number;
@@ -11,6 +11,7 @@ export type PaginatorBox = {
 export type PageParagraph = {
   paragraph_idx: number;
   sentences: AnchoredSentence[];
+  kind?: ParagraphKind;
   isContinuation?: boolean;
 };
 
@@ -62,6 +63,25 @@ function paragraphNode(p: PageParagraph): HTMLParagraphElement {
   const node = document.createElement("p");
   node.style.margin = "0 0 0.9em";
   node.style.hyphens = "auto";
+  // Variant-aware measurement: scene breaks are a single short centered line,
+  // epigraphs are italic with horizontal padding; both affect measured height.
+  if (p.kind === "scene_break") {
+    node.className = "rr-para rr-scene-break";
+    node.style.textAlign = "center";
+    node.style.letterSpacing = "0.4em";
+    node.style.margin = "1.4em 0";
+    const span = document.createElement("span");
+    span.setAttribute("data-sid", p.sentences[0]?.sid ?? "p1.s1");
+    span.textContent = "* * *";
+    node.appendChild(span);
+    return node;
+  }
+  if (p.kind === "epigraph") {
+    node.className = "rr-para rr-epigraph";
+    node.style.fontStyle = "italic";
+    node.style.padding = "0 1.2em";
+    node.style.margin = "0 0 1.4em";
+  }
   for (let i = 0; i < p.sentences.length; i++) {
     const span = document.createElement("span");
     span.setAttribute("data-sid", p.sentences[i].sid);
@@ -112,6 +132,7 @@ function packPage(
       fitted.push({
         paragraph_idx: p.paragraph_idx,
         sentences: splitFit,
+        kind: p.kind,
         isContinuation: p.isContinuation ?? false,
       });
     }
@@ -120,6 +141,7 @@ function packPage(
       remaining[0] = {
         paragraph_idx: p.paragraph_idx,
         sentences: splitRest,
+        kind: p.kind,
         isContinuation: true,
       };
     } else {
@@ -139,6 +161,7 @@ export function paginate(
     const queue: PageParagraph[] = paragraphs.map((p) => ({
       paragraph_idx: p.paragraph_idx,
       sentences: [...p.sentences],
+      kind: p.kind,
     }));
     const spreads: Spread[] = [];
     let idx = 0;
@@ -169,6 +192,7 @@ export function paginate(
       const pageParas = paragraphs.map((p) => ({
         paragraph_idx: p.paragraph_idx,
         sentences: [...p.sentences],
+        kind: p.kind,
       }));
       const flatSids = pageParas.flatMap((p) => p.sentences.map((s) => s.sid));
       spreads.push({

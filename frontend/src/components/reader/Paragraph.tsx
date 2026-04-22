@@ -1,5 +1,5 @@
 import { Sentence, type SentenceMark } from "./Sentence";
-import type { AnchoredSentence } from "../../lib/api";
+import type { AnchoredSentence, ParagraphKind } from "../../lib/api";
 import { compareSid } from "../../lib/reader/sidCompare";
 
 export function Paragraph({
@@ -7,6 +7,7 @@ export function Paragraph({
   sentences,
   fogStartSid,
   dropCap,
+  kind = "body",
   marksBySid,
   onMarkClick,
 }: {
@@ -14,13 +15,36 @@ export function Paragraph({
   sentences: AnchoredSentence[];
   fogStartSid: string | null;
   dropCap: boolean;
+  kind?: ParagraphKind;
   marksBySid?: Map<string, SentenceMark[]>;
   onMarkClick?: (cardId: string) => void;
 }) {
+  if (kind === "scene_break") {
+    // Ornamental dinkus — non-interactive, centered, not a drop cap target.
+    // Keeps sentence markup so the sid is still anchorable for cards.
+    const s = sentences[0];
+    return (
+      <p
+        aria-hidden="true"
+        data-paragraph-idx={paragraphIdx}
+        className="rr-para rr-scene-break"
+      >
+        <span data-sid={s?.sid ?? `p${paragraphIdx}.s1`}>* * *</span>
+      </p>
+    );
+  }
+
+  const baseClass =
+    kind === "epigraph"
+      ? "rr-para rr-epigraph"
+      : dropCap
+      ? "rr-para rr-dropcap"
+      : "rr-para";
+
   return (
     <p
       data-paragraph-idx={paragraphIdx}
-      className={dropCap ? "rr-para rr-dropcap" : "rr-para"}
+      className={baseClass}
       style={{ margin: "0 0 0.9em", textAlign: "justify", hyphens: "auto" }}
     >
       {sentences.map((s, i) => {

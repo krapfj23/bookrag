@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from api.loaders.sentence_anchors import (
     AnchoredParagraph,
     build_paragraphs_anchored,
+    classify_paragraphs,
     find_chapter_offsets,
     load_booknlp_input_text,
     load_cleaned_full_text,
@@ -197,6 +198,9 @@ def load_chapter(book_id: str, n: int, processed_dir: Path) -> Chapter | None:
                 fallback = False
     if fallback:
         anchored = regex_fallback_paragraphs(paragraphs)
+
+    # Tag scene breaks and epigraphs so the reader can style them.
+    classify_paragraphs(anchored)
 
     return Chapter(
         num=n,

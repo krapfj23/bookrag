@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · v1 handoff spec</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: var(--paper-1); font-family: var(--sans); color: var(--ink-0); }
+  .page { max-width: 1080px; margin: 0 auto; padding: 56px 64px 80px; background: var(--paper-0); min-height: 100vh; }
+  .meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.5px; text-transform: uppercase; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 40px; letter-spacing: -0.6px; margin: 8px 0 6px; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 22px; letter-spacing: -0.2px; margin: 44px 0 14px; display: flex; align-items: baseline; gap: 12px; }
+  h2 .num { font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-weight: 500; }
+  h3 { font-family: var(--sans); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); font-weight: 600; margin: 20px 0 8px; }
+  p { line-height: 1.62; color: var(--ink-1); margin: 0 0 12px; max-width: 72ch; }
+  .lead { font-family: var(--serif); font-size: 18px; color: var(--ink-1); line-height: 1.55; max-width: 62ch; margin-bottom: 24px; }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--paper-1); padding: 1px 6px; border-radius: 4px; color: var(--ink-1); }
+  ul { margin: 0 0 12px; padding-left: 22px; }
+  ul li { line-height: 1.6; color: var(--ink-1); margin-bottom: 4px; max-width: 72ch; }
+  ul li b { color: var(--ink-0); font-weight: 500; }
+  .decision-table { display: grid; grid-template-columns: 220px 1fr; gap: 2px 16px; border-top: 1px solid var(--paper-2); border-bottom: 1px solid var(--paper-2); margin: 8px 0 12px; max-width: 900px; }
+  .decision-table > div { padding: 10px 0; border-bottom: 1px solid var(--paper-2); font-size: 13.5px; line-height: 1.55; }
+  .decision-table > div:nth-last-child(-n+2) { border-bottom: none; }
+  .decision-table .k { font-family: var(--sans); font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--ink-3); font-weight: 600; padding-top: 13px; }
+  .decision-table .v { font-family: var(--serif); color: var(--ink-0); }
+  .decision-table .v .tag { font-family: var(--mono); font-size: 10.5px; background: var(--accent-softer); color: var(--accent-ink); padding: 1px 7px; border-radius: 999px; margin-left: 6px; letter-spacing: 0.3px; font-weight: 500; vertical-align: 1px; }
+  .decision-table .v .tag.backend { background: oklch(92% 0.04 240); color: oklch(30% 0.08 240); }
+  .decision-table .v .tag.deferred { background: var(--paper-1); color: var(--ink-3); }
+  .decision-table .v .note { font-family: var(--sans); font-size: 12px; color: var(--ink-2); margin-top: 4px; font-style: italic; }
+  .refs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 10px 0; max-width: 900px; }
+  .ref { padding: 14px 16px; background: var(--paper-00); border: 1px solid var(--paper-2); border-radius: 10px; }
+  .ref .tag { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; color: var(--accent-ink); font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+  .ref .title { font-family: var(--serif); font-size: 15px; color: var(--ink-0); font-weight: 500; margin-bottom: 2px; }
+  .ref .file { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+  .ref .desc { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; line-height: 1.5; }
+  .warn { padding: 14px 18px; background: oklch(96% 0.03 60); border-left: 3px solid oklch(58% 0.1 55); border-radius: 8px; margin: 10px 0; max-width: 900px; }
+  .warn .t { font-family: var(--serif); font-size: 14px; color: var(--ink-0); font-weight: 500; margin-bottom: 4px; }
+  .warn .d { font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+  .rule { height: 1px; background: var(--paper-2); margin: 36px 0; }
+  .schema { background: var(--paper-00); border: 1px solid var(--paper-2); border-radius: 10px; padding: 16px 20px; font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--ink-1); white-space: pre; overflow-x: auto; max-width: 900px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--paper-1); border-radius: 999px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); font-weight: 500; letter-spacing: 0.3px; }
+  .callout { padding: 16px 20px; background: var(--accent-softer); border-radius: 10px; border-left: 3px solid var(--accent); font-family: var(--serif); font-size: 14.5px; color: var(--ink-0); line-height: 1.6; max-width: 78ch; margin: 10px 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 900px; }
+  .two-col h3 { margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="meta">BOOKRAG · v1 HANDOFF · FRONTEND SPEC</div>
+  <h1>Reader handoff spec</h1>
+  <p class="lead">
+    One page. Decisions only. Points at the designs, ingestion plan, and design system for visual and data specifics. Read this, then build; refer back for <em>what</em>, not <em>how</em>.
+  </p>
+
+  <div class="callout">
+    <b>Scope:</b> Build the reader UI in the browser. The ingestion pipeline and storage layer already exist in the backend code — see <code>CLAUDE.md</code> for pipeline, kuzudb, and embedding details. This spec is for the <em>reading + chat surface</em> only.
+  </div>
+
+  <h2><span class="num">01</span> Product decisions</h2>
+
+  <h3>Reading + chat</h3>
+  <div class="decision-table">
+    <div class="k">Chat direction</div>
+    <div class="v">V3 Inline — margin note-cards.<span class="tag">locked</span>
+      <div class="note">See EPUB Visualizer v6.html → "Chat — four directions" section, artboard <code>CV3</code>.</div>
+    </div>
+    <div class="k">Reading mode</div>
+    <div class="v">Ambitious — ambient paper, pacing label, note-peek on hover.<span class="tag">locked</span>
+      <div class="note">See visualizer → "Reading mode · sidebar hidden" → <code>R2on</code> and <code>R2hover</code>.</div>
+    </div>
+    <div class="k">Overflow strategy</div>
+    <div class="v">O2 Collapse only — older cards shrink to 1-line summaries; latest expanded.<span class="tag">locked</span>
+      <div class="note">Visualizer → "V3 Inline · overflow strategies" → <code>O2</code>.</div>
+    </div>
+    <div class="k">Platform</div>
+    <div class="v">Browser only (desktop-first). No mobile in v1.<span class="tag">locked</span></div>
+    <div class="k">Reading mode persistence</div>
+    <div class="v">Per-book in <code>localStorage</code>. Key: <code>bookrag.reading-mode.{bookId}</code>.</div>
+    <div class="k">Keyboard</div>
+    <div class="v">Arrow keys only for page turns. No space, no J/K in v1.</div>
+  </div>
+
+  <h3>Behaviors</h3>
+  <div class="decision-table">
+    <div class="k">Duplicate ask</div>
+    <div class="v">Ask on a phrase that already has a card → scroll/focus to that card, open its follow-up composer. Don't make a new card.</div>
+    <div class="k">Notes vs. asks</div>
+    <div class="v">Separate entities. A <b>note</b> has a body only (user-authored prose). An <b>ask</b> has a question + assistant answer + optional follow-ups.</div>
+    <div class="k">Edit / delete</div>
+    <div class="v">Only from a <b>card detail view</b>. Not inline on the margin card. The margin card is read-only surface.
+      <div class="note">Card detail view not yet designed. Flag for a follow-up pass.</div>
+    </div>
+    <div class="k">Cross-page cards</div>
+    <div class="v">Yes, but <b>collapsed by default</b>. Shown as the 1-line summary form (same as O2 for older cards on the same spread).
+      <div class="note">Visualizer → atomic states → <code>S7</code> shows the cross-page tag. Combine with O2 collapse styling.</div>
+    </div>
+    <div class="k">Fog of war</div>
+    <div class="v">Ask-ability is gated by the reading cursor. Anything <em>before</em> the cursor is fair game. Anything after is not.
+      <div class="note">The reading cursor is stored in localStorage and advanced when the user page-turns past a sentence span.</div>
+    </div>
+    <div class="k">Streaming</div>
+    <div class="v">Token-by-token (ChatGPT style). The S3 atomic state already mocks the typing cursor and "thinking" placeholder.</div>
+    <div class="k">Touch / hover</div>
+    <div class="v">Desktop only in v1. Hover-to-peek for notes is fine. No touch fallback needed yet.</div>
+  </div>
+
+  <h2><span class="num">02</span> Data model (frontend-facing)</h2>
+  <p>The frontend consumes the backend's EPUB corpus (chapters + sentence spans) and reads/writes <b>cards</b> against sentence anchors. Schema is suggestive — confirm exact field names with the backend layer.</p>
+
+  <div class="schema">// Anchor format from ingestion: "p{paragraphIndex}.s{sentenceIndex}"
+// e.g. "p12.s3" = paragraph 12, sentence 3 (0- or 1-indexed — confirm)
+
+type Card = {
+  id: string;             // uuid
+  bookId: string;
+  anchor: string;         // "p12.s3"
+  quote: string;          // exact text of the anchored span
+  chapter: number;        // from EPUB spine
+  kind: "ask" | "note";
+  createdAt: ISO8601;
+  updatedAt: ISO8601;
+} & ({
+  kind: "ask";
+  question: string;
+  answer: string;         // streaming target
+  followups: Array&lt;{ question, answer }&gt;;
+} | {
+  kind: "note";
+  body: string;
+});
+
+type ReadingCursor = {
+  bookId: string;
+  anchor: string;         // last sentence the user has "read past"
+};</div>
+
+  <h2><span class="num">03</span> Backend dependencies (not in this spec)</h2>
+  <p>These are owned by the backend code / <code>CLAUDE.md</code>. Frontend assumes them:</p>
+  <ul>
+    <li><b>EPUB ingestion pipeline</b> — already implemented. Produces chapters, paragraphs, and sentence-level anchors. <span class="tag deferred">owned: backend</span></li>
+    <li><b>Sentence ID generation</b> — "who generates <code>p{n}.s{m}</code>" is a backend question. Frontend receives them pre-assigned. <span class="tag deferred">owned: backend</span></li>
+    <li><b>Storage + embeddings</b> — kuzudb per <code>CLAUDE.md</code>. Frontend talks to the backend via whatever API that layer exposes. <span class="tag deferred">owned: backend</span></li>
+    <li><b>RAG retrieval</b> — given a question + book scope, return chunks with their anchor IDs. Frontend renders the citation. <span class="tag deferred">owned: backend</span></li>
+    <li><b>Scope</b> — single user, single device, local-only. No sync, no sharing in v1.</li>
+    <li><b>DRM</b> — unencrypted EPUBs only. User provides the file; no DRM removal in v1.</li>
+  </ul>
+
+  <h2><span class="num">04</span> URL + state</h2>
+  <div class="decision-table">
+    <div class="k">URL shape</div>
+    <div class="v"><code>/book/{bookId}</code> — book ID only. Everything else in localStorage.</div>
+    <div class="k">localStorage keys</div>
+    <div class="v">
+      <code>bookrag.cursor.{bookId}</code> — reading cursor anchor<br/>
+      <code>bookrag.reading-mode.{bookId}</code> — boolean<br/>
+      <code>bookrag.font-size.{bookId}</code> — if we expose font-size controls later<br/>
+      <code>bookrag.last-book</code> — for library landing
+    </div>
+    <div class="k">Cards</div>
+    <div class="v">Persisted by backend (kuzudb). Not in localStorage.</div>
+  </div>
+
+  <h2><span class="num">05</span> Build order</h2>
+  <p>Suggested sequence. Each step produces a working artifact you can demo.</p>
+  <ul>
+    <li><b>1. Reading surface</b> — paginated two-page spread with real EPUB content. Virtual pagination by font size. Arrow-key turns. No chat yet. <span class="pill">~2 days</span></li>
+    <li><b>2. Sentence anchors rendered</b> — every span gets <code>data-sid="p12.s3"</code>. Verify backend IDs line up. <span class="pill">~0.5 day</span></li>
+    <li><b>3. Fog-of-war cursor</b> — track reading cursor; dim/blur text after it. Advance on page-turn. <span class="pill">~1 day</span></li>
+    <li><b>4. V3 Inline margin column</b> — render cards keyed to visible anchors. Empty state + invitation. <span class="pill">~2 days</span></li>
+    <li><b>5. Selection → Ask flow</b> — highlight phrase, toolbar, create card. Token-stream the answer. <span class="pill">~2 days</span></li>
+    <li><b>6. Notes</b> — same flow, no LLM, body-only card. <span class="pill">~1 day</span></li>
+    <li><b>7. Card states</b> — streaming, long-answer scroll, thread follow-ups, off-screen, cross-page. <span class="pill">~2 days</span></li>
+    <li><b>8. O2 overflow</b> — collapse older cards to 1-liners, expand latest. <span class="pill">~1 day</span></li>
+    <li><b>9. Reading mode (ambitious)</b> — toggle, ambient paper, note-peek on hover, sidebar collapse. <span class="pill">~1.5 days</span></li>
+    <li><b>10. Card detail view</b> — edit + delete. Design pass needed first. <span class="pill">~1 day after design</span></li>
+  </ul>
+
+  <h2><span class="num">06</span> Known gaps / future passes</h2>
+  <div class="warn">
+    <div class="t">Card detail view not designed yet</div>
+    <div class="d">Edit + delete only happen there, per decision. Before build step 10, I should do a quick design pass on this screen.</div>
+  </div>
+  <div class="warn">
+    <div class="t">Mobile / touch</div>
+    <div class="d">Out of scope in v1. Ambitious reading mode's hover-peek has no touch fallback yet — revisit when mobile is on the roadmap.</div>
+  </div>
+  <div class="warn">
+    <div class="t">Virtual pagination engine</div>
+    <div class="d">Not yet prototyped. The ingestion plan describes it; it's real engineering work, not a design task. Build step 1 is where this bites.</div>
+  </div>
+  <div class="warn">
+    <div class="t">Card-to-span connector rendering</div>
+    <div class="d">The margin cards need to draw a subtle line/arc to their anchor span. The mocks use static SVGs; production needs live DOM measurement + ResizeObserver. Flag during step 4.</div>
+  </div>
+
+  <h2><span class="num">07</span> Reference files</h2>
+  <div class="refs">
+    <div class="ref">
+      <div class="tag">Visual spec</div>
+      <div class="title">EPUB Visualizer v6</div>
+      <div class="file">EPUB Visualizer v6.html</div>
+      <div class="desc">Every state and variation. Start at Reading mode → V3 Inline states → O2 overflow.</div>
+    </div>
+    <div class="ref">
+      <div class="tag">Design system</div>
+      <div class="title">BookRAG Design System</div>
+      <div class="file">BookRAG Design System.html</div>
+      <div class="desc">Type, colors, tokens, components. The CSS vars (<code>--paper-0</code>, <code>--accent</code>, etc.) in <code>tokens.css</code> are the contract.</div>
+    </div>
+    <div class="ref">
+      <div class="tag">Pipeline</div>
+      <div class="title">EPUB Ingestion Plan</div>
+      <div class="file">EPUB Ingestion Plan.html</div>
+      <div class="desc">How EPUBs flow into the reader. Frontend reads this to understand the anchor format and pagination strategy.</div>
+    </div>
+    <div class="ref">
+      <div class="tag">Backend contract</div>
+      <div class="title">CLAUDE.md (in backend repo)</div>
+      <div class="file">CLAUDE.md</div>
+      <div class="desc">Ingestion pipeline, kuzudb, embeddings, RAG. Source of truth for anything backend-facing.</div>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+  <div class="meta">END · questions → update this doc, not the conversation</div>
+</div>
+</body>
+</html>

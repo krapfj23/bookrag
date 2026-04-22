@@ -170,10 +170,12 @@ class TestParserCleanerContract:
         full = " ".join(clean_chapters(_build_christmas_carol_chapters()))
         assert "God bless us, every one!" in full
 
-    def test_cleaning_preserves_section_breaks(self):
+    def test_cleaning_canonicalizes_section_breaks(self):
         result = clean_text("First.\n\n* * *\n\nSecond.\n\n---\n\nThird.")
-        assert "* * *" in result
-        assert "---" in result
+        # Scene breaks survive cleaning, rewritten to the canonical *** sentinel.
+        assert result.count("***") == 2
+        assert "* * *" not in result
+        assert "---" not in result
 
     def test_clean_then_rebuild_boundaries(self):
         cleaned = clean_chapters(_build_christmas_carol_chapters())
@@ -186,10 +188,22 @@ class TestParserCleanerContract:
         twice = clean_chapters(once)
         assert once == twice
 
-    def test_unicode_quotes_normalized(self):
+    def test_unicode_quotes_preserved_by_default(self):
+        # Smart quotes survive cleaning so BookNLP's dialogue/speaker detection
+        # works and the reader can style them natively. ASCII folding is opt-in.
         result = clean_text("\u201cBah!\u201d said Scrooge.")
-        assert "\u201c" not in result
+        assert "\u201c" in result
+        assert "\u201d" in result
         assert "Bah!" in result
+
+    def test_unicode_quotes_normalized_when_opted_in(self):
+        from pipeline.text_cleaner import CleaningConfig
+        result = clean_text(
+            "\u201cBah!\u201d said Scrooge.",
+            CleaningConfig(ascii_quotes=True),
+        )
+        assert "\u201c" not in result
+        assert '"Bah!"' in result
 
 
 # ============================================================================

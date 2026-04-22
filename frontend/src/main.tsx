@@ -6,6 +6,7 @@ import "./styles/tokens.css";
 import "./styles/a11y.css";
 import "./styles/animations.css";
 import "./styles/annotations.css";
+import "./styles/reader-typography.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

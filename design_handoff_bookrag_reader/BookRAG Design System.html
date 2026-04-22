@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · Design System</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; height: 100%; }
+  @keyframes brPulse { 0% { box-shadow: 0 0 0 0 currentColor; opacity: 1; } 70% { box-shadow: 0 0 0 6px transparent; opacity: .65; } 100% { box-shadow: 0 0 0 0 transparent; opacity: 1; } }
+  @keyframes brBlink { 50% { opacity: 0; } }
+  .br-tt:hover .br-tt-bubble { opacity: 1 !important; }
+  /* Tweaks panel */
+  .tw-panel { position: fixed; right: 20px; bottom: 20px; z-index: 1000;
+    background: #fff; border: 1px solid #e5e0d4; border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.12); padding: 16px 18px; width: 260px;
+    font-family: "IBM Plex Sans", sans-serif; font-size: 13; color: #201C16;
+    display: none; }
+  .tw-panel.open { display: block; }
+  .tw-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .tw-row label { font-size: 11px; letter-spacing: .4px; text-transform: uppercase; color: #6B6256; }
+  .tw-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tw-chip { padding: 5px 10px; border-radius: 999px; border: 1px solid #e5e0d4;
+    background: #faf7f1; font-size: 12px; cursor: pointer; font-family: inherit; color: inherit; transition: all .15s; }
+  .tw-chip.on { background: #201C16; color: #F4F1EA; border-color: #201C16; }
+  .tw-title { font-size: 13px; font-weight: 600; margin-bottom: 12px; letter-spacing: -.1px; }
+  .tw-swatch { width: 18px; height: 18px; border-radius: 999px; display: inline-block; margin-right: 4px; vertical-align: middle; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Tweaks panel (host-toggled) -->
+  <div class="tw-panel" id="twPanel">
+    <div class="tw-title">Tweaks</div>
+    <div class="tw-row">
+      <label>Accent</label>
+      <div class="tw-chips" id="twAccent">
+        <button class="tw-chip on" data-v="sage"><span class="tw-swatch" style="background:oklch(62% 0.045 145)"></span>sage</button>
+        <button class="tw-chip" data-v="amber"><span class="tw-swatch" style="background:oklch(65% 0.08 65)"></span>amber</button>
+        <button class="tw-chip" data-v="slate"><span class="tw-swatch" style="background:oklch(58% 0.04 240)"></span>slate</button>
+        <button class="tw-chip" data-v="terra"><span class="tw-swatch" style="background:oklch(58% 0.08 40)"></span>terra</button>
+      </div>
+    </div>
+    <div class="tw-row">
+      <label>Paper</label>
+      <div class="tw-chips" id="twPaper">
+        <button class="tw-chip" data-v="warm">warm</button>
+        <button class="tw-chip on" data-v="linen">linen</button>
+        <button class="tw-chip" data-v="old">old</button>
+        <button class="tw-chip" data-v="bone">bone</button>
+      </div>
+    </div>
+    <div class="tw-row">
+      <label>Density</label>
+      <div class="tw-chips" id="twDensity">
+        <button class="tw-chip on" data-v="comfortable">comfortable</button>
+        <button class="tw-chip" data-v="compact">compact</button>
+      </div>
+    </div>
+    <div class="tw-row">
+      <label>Radii</label>
+      <div class="tw-chips" id="twRadii">
+        <button class="tw-chip" data-v="sharp">sharp</button>
+        <button class="tw-chip on" data-v="balanced">balanced</button>
+        <button class="tw-chip" data-v="soft">soft</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+  <script type="text/babel" src="components.jsx"></script>
+  <script type="text/babel" src="components2.jsx"></script>
+  <script type="text/babel" src="screens.jsx"></script>
+
+  <script>
+    /*EDITMODE-BEGIN*/
+    const TWEAKS_DEFAULTS = {
+      "accent": "sage",
+      "paper": "linen",
+      "density": "comfortable",
+      "radii": "balanced"
+    };
+    /*EDITMODE-END*/
+
+    function applyTweaks(t) {
+      document.documentElement.dataset.accent = t.accent;
+      document.documentElement.dataset.paper = t.paper;
+      document.documentElement.dataset.density = t.density;
+      document.documentElement.dataset.radii = t.radii;
+      document.querySelectorAll('.tw-chips').forEach(group => {
+        const key = group.id.replace('tw','').toLowerCase();
+        group.querySelectorAll('.tw-chip').forEach(c => c.classList.toggle('on', c.dataset.v === t[key]));
+      });
+    }
+    const tweaks = { ...TWEAKS_DEFAULTS, ...JSON.parse(localStorage.getItem('br.tweaks') || '{}') };
+    applyTweaks(tweaks);
+
+    // Tweaks host protocol
+    let tweaksOn = false;
+    window.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d.type === '__activate_edit_mode') { tweaksOn = true; document.getElementById('twPanel').classList.add('open'); }
+      if (d.type === '__deactivate_edit_mode') { tweaksOn = false; document.getElementById('twPanel').classList.remove('open'); }
+    });
+    window.parent && window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+
+    document.querySelectorAll('.tw-chips').forEach(group => {
+      const key = group.id.replace('tw','').toLowerCase();
+      group.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.tw-chip'); if (!btn) return;
+        tweaks[key] = btn.dataset.v;
+        localStorage.setItem('br.tweaks', JSON.stringify(tweaks));
+        applyTweaks(tweaks);
+        window.parent && window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: btn.dataset.v } }, '*');
+      });
+    });
+  </script>
+
+  <script type="text/babel">
+    // ────────────────────────────────────────────────────────────────
+    // The canvas — every artboard is an isolated preview
+    // ────────────────────────────────────────────────────────────────
+
+    const Frame = ({ width, height, children, theme = 'light', bg = 'var(--paper-0)', pad = 24 }) => (
+      <div className="br" data-theme={theme} style={{
+        width, height, background: bg, padding: pad, overflow: 'hidden',
+        fontFamily: 'var(--sans)',
+      }}>{children}</div>
+    );
+
+    // ── Token artboards ────────────────────────────────────────────
+    const Swatch = ({ c, name, val }) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 'var(--r-sm)', background: c, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.08)' }}/>
+        <div>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 13, color: 'var(--ink-0)', fontWeight: 500 }}>{name}</div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-2)' }}>{val}</div>
+        </div>
+      </div>
+    );
+
+    const ColorsArtboard = ({ theme = 'light' }) => (
+      <Frame width={520} height={560} theme={theme}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 4 }}>
+          Palette · {theme}
+        </div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink-0)', letterSpacing: -0.3, marginBottom: 20 }}>
+          Paper, ink, one accent.
+        </div>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Paper</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 22 }}>
+          <Swatch c="var(--paper-00)" name="paper-00" val="elevated"/>
+          <Swatch c="var(--paper-0)" name="paper-0" val="base"/>
+          <Swatch c="var(--paper-1)" name="paper-1" val="recess"/>
+          <Swatch c="var(--paper-2)" name="paper-2" val="hairline"/>
+        </div>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Ink</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 22 }}>
+          <Swatch c="var(--ink-0)" name="ink-0" val="primary"/>
+          <Swatch c="var(--ink-1)" name="ink-1" val="secondary"/>
+          <Swatch c="var(--ink-2)" name="ink-2" val="tertiary"/>
+          <Swatch c="var(--ink-3)" name="ink-3" val="muted"/>
+        </div>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Accent (sage)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Swatch c="var(--accent)" name="accent" val="interactive"/>
+          <Swatch c="var(--accent-soft)" name="accent-soft" val="tint"/>
+          <Swatch c="var(--accent-softer)" name="accent-softer" val="wash"/>
+          <Swatch c="var(--accent-deep)" name="accent-deep" val="hover"/>
+        </div>
+      </Frame>
+    );
+
+    const TypographyArtboard = () => (
+      <Frame width={620} height={660}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 6 }}>Type system</div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink-0)', letterSpacing: -0.3, marginBottom: 24 }}>
+          Lora for prose. Plex Sans for chrome.
+        </div>
+
+        <div style={{ borderLeft: '2px solid var(--accent)', paddingLeft: 16, marginBottom: 22 }}>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Lora · 36 · 400</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 36, color: 'var(--ink-0)', letterSpacing: -0.5, lineHeight: 1.1 }}>
+            Display — <span style={{ fontStyle: 'italic' }}>a quiet title.</span>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Lora · 22 · 500</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 22, fontWeight: 500, color: 'var(--ink-0)', letterSpacing: -0.3 }}>
+            Section heading
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Lora · 17 · 400 · line-height 1.7 · reading column</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink-0)', lineHeight: 1.7, maxWidth: 480 }}>
+            Marley was dead, to begin with. There is no doubt whatever about that. The register of his burial was signed by the clergyman, the clerk, the undertaker, and the chief mourner.
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Plex Sans · 14 · 500 · UI default</div>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-0)' }}>
+            Settings · Library · Upload
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Plex Sans · 11 · uppercase · tracking 1.6</div>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-2)' }}>
+            Stave III · your shelf
+          </div>
+        </div>
+      </Frame>
+    );
+
+    const SpacingRadiiArtboard = () => (
+      <Frame width={520} height={480}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 18 }}>
+          Space, radii, shadow
+        </div>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>4-pt scale</div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 24 }}>
+          {[4, 8, 12, 16, 24, 32, 48, 64].map((n) => (
+            <div key={n} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: n, height: n, background: 'var(--accent)', borderRadius: 2 }}/>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>{n}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>Radii</div>
+        <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+          {[['xs',2],['sm',4],['md',6],['lg',10],['xl',16]].map(([k,v]) => (
+            <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 44, height: 44, background: 'var(--paper-1)', borderRadius: `var(--r-${k})`, border: 'var(--hairline)' }}/>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>{k} · {v}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>Elevation</div>
+        <div style={{ display: 'flex', gap: 16 }}>
+          {[1,2,3].map((n) => (
+            <div key={n} style={{
+              width: 90, height: 64, background: 'var(--paper-00)',
+              boxShadow: `var(--shadow-${n})`, borderRadius: 'var(--r-md)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-2)',
+            }}>shadow-{n}</div>
+          ))}
+        </div>
+      </Frame>
+    );
+
+    // ── Component artboards ────────────────────────────────────────
+    const NavArtboard = ({ theme = 'light' }) => (
+      <Frame width={1040} height={112} theme={theme} pad={0}>
+        <NavBar active="library" theme={theme}/>
+      </Frame>
+    );
+
+    const ButtonsArtboard = () => (
+      <Frame width={540} height={340}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 14 }}>Buttons</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Row gap={8}>
+            <Button variant="primary">Continue reading</Button>
+            <Button variant="secondary">Details</Button>
+            <Button variant="ghost">Cancel</Button>
+          </Row>
+          <Row gap={8}>
+            <Button variant="accent" icon={<IcSpark size={13}/>}>Ask BookRAG</Button>
+            <Button variant="accentSoft" icon={<IcHighlight size={13}/>}>Highlight</Button>
+          </Row>
+          <Row gap={8}>
+            <Button size="sm" variant="secondary">Small</Button>
+            <Button size="md" variant="secondary">Medium</Button>
+            <Button size="lg" variant="secondary">Large</Button>
+          </Row>
+          <Row gap={8}>
+            <Button variant="primary" icon={<IcUpload size={13}/>}>Upload</Button>
+            <Button variant="secondary" iconRight={<IcArrowR size={13}/>}>Open book</Button>
+            <Button variant="ghost" disabled>Disabled</Button>
+          </Row>
+          <Row gap={8}>
+            <IconBtn title="settings"><IcSettings/></IconBtn>
+            <IconBtn title="highlight" active><IcHighlight/></IconBtn>
+            <IconBtn title="bookmark"><IcBookmark/></IconBtn>
+            <IconBtn title="copy"><IcCopy/></IconBtn>
+          </Row>
+        </div>
+      </Frame>
+    );
+
+    const ProgressPillArtboard = () => (
+      <Frame width={420} height={240}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 14 }}>Progress pill</div>
+        <Stack gap={14}>
+          <Row gap={10}><ProgressPill page={142} total={228}/></Row>
+          <Row gap={10}><ProgressPill page={142} total={228} variant="soft"/></Row>
+          <Row gap={10}>
+            <ProgressPill page={12} total={96} size="sm"/>
+            <ProgressPill page={48} total={96} size="md" variant="soft"/>
+            <ProgressPill page={96} total={96} size="lg"/>
+          </Row>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)', marginTop: 8 }}>
+            Format: <code style={{ fontFamily: 'var(--mono)' }}>p. {'{page}'} of {'{total}'}</code>
+          </div>
+        </Stack>
+      </Frame>
+    );
+
+    const BookCardArtboard = () => (
+      <Frame width={540} height={460}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 18 }}>Book cards</div>
+        <Row gap={32} align="flex-start">
+          <BookCard title="A Christmas Carol" author="Charles Dickens" page={48} total={96} mood="sage" lastRead="2 hours ago"/>
+          <BookCard title="Piranesi" author="Susanna Clarke" page={88} total={272} mood="paper" lastRead="1 week ago"/>
+        </Row>
+      </Frame>
+    );
+
+    const ChapterRowArtboard = () => (
+      <Frame width={480} height={360} pad={0}>
+        <div style={{ padding: '24px 20px 12px', fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)' }}>Chapter rows</div>
+        <ChapterRow num={1} title="Marley's Ghost" pages="1–23" state="read"/>
+        <ChapterRow num={2} title="The First of the Three Spirits" pages="24–47" state="read"/>
+        <ChapterRow num={3} title="The Second of the Three Spirits" pages="48–72" state="current"/>
+        <ChapterRow num={4} title="The Last of the Spirits" pages="73–88" state="locked"/>
+        <ChapterRow num={5} title="The End of It" pages="89–96" state="locked"/>
+      </Frame>
+    );
+
+    const ChatArtboard = () => (
+      <Frame width={560} height={560} bg="color-mix(in oklab, var(--paper-0) 92%, var(--paper-1))">
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 16 }}>Chat bubbles</div>
+        <Stack gap={20}>
+          <UserBubble pageAt={48}>Who is Marley, really?</UserBubble>
+          <AssistantBubble sources={[{ quote: "Marley was dead, to begin with.", ch: 'Stave I', page: 1 }]}>
+            Jacob Marley was <em>Scrooge's business partner</em>, dead seven years to the day by the time the story opens.
+          </AssistantBubble>
+          <UserBubble>What about the first spirit?</UserBubble>
+          <AssistantBubble streaming>
+            The Ghost of Christmas Past arrives as a figure of paradox — <em>"like a child: yet not so like a child as like an old man."</em> Watch how Dickens uses its light
+          </AssistantBubble>
+        </Stack>
+      </Frame>
+    );
+
+    const HighlightArtboard = () => (
+      <Frame width={520} height={400}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 18 }}>Text states</div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.7, color: 'var(--ink-0)' }}>
+          <p>User <Highlight variant="mark">highlight</Highlight> — soft tint, persists on the page.</p>
+          <p>Active <Highlight variant="selection">selection</Highlight> — while dragging the cursor.</p>
+          <p>Linked <Highlight variant="entity">entity</Highlight> — click to see all mentions up to your page.</p>
+          <p>Cited <Highlight variant="quote">quote</Highlight> — when the assistant points back to source.</p>
+        </div>
+        <div style={{ marginTop: 28, fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)' }}>
+          All states layer cleanly with each other — entity underline + mark background co-exist.
+        </div>
+      </Frame>
+    );
+
+    const BlurArtboard = () => (
+      <Frame width={520} height={460} pad={0}>
+        <div style={{ padding: '24px 28px 12px', fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+          Progressive blur (spoiler veil)
+        </div>
+        <div style={{ position: 'relative', padding: '0 28px 28px', height: 400, overflow: 'hidden' }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.7, color: 'var(--ink-0)' }}>
+            <p>Scrooge closed the window, and examined the door by which the Ghost had entered. It was double-locked, as he had locked it with his own hands, and the bolts were undisturbed.</p>
+            <p>He tried to say "Humbug!" but stopped at the first syllable.</p>
+            <p>And being, from the emotion he had undergone, or the fatigues of the day, or his glimpse of the Invisible World, or the dull conversation of the Ghost, or the lateness of the hour, much in need of repose, he went straight to bed, without undressing.</p>
+            <p>The curtains of his bed were drawn aside; and Scrooge, starting up into a half-recumbent attitude, found himself face to face with the unearthly visitor who drew them.</p>
+          </div>
+          <ProgressiveBlur height={260} locked/>
+        </div>
+      </Frame>
+    );
+
+    const InputsArtboard = () => (
+      <Frame width={520} height={440}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 18 }}>Form inputs</div>
+        <Stack gap={18}>
+          <TextInput label="Book title" placeholder="e.g. A Christmas Carol" value="A Christmas Carol" hint="We'll use this as the display name." icon={<IcBook size={14}/>}/>
+          <TextInput label="Invalid" value="foo@bar" error="That doesn't look like a valid email."/>
+          <TextInput label="Search" placeholder="Search your shelf" icon={<IcSearch size={14}/>}/>
+          <div>
+            <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)', marginBottom: 6, letterSpacing: 0.2 }}>Chat input</div>
+            <ChatInput value="Who is Marley?" onChange={()=>{}}/>
+          </div>
+        </Stack>
+      </Frame>
+    );
+
+    const DropzoneArtboard = () => (
+      <Frame width={540} height={340}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 14 }}>Upload dropzone · idle / hover</div>
+        <Stack gap={14}>
+          <Dropzone/>
+          <Dropzone active/>
+        </Stack>
+      </Frame>
+    );
+
+    const StatusArtboard = () => (
+      <Frame width={540} height={440}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 14 }}>Pipeline status</div>
+        <Row gap={8} style={{ marginBottom: 22, flexWrap: 'wrap' }}>
+          <StatusBadge state="idle"/>
+          <StatusBadge state="queued"/>
+          <StatusBadge state="running"/>
+          <StatusBadge state="done"/>
+          <StatusBadge state="error"/>
+        </Row>
+        <div>
+          <PipelineRow stage="Parse EPUB" desc="Chapter segmentation" meta="0.4s" state="done"/>
+          <PipelineRow stage="Run BookNLP" desc="Entities, coref, quotes" meta="38s" state="done"/>
+          <PipelineRow stage="Discover ontology" desc="BERTopic → OWL" meta="Stave 3 of 5" state="running"/>
+          <PipelineRow stage="Cognee batches" desc="Claude extracts entities" meta="—" state="idle"/>
+        </div>
+      </Frame>
+    );
+
+    const TooltipLockArtboard = () => (
+      <Frame width={520} height={320}>
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 14 }}>Tooltip & lock states</div>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>Tooltip (hover on these)</div>
+        <Row gap={20} style={{ marginBottom: 28, padding: '18px 0' }}>
+          <Tooltip content="Highlight selection"><IconBtn><IcHighlight/></IconBtn></Tooltip>
+          <Tooltip content="Copy quote"><IconBtn><IcCopy/></IconBtn></Tooltip>
+          <Tooltip content="Ask BookRAG about this"><IconBtn><IcSpark/></IconBtn></Tooltip>
+        </Row>
+
+        <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)', marginBottom: 10 }}>Lock states</div>
+        <Stack gap={10}>
+          <LockState state="locked"/>
+          <LockState state="unlocked"/>
+          <LockState state="current"/>
+          <LockState state="spoilerSafe" label="Spoiler-safe through p. 48"/>
+        </Stack>
+      </Frame>
+    );
+
+    // ── Screen artboards (full screens) ────────────────────────────
+    const LibraryAB = () => <Frame width={1040} height={820} pad={0}><LibraryScreen/></Frame>;
+    const ReadingAB = () => <Frame width={1440} height={900} pad={0}><ReadingScreen/></Frame>;
+    const UploadAB  = () => <Frame width={1040} height={900} pad={0}><UploadScreen/></Frame>;
+
+    // ── Canvas ─────────────────────────────────────────────────────
+    const App = () => (
+      <DesignCanvas>
+        <DCSection id="foundations" title="Foundations" subtitle="Color, type, space — the materials.">
+          <DCArtboard id="colors-light" label="Palette · light" width={520} height={560}><ColorsArtboard theme="light"/></DCArtboard>
+          <DCArtboard id="colors-dark"  label="Palette · dark"  width={520} height={560}><ColorsArtboard theme="dark"/></DCArtboard>
+          <DCArtboard id="type" label="Typography" width={620} height={660}><TypographyArtboard/></DCArtboard>
+          <DCArtboard id="space" label="Space · radii · shadow" width={520} height={480}><SpacingRadiiArtboard/></DCArtboard>
+        </DCSection>
+
+        <DCSection id="chrome" title="Chrome" subtitle="Nav, buttons, inputs — the UI surface.">
+          <DCArtboard id="nav-light" label="Top nav · light" width={1040} height={112}><NavArtboard theme="light"/></DCArtboard>
+          <DCArtboard id="nav-dark"  label="Top nav · dark"  width={1040} height={112}><NavArtboard theme="dark"/></DCArtboard>
+          <DCArtboard id="buttons" label="Buttons" width={540} height={340}><ButtonsArtboard/></DCArtboard>
+          <DCArtboard id="inputs" label="Form inputs" width={520} height={440}><InputsArtboard/></DCArtboard>
+          <DCArtboard id="tooltip-lock" label="Tooltip · lock states" width={520} height={320}><TooltipLockArtboard/></DCArtboard>
+        </DCSection>
+
+        <DCSection id="library" title="Library" subtitle="Books, chapters, progress — the shelf.">
+          <DCArtboard id="bookcard" label="Book card" width={540} height={460}><BookCardArtboard/></DCArtboard>
+          <DCArtboard id="chapters" label="Chapter rows" width={480} height={360}><ChapterRowArtboard/></DCArtboard>
+          <DCArtboard id="progress" label="Progress pill" width={420} height={240}><ProgressPillArtboard/></DCArtboard>
+        </DCSection>
+
+        <DCSection id="reading" title="Reading & chat" subtitle="The core experience — prose, highlights, the spoiler veil, margin notes.">
+          <DCArtboard id="highlights" label="Highlight & selection states" width={520} height={400}><HighlightArtboard/></DCArtboard>
+          <DCArtboard id="blur" label="Progressive blur overlay" width={520} height={460}><BlurArtboard/></DCArtboard>
+          <DCArtboard id="chat" label="Chat bubbles" width={560} height={560}><ChatArtboard/></DCArtboard>
+        </DCSection>
+
+        <DCSection id="upload" title="Ingestion" subtitle="Dropzone and pipeline — long-running work, stated calmly.">
+          <DCArtboard id="dropzone" label="Dropzone" width={540} height={340}><DropzoneArtboard/></DCArtboard>
+          <DCArtboard id="pipeline" label="Pipeline status" width={540} height={440}><StatusArtboard/></DCArtboard>
+        </DCSection>
+
+        <DCSection id="screens" title="Screens in use" subtitle="The system composed — click any to focus.">
+          <DCArtboard id="screen-library" label="Library" width={1040} height={820}><LibraryAB/></DCArtboard>
+          <DCArtboard id="screen-reading" label="Reading + chat" width={1440} height={900}><ReadingAB/></DCArtboard>
+          <DCArtboard id="screen-upload" label="Upload + pipeline" width={1040} height={900}><UploadAB/></DCArtboard>
+        </DCSection>
+
+        <DCPostIt top={20} left={60} rotate={-1.5}>
+          All components built from scratch — no existing frontend. Use as reference for the Next.js build.
+        </DCPostIt>
+      </DesignCanvas>
+    );
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

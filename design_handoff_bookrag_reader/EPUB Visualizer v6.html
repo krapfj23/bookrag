@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · EPUB Visualizer v6 — V3 states + overflow</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; height: 100%; font-family: var(--sans); color: var(--ink-0); }
+  @keyframes fadeUp { from { opacity: 0; transform: translate(-50%, calc(-100% - 6px)); } to { opacity: 1; transform: translate(-50%, -100%); } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  .dropcap::first-letter {
+    font-family: var(--serif); float: left; font-size: 54px; line-height: .92;
+    padding: 4px 8px 0 0; color: var(--ink-0); font-weight: 500;
+  }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script>
+    document.documentElement.dataset.paper = 'linen';
+    document.documentElement.dataset.accent = 'sage';
+    document.documentElement.dataset.radii = 'balanced';
+  </script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+  <script type="text/babel" src="reader-shared.jsx"></script>
+  <script type="text/babel" src="reader-var-ab.jsx"></script>
+  <script type="text/babel" src="reader-var-cd.jsx"></script>
+  <script type="text/babel" src="reader-var-ef.jsx"></script>
+  <script type="text/babel" src="reader-var-d-plus.jsx"></script>
+  <script type="text/babel" src="reader-chat-variations.jsx"></script>
+  <script type="text/babel" src="reader-chat-animations.jsx"></script>
+  <script type="text/babel" src="reader-v3-states.jsx"></script>
+  <script type="text/babel" src="reader-reading-mode.jsx"></script>
+
+  <script type="text/babel">
+    const Frame = ({ children, bg = 'var(--paper-0)' }) => (
+      <div style={{ width: '100%', height: '100%', background: bg, overflow: 'hidden' }}>
+        {children}
+      </div>
+    );
+
+    const App = () => (
+      <DesignCanvas>
+        <DCSection
+          id="reading-mode"
+          title="Reading mode · sidebar hidden"
+          subtitle="Toggle via the pill in the top-right. When OFF, the V3 Inline sidebar is visible with notes and asks. When ON, the sidebar disappears and prior activity stays legible on the page itself — asked phrases glow dark green, noted phrases are underlined. Two takes: conservative keeps it familiar; ambitious adds pacing, ambient paper, and note-peek on hover."
+        >
+          <DCArtboard id="R1off" label="R1 · Conservative · OFF (sidebar visible)" width={1500} height={900}>
+            <Frame><ReadingModeConservativeOff/></Frame>
+          </DCArtboard>
+          <DCArtboard id="R1on" label="R1 · Conservative · ON (sidebar hidden, indicators on page)" width={1500} height={900}>
+            <Frame><ReadingModeConservative/></Frame>
+          </DCArtboard>
+          <DCArtboard id="R2off" label="R2 · Ambitious · OFF (sidebar visible)" width={1500} height={900}>
+            <Frame><ReadingModeAmbitiousOff/></Frame>
+          </DCArtboard>
+          <DCArtboard id="R2on" label="R2 · Ambitious · ON (pacing, ambient paper, wider margins)" width={1500} height={900}>
+            <Frame><ReadingModeAmbitious/></Frame>
+          </DCArtboard>
+          <DCArtboard id="R2hover" label="R2 · Ambitious · note peek on hover" width={1500} height={960}>
+            <Frame><ReadingModeAmbitiousWithForcedHover/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="v3-atomic-states"
+          title="V3 Inline · atomic states"
+          subtitle="Every shape the right-hand column can take: before you ask, while the model is thinking, after a long answer, with threaded follow-ups, and when the anchored passage isn't currently in view. These are the states the UI has to handle correctly."
+        >
+          <DCArtboard id="S1" label="S1 · Empty · before first question" width={1500} height={900}>
+            <Frame><V3_Empty/></Frame>
+          </DCArtboard>
+          <DCArtboard id="S2" label="S2 · Single card · one question answered" width={1500} height={900}>
+            <Frame><V3_Single/></Frame>
+          </DCArtboard>
+          <DCArtboard id="S3" label="S3 · Streaming · answer arriving + thinking placeholder" width={1500} height={900}>
+            <Frame><V3_Streaming/></Frame>
+          </DCArtboard>
+          <DCArtboard id="S4" label="S4 · Long answer · scrolls within the card" width={1500} height={900}>
+            <Frame><V3_LongAnswer/></Frame>
+          </DCArtboard>
+          <DCArtboard id="S5" label="S5 · Thread · follow-ups nested under the card" width={1500} height={900}>
+            <Frame><V3_Thread/></Frame>
+          </DCArtboard>
+          <DCArtboard id="S6" label="S6 · Off-screen anchor · 'scroll up' indicator" width={1500} height={900}>
+            <Frame><V3_Offscreen/></Frame>
+          </DCArtboard>
+          <DCArtboard id="S7" label="S7 · Cross-page reference · card from prior page" width={1500} height={900}>
+            <Frame><V3_CrossPage/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="v3-overflow"
+          title="V3 Inline · overflow strategies"
+          subtitle="What happens when a spread accumulates 5, 7, 10 questions. Four approaches, each with a different tradeoff between density, readability, and the feeling of a working margin."
+        >
+          <DCArtboard id="O1" label="O1 · Scroll · column scrolls independently" width={1500} height={900}>
+            <Frame><V3_OverflowScroll/></Frame>
+          </DCArtboard>
+          <DCArtboard id="O2" label="O2 · Collapse · older cards → 1-line summaries" width={1500} height={900}>
+            <Frame><V3_OverflowCollapse/></Frame>
+          </DCArtboard>
+          <DCArtboard id="O3" label="O3 · Stack · pile of cards, newest on top" width={1500} height={900}>
+            <Frame><V3_OverflowStack/></Frame>
+          </DCArtboard>
+          <DCArtboard id="O4" label="O4 · Margin dots · older cards become dots in margin" width={1500} height={900}>
+            <Frame><V3_OverflowDots/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="chat-open-anim"
+          title="Chat open — transition animations"
+          subtitle="How chat arrives on screen when Ask is triggered. Tap Replay on any artboard to see it again."
+        >
+          <DCArtboard id="AN1" label="V1 Drawer · book shifts left, drawer slides in from right" width={1720} height={1020}>
+            <Frame><AnimChatV1/></Frame>
+          </DCArtboard>
+          <DCArtboard id="AN2" label="V2 Sheet · book lifts, sheet rises from bottom" width={1500} height={1020}>
+            <Frame><AnimChatV2/></Frame>
+          </DCArtboard>
+          <DCArtboard id="AN3" label="V3 Inline · cards flip in from phrase, staggered" width={1500} height={900}>
+            <Frame><AnimChatV3/></Frame>
+          </DCArtboard>
+          <DCArtboard id="AN4" label="V4 Split · page slides left, chat fades in right" width={1600} height={1020}>
+            <Frame><AnimChatV4/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="chat-exploration"
+          title="Chat — four directions"
+          subtitle="Bigger surfaces, better alignment, four distinct takes. Pick one (or mix) to take forward."
+        >
+          <DCArtboard id="CV1" label="V1 · Side drawer · 520px wide, full-height" width={1720} height={1020}>
+            <Frame><ChatV1_Drawer/></Frame>
+          </DCArtboard>
+          <DCArtboard id="CV1b" label="V1 · Side drawer · thread anchored to p. 2" width={1720} height={1020}>
+            <Frame><ChatV1_Drawer thread/></Frame>
+          </DCArtboard>
+          <DCArtboard id="CV2" label="V2 · Bottom sheet · book stays centered" width={1500} height={1020}>
+            <Frame><ChatV2_BottomSheet/></Frame>
+          </DCArtboard>
+          <DCArtboard id="CV3" label="V3 · Inline note-cards pinned in the margin" width={1500} height={900}>
+            <Frame><ChatV3_Inline/></Frame>
+          </DCArtboard>
+          <DCArtboard id="CV4" label="V4 · Split view · equal weight reading + chat" width={1600} height={1020}>
+            <Frame><ChatV4_Split/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="spreads"
+          title="Paginated — book-like spreads"
+          subtitle="Two-page book object; the whole page is the surface of interaction."
+        >
+          <DCArtboard id="A1" label="A · Two-page spread · clean" width={1440} height={900}>
+            <Frame><VarA_Spread/></Frame>
+          </DCArtboard>
+          <DCArtboard id="A2" label="A · Two-page spread · selection toolbar" width={1440} height={900}>
+            <Frame><VarA_Spread showSelection/></Frame>
+          </DCArtboard>
+          <DCArtboard id="A3" label="A · Two-page spread · spoiler fog on right page" width={1440} height={900}>
+            <Frame><VarA_Spread showFog/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="marginalia"
+          title="Paginated — editorial spread with marginalia"
+          subtitle="Two pages framed by outer rails. RAG highlights, entity links, and user notes live in the margins."
+        >
+          <DCArtboard id="D1" label="D · Marginalia spread · default" width={1600} height={900}>
+            <Frame><VarD_Marginalia/></Frame>
+          </DCArtboard>
+          <DCArtboard id="D1b" label="D · Marginalia spread · with keyboard hints" width={1600} height={900}>
+            <Frame><SpreadD mode="rail" showTurnHint/></Frame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCPostIt top={20} left={60} rotate={-1.6} width={270}>
+          <b>Start here.</b> Reading mode — toggle in the top bar. Two variants: conservative and ambitious. Asked phrases glow green; notes are underlined.
+        </DCPostIt>
+        <DCPostIt top={20} left={350} rotate={1.2} width={270}>
+          Below: V3 Inline <b>atomic states</b> (empty, streaming, long, thread, off-screen, cross-page) and four <b>overflow strategies</b>.
+        </DCPostIt>
+        <DCPostIt top={20} left={640} rotate={-0.6} width={260}>
+          Everything else from v5 (animations, chat directions, spreads, marginalia) preserved further down.
+        </DCPostIt>
+      </DesignCanvas>
+    );
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

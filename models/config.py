@@ -100,6 +100,11 @@ class BookRAGConfig(BaseSettings):
     remove_copyright: bool = True
     keep_epigraphs: bool = True
     keep_section_breaks: bool = True
+    # When False (default), smart quotes and em-/en-dashes survive cleaning.
+    # BookNLP uses curly quote pairs for dialogue/speaker detection, and the
+    # reader styles them natively. Flip to True only for downstream consumers
+    # that require ASCII-only text.
+    ascii_quotes: bool = False
 
     # Paths
     data_dir: Path = Path("data")

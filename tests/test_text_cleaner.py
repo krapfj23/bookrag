@@ -476,38 +476,42 @@ class TestWhitespaceNormalization:
 # ============================================================================
 
 class TestSectionBreaks:
-    """Per plan: KEEP section breaks (lines of asterisks, dashes, or blank-line separators)."""
+    """Scene breaks survive cleaning and normalize to the canonical *** sentinel.
 
-    def test_asterisks_preserved_by_default(self):
-        text = "Before\n\n* * *\n\nAfter"
-        result = clean_text(text)
-        assert "* * *" in result
+    The reader detects this exact sentinel and renders an ornamental dinkus;
+    BookNLP treats it as an inert 3-char paragraph.
+    """
 
-    def test_dashes_preserved_by_default(self):
-        text = "Before\n\n---\n\nAfter"
-        result = clean_text(text)
-        assert "---" in result
+    def test_spaced_asterisks_normalized(self):
+        result = clean_text("Before\n\n* * *\n\nAfter")
+        assert "***" in result
+        assert "* * *" not in result
 
-    def test_equals_preserved_by_default(self):
-        text = "Before\n\n===\n\nAfter"
-        result = clean_text(text)
-        assert "===" in result
+    def test_dashes_normalized(self):
+        result = clean_text("Before\n\n---\n\nAfter")
+        assert "***" in result
 
-    def test_tildes_preserved_by_default(self):
-        text = "Before\n\n~~~\n\nAfter"
-        result = clean_text(text)
-        assert "~~~" in result
+    def test_equals_normalized(self):
+        result = clean_text("Before\n\n===\n\nAfter")
+        assert "***" in result
+
+    def test_tildes_normalized(self):
+        result = clean_text("Before\n\n~~~\n\nAfter")
+        assert "***" in result
+
+    def test_hash_normalized(self):
+        result = clean_text("Before\n\n###\n\nAfter")
+        assert "***" in result
+
+    def test_dinkus_already_canonical_survives(self):
+        result = clean_text("Before\n\n***\n\nAfter")
+        assert "***" in result
 
     def test_section_breaks_removed_when_configured(self):
         config = CleaningConfig(keep_section_breaks=False)
-        text = "Before\n\n* * *\n\nAfter"
-        result = clean_text(text, config)
+        result = clean_text("Before\n\n* * *\n\nAfter", config)
         assert "* * *" not in result
-
-    def test_hash_breaks_preserved(self):
-        text = "Before\n\n###\n\nAfter"
-        result = clean_text(text)
-        assert "###" in result
+        assert "***" not in result
 
 
 # ============================================================================
@@ -567,8 +571,9 @@ class TestCleanTextIntegration:
         assert "Chapter I    1" not in result
         assert "Chapter III  42" not in result
 
-        # Section break preserved
-        assert "* * *" in result
+        # Section break preserved and canonicalized to ***
+        assert "***" in result
+        assert "* * *" not in result
 
         # nbsp replaced
         assert "\u00a0" not in result

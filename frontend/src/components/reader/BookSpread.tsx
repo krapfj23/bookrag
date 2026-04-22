@@ -67,7 +67,15 @@ function PageSide({
           paragraphIdx={p.paragraph_idx}
           sentences={p.sentences}
           fogStartSid={cursor}
-          dropCap={dropCapFirst && i === 0 && !p.isContinuation}
+          // Drop cap only applies to the first BODY paragraph of the first
+          // spread — never to scene breaks or epigraphs.
+          dropCap={
+            dropCapFirst &&
+            i === 0 &&
+            !p.isContinuation &&
+            (p.kind ?? "body") === "body"
+          }
+          kind={p.kind}
           marksBySid={marksBySid}
           onMarkClick={onMarkClick}
         />

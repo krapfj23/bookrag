@@ -1,0 +1,77 @@
+/* ─────────────────────────────────────────────────────────
+   Reader typography — drop caps, scene breaks, epigraphs.
+   Applied inside .rr-page; tokens.css supplies colors + serif.
+   ───────────────────────────────────────────────────────── */
+
+.rr-para {
+  /* Hanging punctuation gives quoted dialogue the right optical edge. */
+  hanging-punctuation: first last;
+  text-wrap: pretty;
+}
+
+/* ── Drop cap ─────────────────────────────────────────────
+   Applied to the first body paragraph of the first spread.
+   Uses ::first-letter so selection + anchoring still work. */
+.rr-dropcap::first-letter {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 3.8em;
+  line-height: 0.82;
+  float: left;
+  padding: 0.08em 0.12em 0 0;
+  margin-top: 0.06em;
+  color: var(--ink-0);
+  /* Tiny optical tune so serifs don't kiss the baseline text. */
+  shape-outside: margin-box;
+}
+
+/* Ask/note marks sitting on the drop-capped sentence shouldn't get swallowed
+   by the floated glyph. */
+.rr-dropcap {
+  clear: both;
+}
+
+/* ── Scene break ──────────────────────────────────────────
+   "* * *" ornament between chapter sections. Non-interactive;
+   data-sid is retained so cards anchor cleanly past the break. */
+.rr-scene-break {
+  text-align: center;
+  color: var(--ink-3);
+  font-family: var(--serif);
+  font-size: 1.05em;
+  letter-spacing: 0.55em;
+  /* Whitespace around the ornament gives the eye a real pause. */
+  margin: 1.6em 0 1.4em;
+  user-select: none;
+  /* The shifted letter-spacing pushes the last glyph rightward; compensate. */
+  padding-left: 0.55em;
+}
+
+.rr-scene-break > span {
+  /* Defeat justified text: keep the dinkus centered as one unit. */
+  display: inline-block;
+}
+
+/* ── Epigraph ─────────────────────────────────────────────
+   Opening-quote block at chapter head. Italic, inset, smaller.
+   The text is still selectable and anchorable. */
+.rr-epigraph {
+  font-style: italic;
+  font-size: 0.94em;
+  color: var(--ink-1);
+  padding: 0 1.6em;
+  margin: 0 0 1.6em;
+  text-align: left;
+  /* Subtle vertical hairline on the left — unobtrusive in the linen
+     palette; disappears in dark mode gracefully. */
+  border-left: 1px solid var(--paper-2);
+  padding-left: 1.2em;
+}
+
+.rr-epigraph::first-letter {
+  /* Don't drop-cap an epigraph even if rr-dropcap is accidentally applied. */
+  font-size: inherit;
+  float: none;
+  padding: 0;
+  margin: 0;
+}

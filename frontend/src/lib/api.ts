@@ -141,9 +141,13 @@ export type ChapterSummary = {
 };
 
 export type AnchoredSentence = { sid: string; text: string };
+export type ParagraphKind = "body" | "scene_break" | "epigraph";
 export type AnchoredParagraph = {
   paragraph_idx: number;
   sentences: AnchoredSentence[];
+  // Optional: missing on responses from pre-Phase-A backends; the renderer
+  // treats undefined as "body".
+  kind?: ParagraphKind;
 };
 
 export type Chapter = {

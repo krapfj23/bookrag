@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>BookRAG · EPUB Ingestion Plan</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="tokens.css"/>
+<style>
+  html, body { margin: 0; padding: 0; background: var(--paper-1); font-family: var(--sans); color: var(--ink-0); }
+  .page { max-width: 1180px; margin: 0 auto; padding: 56px 56px 80px; background: var(--paper-0); min-height: 100vh; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 40px; letter-spacing: -0.6px; margin: 0 0 6px; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 20px; letter-spacing: -0.2px; margin: 40px 0 14px; display: flex; align-items: baseline; gap: 10px; }
+  h2 .num { font-family: var(--mono); font-size: 12px; color: var(--ink-3); font-weight: 500; }
+  h3 { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); font-weight: 600; margin: 18px 0 8px; }
+  p { line-height: 1.62; color: var(--ink-1); margin: 0 0 12px; max-width: 72ch; }
+  .lead { font-family: var(--serif); font-size: 18px; color: var(--ink-1); line-height: 1.55; max-width: 62ch; margin-bottom: 28px; }
+  .grid { display: grid; gap: 16px; }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--paper-00); border: 1px solid var(--paper-2); border-radius: 12px; padding: 18px 20px; }
+  .card .tag { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; margin-bottom: 6px; }
+  .card .title { font-family: var(--serif); font-size: 16px; color: var(--ink-0); margin-bottom: 6px; font-weight: 500; }
+  .card p { font-size: 13.5px; margin: 0; max-width: none; }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--paper-1); padding: 1px 6px; border-radius: 4px; color: var(--ink-1); }
+  .pipeline { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 12px 0 8px; }
+  .stage { padding: 12px 14px; background: var(--paper-00); border: 1px solid var(--paper-2); border-radius: 10px; position: relative; }
+  .stage .n { font-family: var(--mono); font-size: 10px; color: var(--ink-3); font-weight: 500; }
+  .stage .t { font-family: var(--serif); font-size: 14px; color: var(--ink-0); font-weight: 500; letter-spacing: -0.1px; margin-top: 2px; }
+  .stage .d { font-size: 11.5px; color: var(--ink-2); margin-top: 6px; line-height: 1.5; }
+  .arrow { position: absolute; right: -10px; top: 50%; transform: translateY(-50%); color: var(--paper-3); font-family: var(--mono); z-index: 2; }
+  .gotchas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .gotcha { padding: 14px 16px; background: var(--paper-0); border-radius: 10px; border-left: 3px solid oklch(58% 0.1 55); }
+  .gotcha .t { font-family: var(--serif); font-size: 14px; color: var(--ink-0); margin-bottom: 4px; font-weight: 500; }
+  .gotcha .d { font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+  .checklist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; margin-top: 6px; }
+  .check { display: flex; gap: 10px; align-items: baseline; font-size: 13px; color: var(--ink-1); line-height: 1.5; padding: 6px 0; }
+  .check .b { width: 14px; height: 14px; border-radius: 4px; background: var(--accent-softer); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .check.skip .b { background: var(--paper-2); color: var(--ink-3); }
+  .rule { height: 1px; background: var(--paper-2); margin: 32px 0; }
+  .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.4px; }
+  .callout { padding: 16px 18px; background: var(--accent-softer); border-radius: 10px; border-left: 3px solid var(--accent); font-family: var(--serif); font-size: 14.5px; color: var(--ink-0); line-height: 1.6; max-width: 78ch; }
+  .mini-chart { display: flex; gap: 16px; align-items: stretch; }
+  .mini-chart > div { flex: 1; padding: 14px; background: var(--paper-0); border-radius: 8px; }
+  .mini-chart .lbl { font-size: 10px; letter-spacing: 1.1px; color: var(--ink-3); font-weight: 600; text-transform: uppercase; margin-bottom: 6px; }
+  .mini-chart .val { font-family: var(--serif); font-size: 15px; color: var(--ink-0); line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="meta">BOOKRAG · ENGINEERING + DESIGN · INGESTION PLAN</div>
+    <h1>EPUB → reading surface</h1>
+    <p class="lead">
+      What it takes to get the V3 reading experience — proper typography, drop caps, hyphenation, highlighted passages linked to chat cards — out of a real EPUB. The short answer: yes, largely. Below is the pipeline, what's realistic, and where the traps are.
+    </p>
+
+    <div class="callout">
+      An EPUB is a zip of XHTML + CSS + images + an OPF manifest. Everything on the page is already semantic HTML — we don't render it, we <em>re-render</em> it through our own typography layer. What we control is segmentation, normalization, and the chat-anchoring layer on top.
+    </div>
+
+    <h2><span class="num">01</span> Pipeline</h2>
+    <div class="pipeline">
+      <div class="stage">
+        <div class="n">STAGE 1</div>
+        <div class="t">Unzip &amp; parse</div>
+        <div class="d">Read <code>.opf</code> manifest. Order chapters by <code>spine</code>. Extract XHTML, CSS, images.</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="stage">
+        <div class="n">STAGE 2</div>
+        <div class="t">Normalize HTML</div>
+        <div class="d">Strip publisher CSS. Keep structure: <code>p</code>, <code>h1–h6</code>, <code>blockquote</code>, <code>em</code>, <code>img</code>, footnotes.</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="stage">
+        <div class="n">STAGE 3</div>
+        <div class="t">Segment</div>
+        <div class="d">Paragraphs → sentences → token spans with stable IDs (<code>p12.s3</code>). This is the anchor system.</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="stage">
+        <div class="n">STAGE 4</div>
+        <div class="t">Paginate virtually</div>
+        <div class="d">Run CSS multi-column layout at the design size. Snapshot which spans live on which page.</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="stage">
+        <div class="n">STAGE 5</div>
+        <div class="t">Index for RAG</div>
+        <div class="d">Embed paragraphs with their IDs attached. At query time, retrieved chunks cite back to <code>p12.s3</code>.</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="stage">
+        <div class="n">STAGE 6</div>
+        <div class="t">Render + anchor</div>
+        <div class="d">Draw pages through our typography. Chat cards attach to span IDs via DOM refs.</div>
+      </div>
+    </div>
+
+    <h2><span class="num">02</span> What's realistic — and what needs work</h2>
+    <div class="checklist">
+      <div class="check"><span class="b">✓</span> <span><b>Typography</b> — font family, size, line height, justify, hyphenation. Our CSS, not the publisher's.</span></div>
+      <div class="check"><span class="b">✓</span> <span><b>Drop caps</b> — applied via <code>::first-letter</code> on chapter-opening paragraphs.</span></div>
+      <div class="check"><span class="b">✓</span> <span><b>Highlighted phrase anchoring</b> — every sentence has a stable span ID.</span></div>
+      <div class="check"><span class="b">✓</span> <span><b>Chapter segmentation</b> — <code>spine</code> gives us chapters directly.</span></div>
+      <div class="check"><span class="b">✓</span> <span><b>Images inline</b> — normalize paths, lazy-load, preserve caption.</span></div>
+      <div class="check"><span class="b">✓</span> <span><b>Two-page spread layout</b> — CSS columns with <code>column-count: 2</code> and <code>column-fill: auto</code>.</span></div>
+      <div class="check skip"><span class="b">!</span> <span><b>Page numbers</b> — EPUBs don't have them. We <em>generate</em> them from virtual pagination at our chosen font size.</span></div>
+      <div class="check skip"><span class="b">!</span> <span><b>Footnotes</b> — typically <code>epub:type="noteref"</code>. Need to render as popovers, not jump to back matter.</span></div>
+      <div class="check skip"><span class="b">!</span> <span><b>Tables / equations</b> — most novels lack them, but technical books do. Render, don't paginate through.</span></div>
+      <div class="check skip"><span class="b">!</span> <span><b>DRM-locked EPUBs</b> — out of scope. User supplies the file; we assume it's readable.</span></div>
+    </div>
+
+    <h2><span class="num">03</span> Gotchas</h2>
+    <div class="gotchas">
+      <div class="gotcha">
+        <div class="t">Publisher CSS is a minefield</div>
+        <div class="d">Many EPUBs ship styles that fight our typography. Strip everything except structural elements and their roles — ignore font-family, colors, sizing from the source.</div>
+      </div>
+      <div class="gotcha">
+        <div class="t">Stable IDs across re-flows</div>
+        <div class="d">A chat card anchors to <code>p12.s3</code>. If we re-paginate (different font size), that span moves to a different page. The card follows the span, not the page.</div>
+      </div>
+      <div class="gotcha">
+        <div class="t">Virtual "pages" aren't real</div>
+        <div class="d">"Page 2 of 176" depends on font size, column count, viewport. Show <em>location-like</em> progress plus page-at-current-settings.</div>
+      </div>
+      <div class="gotcha">
+        <div class="t">Footnotes interrupt flow</div>
+        <div class="d">EPUB footnotes usually link to back-matter. For in-flow reading, intercept the link and render as a tethered popover next to the reference.</div>
+      </div>
+      <div class="gotcha">
+        <div class="t">Image-heavy chapters</div>
+        <div class="d">Some chapters are mostly plates. Don't try to paginate around them — let them take full spreads, and skip them for RAG indexing.</div>
+      </div>
+      <div class="gotcha">
+        <div class="t">Fog-of-war + pagination</div>
+        <div class="d">The cutoff word needs to stay on a page boundary. Virtual pagination must know where the reader left off, so the next spread opens at the right sentence.</div>
+      </div>
+    </div>
+
+    <h2><span class="num">04</span> Anchoring chat to text</h2>
+    <p>
+      Every sentence gets a stable ID at ingestion time. The chat panel stores cards keyed by those IDs. At render, we find the DOM node by <code>[data-sid="p12.s3"]</code> and draw the connector from the card to it. If the ID isn't on the current spread (reader scrolled or turned pages), the card shows <em>↑ scroll up</em> or <em>← p. 1</em> and offers a jump.
+    </p>
+    <div class="mini-chart">
+      <div>
+        <div class="lbl">At ingestion</div>
+        <div class="val"><code>&lt;p id="p12"&gt;…<br/>&lt;span data-sid="p12.s3"&gt;Scrooge signed it.&lt;/span&gt;…</code></div>
+      </div>
+      <div>
+        <div class="lbl">In the index</div>
+        <div class="val">Chunk embedding carries span IDs. Retrieval returns <code>{ quote, span: "p12.s3", chapter: 1 }</code>.</div>
+      </div>
+      <div>
+        <div class="lbl">On the page</div>
+        <div class="val">Card pins to <code>document.querySelector('[data-sid="p12.s3"]')</code>. Scroll/page turn updates connector.</div>
+      </div>
+    </div>
+
+    <h2><span class="num">05</span> What to change in current implementation</h2>
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="tag">REPLACE</div>
+        <div class="title">Infinite scroll → paginated spread</div>
+        <p>Use CSS multi-column with <code>column-count: 2</code>, <code>column-fill: auto</code>, fixed height. Each "page" is one view of the two columns. Advance by translating the column track, not scrolling.</p>
+      </div>
+      <div class="card">
+        <div class="tag">ADD</div>
+        <div class="title">Span-level IDs at ingestion</div>
+        <p>Tokenizer walks the XHTML, assigns <code>p{n}.s{m}</code> to each sentence. Index chunks carry these IDs so every citation is anchorable.</p>
+      </div>
+      <div class="card">
+        <div class="tag">ADD</div>
+        <div class="title">Virtual pagination engine</div>
+        <p>Given a font size + viewport, compute which spans live on which page. Fast — runs on chapter load, caches per (font size, width).</p>
+      </div>
+      <div class="card">
+        <div class="tag">ADD</div>
+        <div class="title">Card-to-span positioning</div>
+        <p>On render, each chat card asks the DOM for its anchor span's bounding box and draws the connector. ResizeObserver keeps it in sync.</p>
+      </div>
+      <div class="card">
+        <div class="tag">KEEP</div>
+        <div class="title">Fog-of-war cutoff logic</div>
+        <p>The "already read up to span X" state is agnostic to the layout — works whether scroll or paginated. Just query: "is this span ≤ the reading cursor?"</p>
+      </div>
+      <div class="card">
+        <div class="tag">KEEP</div>
+        <div class="title">RAG retrieval layer</div>
+        <p>No change to embeddings or retrieval. We're only changing how retrieved chunks display — they now ship with span IDs.</p>
+      </div>
+    </div>
+
+    <div class="rule"></div>
+    <div class="meta">END · V3 covers all of this · see EPUB Visualizer v6.html for atomic states</div>
+  </div>
+</body>
+</html>

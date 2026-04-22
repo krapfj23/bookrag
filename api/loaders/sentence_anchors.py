@@ -14,7 +14,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+
+# Paragraph kinds drive the reader's visual treatment:
+#   body        → normal prose
+#   scene_break → centered dinkus ornament (clean_text emits "***")
+#   epigraph    → italic blockquote at chapter head, with attribution
+ParagraphKind = Literal["body", "scene_break", "epigraph"]
 
 
 class AnchoredSentence(BaseModel):
@@ -25,9 +34,87 @@ class AnchoredSentence(BaseModel):
 class AnchoredParagraph(BaseModel):
     paragraph_idx: int
     sentences: list[AnchoredSentence]
+    kind: ParagraphKind = "body"
 
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])[\"')\]]*\s+(?=[A-Z\"'(\[])")
+
+# A scene-break paragraph contains only ornament characters. The cleaner
+# canonicalizes to "***" but reader UIs also render legacy variants.
+_SCENE_BREAK_TEXT_RE = re.compile(
+    r"^("
+    r"\*{3,}"
+    r"|\*(?:\s+\*){2,}"
+    r"|-{3,}|={3,}|~{3,}|#{3,}"
+    r"|[•·](?:\s*[•·]){2,}"
+    r"|⁂|⁑|⁕|⁖"
+    r")$"
+)
+
+# Epigraph detection: a chapter-opening block that is (a) wholly inside
+# quotation marks, or (b) a block whose first line is so-quoted and whose
+# last line begins with an em-dash/en-dash/hyphen attribution.
+_EPIGRAPH_ATTR_RE = re.compile(r"^\s*[—–-]\s*\S+")
+_OPENING_QUOTE_CHARS = "\"“‘«『「"
+_CLOSING_QUOTE_CHARS = "\"”’»』」"
+
+
+def _is_scene_break_text(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    return bool(_SCENE_BREAK_TEXT_RE.match(stripped))
+
+
+def _is_epigraph_paragraph(text: str, position: int) -> bool:
+    """Heuristic: short, quote-wrapped paragraph near chapter start.
+
+    `position` is the paragraph index within the chapter (0-based). Only
+    paragraphs in the first 3 positions are considered.
+    """
+    if position >= 3:
+        return False
+    stripped = text.strip()
+    if not stripped or len(stripped) > 600:
+        return False
+    first = stripped[0]
+    if first not in _OPENING_QUOTE_CHARS:
+        return False
+    # Accept either a fully-enclosed quote or one that ends before the
+    # final attribution line (em-dash followed by a source).
+    lines = [ln for ln in stripped.splitlines() if ln.strip()]
+    if not lines:
+        return False
+    last = lines[-1].strip()
+    if last and last[-1] in _CLOSING_QUOTE_CHARS:
+        return True
+    if _EPIGRAPH_ATTR_RE.match(last):
+        return True
+    return False
+
+
+def classify_paragraphs(
+    paragraphs: list[AnchoredParagraph],
+) -> list[AnchoredParagraph]:
+    """Set `kind` on each paragraph based on its rendered text.
+
+    Mutates in place and returns the list for convenience. Scene-break
+    paragraphs are collapsed so their text is exactly "***" regardless
+    of the source form — the reader's renderer keys off that.
+    """
+    for position, para in enumerate(paragraphs):
+        raw_text = " ".join(s.text for s in para.sentences).strip()
+        if _is_scene_break_text(raw_text):
+            para.kind = "scene_break"
+            # Normalize the visible text to the canonical sentinel so the
+            # reader can render an ornament without string-matching variants.
+            para.sentences = [
+                AnchoredSentence(sid=para.sentences[0].sid, text="***")
+            ]
+            continue
+        if _is_epigraph_paragraph(raw_text, position):
+            para.kind = "epigraph"
+    return paragraphs
 
 
 def regex_fallback_paragraphs(paragraphs: list[str]) -> list[AnchoredParagraph]:
