@@ -229,6 +229,19 @@ class TestChapterChunk:
         c = ChapterChunk(text="", chapter_numbers=[1], start_char=0, end_char=0)
         assert c.token_estimate == 1
 
+    def test_chapter_chunk_accepts_ordinal_and_chunk_id(self):
+        c = ChapterChunk(
+            text="hello", chapter_numbers=[1], start_char=0, end_char=5,
+            ordinal=4, chunk_id="book1::chunk_0004",
+        )
+        assert c.ordinal == 4
+        assert c.chunk_id == "book1::chunk_0004"
+
+    def test_chapter_chunk_ordinal_defaults_to_none(self):
+        c = ChapterChunk(text="hi", chapter_numbers=[1], start_char=0, end_char=2)
+        assert c.ordinal is None
+        assert c.chunk_id is None
+
 
 # ===================================================================
 # Task 1: chunk_with_chapter_awareness

@@ -107,6 +107,8 @@ class ChapterChunk:
     chapter_numbers: list[int]
     start_char: int
     end_char: int
+    ordinal: int | None = None
+    chunk_id: str | None = None
 
     @property
     def token_estimate(self) -> int:
