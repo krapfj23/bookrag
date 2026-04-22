@@ -72,6 +72,14 @@ class BookRAGConfig(BaseSettings):
     # is the GraphRAG default and typically recovers 30-50% more relationships
     # at modest cost (OpenAI applies 50% cache hit to the stable system prefix).
     max_gleanings: int = 1
+    # Item 10 (Phase A Stage 4): two-hop neighbor expansion at retrieval time.
+    # After keyword-rank picks the top matches, take N seeds and pull in their
+    # 1-hop neighbors through allowed relationships. Lets relational questions
+    # ("who's at the Cratchit dinner?") see the connected web even when only
+    # one entity keyword-matches directly.
+    retrieval_expand_neighbors: bool = True
+    retrieval_seed_count: int = 5
+    retrieval_expansion_cap: int = 20
     graph_db: str = "kuzu"
     vector_db: str = "lancedb"
 

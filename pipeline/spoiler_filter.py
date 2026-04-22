@@ -159,6 +159,68 @@ def _relationship_effective_chapter(rel: dict) -> int | None:
     return max(src_ch, tgt_ch)
 
 
+def expand_neighbors(
+    seed_names: set[str],
+    relationships: list[dict],
+    degree_cap: int = 50,
+    max_result: int = 20,
+) -> set[str]:
+    """Return seed names ∪ 1-hop neighbors via the given relationships.
+
+    Item 10 (Phase A Stage 4): surfaces peripheral entities that are
+    connected to keyword-matched seeds but don't themselves match the
+    query words. Lets a question like "what happens at dinner?" pull in
+    family members of the Cratchit found via the keyword pass.
+
+    Args:
+        seed_names: Entity names to expand from.
+        relationships: Relationship dicts with source_name/target_name
+            fields (either flat or nested — ``_relationship_endpoint_name``
+            handles both shapes).
+        degree_cap: Seeds whose 1-hop fan exceeds this are kept as seeds
+            but NOT expanded (prevents hub blow-up).
+        max_result: Final result cap. Seeds win over neighbors when the
+            cap trims.
+
+    Returns:
+        Set of names including all seeds and their non-hub 1-hop neighbors.
+    """
+    if not seed_names:
+        return set()
+
+    neighbor_counts: dict[str, int] = {name: 0 for name in seed_names}
+    edges_by_seed: dict[str, list[str]] = {name: [] for name in seed_names}
+
+    for rel in relationships:
+        src = _relationship_endpoint_name(rel, "source")
+        tgt = _relationship_endpoint_name(rel, "target")
+        if not src or not tgt or src == tgt:
+            continue
+        for seed, other in ((src, tgt), (tgt, src)):
+            if seed in seed_names:
+                neighbor_counts[seed] += 1
+                edges_by_seed[seed].append(other)
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for name in seed_names:
+        if name not in seen:
+            result.append(name)
+            seen.add(name)
+
+    for seed in seed_names:
+        if neighbor_counts[seed] > degree_cap:
+            continue
+        for other in edges_by_seed[seed]:
+            if other not in seen:
+                result.append(other)
+                seen.add(other)
+                if len(result) >= max_result:
+                    return set(result)
+
+    return set(result[:max_result])
+
+
 def load_allowed_relationships(
     book_id: str,
     cursor: int,

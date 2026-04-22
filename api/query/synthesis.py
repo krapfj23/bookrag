@@ -263,7 +263,76 @@ def answer_from_allowed_nodes(
             )))
 
     ranked.sort(key=lambda pair: pair[0], reverse=True)
-    return [item for _, item in ranked]
+
+    # Item 10 (Phase A Stage 4): two-hop neighbor expansion. Take top-N
+    # keyword-ranked entity hits as seeds, pull in their 1-hop neighbors via
+    # allowed relationships, append the neighbors that weren't already in the
+    # keyword-ranked set at score 0 (below keyword hits). Degree-capped to
+    # prevent hub blow-up; final list capped at retrieval_expansion_cap.
+    from models.config import load_config
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = None
+    expand = bool(getattr(cfg, "retrieval_expand_neighbors", False))
+    seed_count = int(getattr(cfg, "retrieval_seed_count", 5))
+    expansion_cap = int(getattr(cfg, "retrieval_expansion_cap", 20))
+
+    if expand and keywords and ranked:
+        from pipeline.spoiler_filter import expand_neighbors
+
+        # Seeds = top-N keyword-hit entity names (skip Relationship items
+        # which already carry src/tgt in their content field).
+        seed_names: set[str] = set()
+        for score, item in ranked[:seed_count]:
+            if item.entity_type == "Relationship":
+                continue
+            # QueryResultItem.content is "Name — description" for named entities,
+            # or just description for events. Use the name-only form when present.
+            name = item.content.split(" — ", 1)[0].strip()
+            if name:
+                seed_names.add(name)
+
+        # Build neighbor lookup against the ALLOWED relationship set; keyword
+        # ranker already had allowed_nodes loaded, but it doesn't surface them
+        # as a separate list. Recompute here — small cost, keeps the helper
+        # boundary clean.
+        if seed_names:
+            allowed_rels = load_allowed_relationships(
+                book_id, cursor=graph_max_chapter, processed_dir=processed_dir,
+                allowed_nodes=nodes,
+            )
+            expanded = expand_neighbors(
+                seed_names=seed_names,
+                relationships=allowed_rels,
+                max_result=expansion_cap,
+            )
+            existing_names = {
+                (r[1].content.split(" — ", 1)[0].strip())
+                for r in ranked if r[1].entity_type != "Relationship"
+            }
+            for node in nodes:
+                if node.get("_type") == "Relationship":
+                    continue
+                name = node.get("name")
+                if not name or name in existing_names or name not in expanded:
+                    continue
+                content = name
+                if node.get("description"):
+                    content = f"{name} — {node['description']}"
+                ranked.append((0, QueryResultItem(
+                    content=content,
+                    entity_type=node.get("_type"),
+                    chapter=effective_latest_chapter(node),
+                )))
+
+    # Cap the final list at expansion_cap to match the roadmap's "hard cap"
+    # requirement (prevents context bloat when expansion or keyword match
+    # surfaces dozens of low-signal items).
+    out = [item for _, item in ranked]
+    if expand:
+        out = out[:expansion_cap]
+    return out
 
 
 async def vector_triplet_search(
