@@ -63,3 +63,67 @@ def test_node_without_ordinal_falls_back_to_chapter(tmp_path):
     out = load_allowed_nodes_by_chunk("book", chunk_ordinal_cursor=5, processed_dir=tmp_path)
     names = sorted(n["name"] for n in out)
     assert names == ["A"]
+
+
+# =======================================================================
+# Item 9 (Phase A Stage 2): realis filter
+# =======================================================================
+
+
+def test_realis_filter_drops_non_actual_plot_events(tmp_path):
+    from pipeline.spoiler_filter import load_allowed_nodes_by_chunk
+
+    _write_batch(tmp_path, "book", "batch_01", [
+        {"type": "PlotEvent", "description": "Scrooge slammed the door.",
+         "chapter": 1, "source_chunk_ordinal": 1, "realis": "actual"},
+        {"type": "PlotEvent", "description": "Scrooge wondered if Marley would return.",
+         "chapter": 1, "source_chunk_ordinal": 1, "realis": "other"},
+        {"type": "PlotEvent", "description": "He always walked home.",
+         "chapter": 1, "source_chunk_ordinal": 1, "realis": "generic"},
+    ])
+
+    out = load_allowed_nodes_by_chunk("book", chunk_ordinal_cursor=5, processed_dir=tmp_path)
+    descs = sorted(n["description"] for n in out)
+    assert descs == ["Scrooge slammed the door."]
+
+
+def test_realis_filter_disabled_includes_all_events(tmp_path):
+    from pipeline.spoiler_filter import load_allowed_nodes_by_chunk
+
+    _write_batch(tmp_path, "book", "batch_01", [
+        {"type": "PlotEvent", "description": "actual event",
+         "chapter": 1, "source_chunk_ordinal": 1, "realis": "actual"},
+        {"type": "PlotEvent", "description": "hypothetical",
+         "chapter": 1, "source_chunk_ordinal": 1, "realis": "other"},
+    ])
+
+    out = load_allowed_nodes_by_chunk(
+        "book", chunk_ordinal_cursor=5, processed_dir=tmp_path, realis_filter=False,
+    )
+    assert len(out) == 2
+
+
+def test_realis_filter_allows_missing_field_as_actual(tmp_path):
+    """Pre-Phase-A PlotEvents lack realis; treat them as actual."""
+    from pipeline.spoiler_filter import load_allowed_nodes_by_chunk
+
+    _write_batch(tmp_path, "book", "batch_01", [
+        {"type": "PlotEvent", "description": "legacy event",
+         "chapter": 1, "source_chunk_ordinal": 1},  # no realis
+    ])
+
+    out = load_allowed_nodes_by_chunk("book", chunk_ordinal_cursor=5, processed_dir=tmp_path)
+    assert len(out) == 1
+
+
+def test_realis_filter_does_not_affect_non_plot_event_types(tmp_path):
+    from pipeline.spoiler_filter import load_allowed_nodes_by_chunk
+
+    _write_batch(tmp_path, "book", "batch_01", [
+        {"type": "Character", "name": "A", "first_chapter": 1,
+         "source_chunk_ordinal": 1, "realis": "other"},  # realis shouldn't matter
+    ])
+
+    out = load_allowed_nodes_by_chunk("book", chunk_ordinal_cursor=5, processed_dir=tmp_path)
+    assert len(out) == 1
+    assert out[0]["name"] == "A"

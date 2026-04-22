@@ -48,6 +48,7 @@ def _load_allowed_nodes_by_chapter_legacy(
     book_id: str,
     cursor: int,
     processed_dir: Path | str,
+    realis_filter: bool = True,
 ) -> list[dict]:
     """Return the latest per-identity snapshot visible at `cursor`.
 
@@ -61,6 +62,8 @@ def _load_allowed_nodes_by_chapter_legacy(
          flat list with a "type" field per item.
 
     Missing book directory returns []. Nodes with no chapter info are dropped.
+    ``realis_filter`` (default True, Item 9 Phase A Stage 2) drops
+    PlotEvent nodes whose realis is not "actual".
     """
     batches_dir = Path(processed_dir) / book_id / "batches"
     if not batches_dir.exists():
@@ -72,6 +75,10 @@ def _load_allowed_nodes_by_chapter_legacy(
         ch = effective_latest_chapter(enriched)
         if ch is None or ch > cursor:
             return
+        if realis_filter and enriched.get("_type") == "PlotEvent":
+            realis = enriched.get("realis", "actual")
+            if realis != "actual":
+                return
         key = _identity_key(enriched)
         prev = latest.get(key)
         if prev is None or ch > prev[0]:
@@ -281,11 +288,19 @@ def load_allowed_nodes_by_chunk(
     book_id: str,
     chunk_ordinal_cursor: int,
     processed_dir: Path | str,
+    realis_filter: bool = True,
 ) -> list[dict]:
     """Ordinal-based variant of load_allowed_nodes.
 
     Keeps the latest per-identity snapshot whose source_chunk_ordinal
     (or chapter-fallback ordinal) <= cursor.
+
+    When ``realis_filter`` is True (default, Item 9 Phase A Stage 2),
+    PlotEvent nodes whose ``realis`` field is not ``"actual"`` are dropped
+    from the result — canonical retrieval shouldn't surface hypothetical
+    or counterfactual events as facts. Pre-Phase-A PlotEvents without a
+    realis field pass through (they predate the field and are assumed
+    actual in legacy data).
     """
     batches_dir = Path(processed_dir) / book_id / "batches"
     if not batches_dir.exists():
@@ -297,6 +312,10 @@ def load_allowed_nodes_by_chunk(
         ord_ = _effective_ordinal(enriched, book_id, processed_dir)
         if ord_ is None or ord_ > chunk_ordinal_cursor:
             return
+        if realis_filter and enriched.get("_type") == "PlotEvent":
+            realis = enriched.get("realis", "actual")
+            if realis != "actual":
+                return
         key = _identity_key(enriched)
         prev = latest.get(key)
         if prev is None or ord_ > prev[0]:
@@ -335,10 +354,14 @@ def load_allowed_nodes(
     book_id: str,
     cursor: int,
     processed_dir: Path | str,
+    realis_filter: bool = True,
 ) -> list[dict]:
     """Chapter-cursor variant. Delegates to load_allowed_nodes_by_chunk when
     the chunk index is present; otherwise falls back to the legacy
     chapter-based walk.
+
+    ``realis_filter`` (default True) drops PlotEvent nodes whose ``realis``
+    is not ``"actual"`` — see load_allowed_nodes_by_chunk for detail.
     """
     from pipeline.chunk_index import load_chapter_index
     idx = load_chapter_index(book_id, processed_dir)
@@ -349,6 +372,7 @@ def load_allowed_nodes(
                 book_id=book_id,
                 chunk_ordinal_cursor=entry["last_ordinal"],
                 processed_dir=processed_dir,
+                realis_filter=realis_filter,
             )
         # Chapter not in index — find the largest indexed chapter <= cursor
         prior = [int(v["last_ordinal"]) for k, v in idx.items() if int(k) <= cursor]
@@ -357,8 +381,11 @@ def load_allowed_nodes(
                 book_id=book_id,
                 chunk_ordinal_cursor=max(prior),
                 processed_dir=processed_dir,
+                realis_filter=realis_filter,
             )
         return []
 
     # Legacy path: no chunk index, walk batches and compare by chapter
-    return _load_allowed_nodes_by_chapter_legacy(book_id, cursor, processed_dir)
+    return _load_allowed_nodes_by_chapter_legacy(
+        book_id, cursor, processed_dir, realis_filter=realis_filter,
+    )
