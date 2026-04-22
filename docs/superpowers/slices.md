@@ -32,7 +32,7 @@ Driven by `design_handoff_bookrag_reader/README.md` (V3 Inline margin cards, amb
 | R3 | Card states (S1–S7) + O2 overflow | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R3-card-states-and-overflow.md) | [plan](plans/2026-04-22-slice-R3-card-states-and-overflow-plan.md) | [review](reviews/2026-04-22-slice-R3-review.md) |
 | R4 | Ambitious reading mode | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R4-reading-mode.md) | [plan](plans/2026-04-22-slice-R4-reading-mode-plan.md) | [review](reviews/2026-04-22-slice-R4-review.md) |
 | R5 | Card detail (edit/delete) | blocked | — | — | — | — |
-| R-visual | Visual-fidelity sweep vs handoff | plan | 2026-04-22 | [spec](specs/2026-04-22-slice-R-visual-fidelity.md) | [plan](plans/2026-04-22-slice-R-visual-fidelity-plan.md) | — |
+| R-visual | Visual-fidelity sweep vs handoff | done | 2026-04-22 | [spec](specs/2026-04-22-slice-R-visual-fidelity.md) | [plan](plans/2026-04-22-slice-R-visual-fidelity-plan.md) | [review](reviews/2026-04-22-slice-R-visual-review.md) |
 
 R5 is blocked pending a design pass (README §2 "Edit/delete cards" flagged as undesigned).
 
