@@ -62,7 +62,6 @@ export function MarginColumn({
   leftFolio,
   rightFolio,
   currentSpreadSids,
-  sidToFolio,
   bookRoot,
   onJump,
   onFollowup,
@@ -80,8 +79,6 @@ export function MarginColumn({
   rightFolio?: number;
   /** Sids only from the current spread (used to distinguish current vs previous spread cards). */
   currentSpreadSids?: Set<string>;
-  /** Maps every sid to the left-page folio of the spread it belongs to. */
-  sidToFolio?: Map<string, number>;
   bookRoot?: Element | null;
   onJump?: (sid: string) => void;
   onFollowup?: (cardId: string, question: string) => void;
@@ -195,34 +192,18 @@ export function MarginColumn({
             ? { direction: visEntry.direction as "up" | "down" }
             : undefined;
 
-        // Cross-page prefix applies in two cases:
-        // 1. Card is on a PREVIOUS spread (anchor not in currentSpreadSids): always
-        //    show "← FROM p. {folio}" where folio is the spread's left-page folio.
-        // 2. Card is on the CURRENT spread's LEFT page: show cross-page prefix only
-        //    when the anchor is NOT off-screen (i.e., don't double-label with
-        //    both offscreen + crossPage).
+        // Cross-page prefix: show "← FROM p. {folio}" when the card's anchor
+        // is on the current spread's LEFT page (the margin column sits on the
+        // right, so left-page anchors are "cross-page"). Only when not offscreen.
         let crossPage: { direction: "left" | "right"; folio: number } | undefined;
-        const isOnCurrentSpread = currentSpreadSids
-          ? currentSpreadSids.has(card.anchor)
-          : true; // assume current if prop not provided
-        if (!isOnCurrentSpread && sidToFolio) {
-          // Anchor is from a previous spread — show cross-page with that spread's folio.
-          const folio = sidToFolio.get(card.anchor);
-          if (folio !== undefined) {
-            crossPage = { direction: "left", folio };
-          }
-        } else if (isOnCurrentSpread && !offscreen) {
-          // Anchor is on the current spread's left page and not off-screen —
-          // show cross-page prefix if the anchor is on the left (opposite) page.
-          if (leftSids && rightSids && leftFolio !== undefined && rightFolio !== undefined) {
-            crossPage = computeCrossPage({
-              sid: card.anchor,
-              leftSids,
-              rightSids,
-              leftFolio,
-              rightFolio,
-            }) ?? undefined;
-          }
+        if (!offscreen && leftSids && rightSids && leftFolio !== undefined && rightFolio !== undefined) {
+          crossPage = computeCrossPage({
+            sid: card.anchor,
+            leftSids,
+            rightSids,
+            leftFolio,
+            rightFolio,
+          }) ?? undefined;
         }
 
         const handleJump = onJump ? () => onJump(card.anchor) : undefined;
