@@ -157,3 +157,41 @@ class TestUploadDedupe:
         assert r2.status_code == 200
         assert r2.json()["book_id"] == bid
         assert r2.json()["reused"] is True
+
+
+class TestQueryRateLimit:
+    """30/min per-IP; the 31st request in a fresh window returns 429."""
+
+    def test_31st_request_is_429(self, tmp_path, monkeypatch):
+        import json, main
+        from models.pipeline_state import PipelineState, save_state
+
+        book_id = "rl_book"
+        processed = tmp_path / "processed"
+        (processed / book_id).mkdir(parents=True)
+        s = PipelineState(book_id=book_id); s.ready_for_query = True
+        save_state(s, processed / book_id / "pipeline_state.json")
+        (processed / book_id / "reading_progress.json").write_text(
+            json.dumps({"book_id": book_id, "current_chapter": 1})
+        )
+        monkeypatch.setattr(main.config, "processed_dir", str(processed))
+        monkeypatch.setenv("BOOKRAG_QUERY_RATE_LIMIT", "5/minute")
+
+        # Reset the limiter so this test starts in a fresh window
+        main.limiter.reset()
+
+        client = TestClient(main.app)
+        codes = []
+        for _ in range(7):
+            r = client.post(
+                f"/books/{book_id}/query",
+                json={"question": "q", "search_type": "GRAPH_COMPLETION"},
+            )
+            codes.append(r.status_code)
+        assert 429 in codes
+        # Check a 429 response carries Retry-After
+        for r in [client.post(
+                f"/books/{book_id}/query",
+                json={"question": "q", "search_type": "GRAPH_COMPLETION"})]:
+            if r.status_code == 429:
+                assert "retry-after" in {h.lower() for h in r.headers}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import html as html_mod
 import json
+import os
 import re
 import shutil
 import sys
@@ -20,13 +21,16 @@ load_dotenv()
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Path as FPath, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Path as FPath, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
 from loguru import logger
 from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 from typing import Annotated, Any
-
-from fastapi.responses import HTMLResponse
 
 from models.config import load_config, ensure_directories, BookRAGConfig
 from pipeline.orchestrator import PipelineOrchestrator
@@ -78,6 +82,13 @@ logger.add(
 config: BookRAGConfig = load_config()
 ensure_directories(config)
 
+
+def _query_rate_limit() -> str:
+    return os.environ.get("BOOKRAG_QUERY_RATE_LIMIT", "30/minute")
+
+
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
 app = FastAPI(
     title="BookRAG",
     description="Spoiler-free AI chatbot for literature",
@@ -100,6 +111,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
+
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    retry_after = str(int(getattr(exc, "retry_after", 60)))
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded: {exc.detail}"},
+        headers={"Retry-After": retry_after},
+    )
+
 
 orchestrator = PipelineOrchestrator(config)
 
@@ -839,7 +864,8 @@ async def _vector_triplet_search(
 
 
 @app.post("/books/{book_id}/query", response_model=QueryResponse)
-async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
+@limiter.limit(_query_rate_limit)
+async def query_book(request: Request, book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
     """Query the knowledge graph with reader-progress fog-of-war.
 
     Filter semantics:
