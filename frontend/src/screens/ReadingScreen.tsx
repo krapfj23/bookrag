@@ -9,7 +9,7 @@ import { SelectionToolbar, type SelectionAction } from "../components/SelectionT
 import { MarginColumn } from "../components/reader/MarginColumn";
 import { useCards } from "../lib/reader/useCards";
 import { useSelectionToolbar } from "../lib/reader/useSelectionToolbar";
-import { askAndStream } from "../lib/reader/askFlow";
+import { askAndStream, followupAndStream } from "../lib/reader/askFlow";
 import { compareSid } from "../lib/reader/sidCompare";
 import type { SentenceMark } from "../components/reader/Sentence";
 
@@ -110,6 +110,9 @@ export function ReadingScreen() {
     updateNote,
     removeCard,
     findByAnchorAndKind,
+    appendFollowup,
+    setAskLoading,
+    setAskStreaming,
   } = useCards(bookId);
 
   const { selection, clear: clearSelection } = useSelectionToolbar(bookRef);
@@ -134,6 +137,28 @@ export function ReadingScreen() {
     }
     return s;
   }, [current]);
+
+  // Compute left/right sids and folios from the current spread.
+  const leftSids: Set<string> = useMemo(() => {
+    if (!current) return new Set();
+    const s = new Set<string>();
+    for (const para of current.left) {
+      for (const sent of para.sentences) s.add(sent.sid);
+    }
+    return s;
+  }, [current]);
+
+  const rightSids: Set<string> = useMemo(() => {
+    if (!current) return new Set();
+    const s = new Set<string>();
+    for (const para of current.right) {
+      for (const sent of para.sentences) s.add(sent.sid);
+    }
+    return s;
+  }, [current]);
+
+  const leftFolio = spreadIdx * 2 + 1;
+  const rightFolio = spreadIdx * 2 + 2;
 
   const marksBySid: Map<string, SentenceMark[]> = useMemo(() => {
     const m = new Map<string, SentenceMark[]>();
@@ -177,7 +202,7 @@ export function ReadingScreen() {
         clearSelection();
         return;
       }
-      // ask
+      // ask — S5: duplicate focuses card + follow-up composer
       const existing = findByAnchorAndKind(anchorSid, "ask");
       if (existing) {
         flash(existing.id);
@@ -198,10 +223,12 @@ export function ReadingScreen() {
           return e ? { id: e.id } : undefined;
         },
         queryBook: (b, q, mc) => queryBook(b, q, mc),
+        setAskLoading,
+        setAskStreaming,
       });
       flash(id);
     },
-    [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createNote, createAsk, updateAsk],
+    [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createNote, createAsk, updateAsk, setAskLoading, setAskStreaming],
   );
 
   const onBodyChange = useCallback(
@@ -218,6 +245,34 @@ export function ReadingScreen() {
       setNewlyCreatedNoteId((prev) => (prev === id ? null : prev));
     },
     [cards, removeCard],
+  );
+
+  const onJump = useCallback(
+    (sid: string) => {
+      const root = bookRef.current;
+      if (!root) return;
+      const el = root.querySelector(`[data-sid="${sid}"]`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("rr-card-flash");
+      setTimeout(() => el.classList.remove("rr-card-flash"), 620);
+    },
+    [],
+  );
+
+  const onFollowup = useCallback(
+    (cardId: string, question: string) => {
+      followupAndStream({
+        cardId,
+        bookId,
+        maxChapter: n,
+        question,
+        appendFollowup,
+        updateAsk,
+        queryBook: (b, q, mc) => queryBook(b, q, mc),
+      });
+    },
+    [bookId, n, appendFollowup, updateAsk],
   );
 
   // Fog check for Ask button disabled state
@@ -328,6 +383,13 @@ export function ReadingScreen() {
               newlyCreatedNoteId={newlyCreatedNoteId}
               onBodyChange={onBodyChange}
               onBodyCommit={onBodyCommit}
+              leftSids={leftSids}
+              rightSids={rightSids}
+              leftFolio={leftFolio}
+              rightFolio={rightFolio}
+              bookRoot={bookRef.current}
+              onJump={onJump}
+              onFollowup={onFollowup}
             />
           </div>
         )}
