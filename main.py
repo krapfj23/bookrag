@@ -621,14 +621,14 @@ async def _complete_over_context(question: str, context: list[str]) -> str:
 def _answer_from_allowed_nodes(
     book_id: str,
     question: str,
-    cursor: int,
+    graph_max_chapter: int,
 ) -> list[QueryResultItem]:
     """Pre-filtered keyword retrieval. Walks disk batch JSON, keeps only
-    nodes whose effective latest chapter is <= cursor, then ranks by
-    keyword overlap with the question."""
+    nodes whose effective latest chapter is <= graph_max_chapter, then ranks
+    by keyword overlap with the question."""
     from pipeline.spoiler_filter import load_allowed_nodes, effective_latest_chapter
 
-    nodes = load_allowed_nodes(book_id, cursor, processed_dir=Path(config.processed_dir))
+    nodes = load_allowed_nodes(book_id, cursor=graph_max_chapter, processed_dir=Path(config.processed_dir))
     if not nodes:
         return []
 
@@ -679,7 +679,7 @@ async def query_book(book_id: SafeBookId, req: QueryRequest) -> QueryResponse:
         min(req.max_chapter, disk_max) if req.max_chapter is not None else disk_max
     )
 
-    results = _answer_from_allowed_nodes(book_id, req.question, current_chapter)
+    results = _answer_from_allowed_nodes(book_id, req.question, graph_max_chapter=current_chapter)
 
     answer = ""
     if req.search_type == "GRAPH_COMPLETION":

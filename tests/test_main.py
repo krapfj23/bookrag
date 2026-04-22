@@ -455,7 +455,7 @@ class TestAnswerFromAllowedNodes:
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
         self._seed_book(tmp_path, "bk")
 
-        items = _answer_from_allowed_nodes("bk", question="what happens", cursor=2)
+        items = _answer_from_allowed_nodes("bk", question="what happens", graph_max_chapter=2)
         contents = [i.content for i in items]
         assert not any("spoiler" in c.lower() for c in contents)
         assert not any("dies" in c.lower() for c in contents)
@@ -465,7 +465,7 @@ class TestAnswerFromAllowedNodes:
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
         self._seed_book(tmp_path, "bk")
 
-        items = _answer_from_allowed_nodes("bk", question="dies", cursor=5)
+        items = _answer_from_allowed_nodes("bk", question="dies", graph_max_chapter=5)
         assert any("dies" in i.content.lower() for i in items)
 
 
@@ -698,3 +698,33 @@ class TestLoadParagraphsUpTo:
         from main import _load_paragraphs_up_to, config as main_config
         monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
         assert _load_paragraphs_up_to("missing", 1, 0) == []
+
+
+class TestAnswerFromAllowedNodesExplicitBound:
+    """_answer_from_allowed_nodes accepts graph_max_chapter kwarg."""
+
+    def _seed(self, tmp_path, book_id="bk"):
+        batches = tmp_path / book_id / "batches"
+        batches.mkdir(parents=True)
+        (batches / "b1.json").write_text(json.dumps({
+            "characters": [
+                {"id": "c1", "name": "Early", "description": "ch1",
+                 "first_chapter": 1, "last_known_chapter": 1},
+                {"id": "c3", "name": "Later", "description": "ch3",
+                 "first_chapter": 1, "last_known_chapter": 3},
+            ],
+        }))
+
+    def test_bound_2_excludes_chapter_3(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        items = _answer_from_allowed_nodes("bk", "later", graph_max_chapter=2)
+        assert not any("ch3" in i.content for i in items)
+
+    def test_bound_3_includes_chapter_3(self, tmp_path, monkeypatch):
+        from main import _answer_from_allowed_nodes, config as main_config
+        monkeypatch.setattr(main_config, "processed_dir", str(tmp_path))
+        self._seed(tmp_path)
+        items = _answer_from_allowed_nodes("bk", "later", graph_max_chapter=3)
+        assert any("ch3" in i.content for i in items)
