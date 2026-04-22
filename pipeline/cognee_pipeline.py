@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -108,6 +109,50 @@ def configure_cognee(config: Any) -> None:
 # 10 is conservative vs. OpenAI Tier 3+ (allows ~50 concurrent) and Anthropic
 # Tier 2+ (~50). Tunable if telemetry shows headroom.
 EXTRACTION_CONCURRENCY = 10
+
+
+# Item 2 (Phase A Stage 1): three-tier quote-substring match. Strict first
+# (verbatim), then whitespace-normalized, then lowercase. Rejects fabrications
+# where the LLM invented a quote not present in the chunk.
+_WS_RE = re.compile(r"\s+")
+
+
+def _quote_matches_chunk_text(chunk_text: str, quote: str) -> bool:
+    if not quote:
+        return False
+    if quote in chunk_text:
+        return True
+    nq = _WS_RE.sub(" ", quote).strip()
+    nc = _WS_RE.sub(" ", chunk_text).strip()
+    if nq and nq in nc:
+        return True
+    if nq and nq.lower() in nc.lower():
+        return True
+    return False
+
+
+def _validate_provenance(
+    extraction: "ExtractionResult", chunk_text: str
+) -> "ExtractionResult":
+    """Drop extractions whose quotes don't appear in the chunk text.
+
+    Entities without provenance are kept (backward compat with pre-Phase-A
+    artifacts). Entities WITH provenance must match at least one quote to
+    survive — fabricated quotes get the extraction dropped.
+    """
+    def _keep(entity) -> bool:
+        prov = getattr(entity, "provenance", None) or []
+        if not prov:
+            return True
+        return any(_quote_matches_chunk_text(chunk_text, p.quote) for p in prov)
+
+    extraction.characters = [c for c in extraction.characters if _keep(c)]
+    extraction.locations = [l for l in extraction.locations if _keep(l)]
+    extraction.factions = [f for f in extraction.factions if _keep(f)]
+    extraction.events = [e for e in extraction.events if _keep(e)]
+    extraction.relationships = [r for r in extraction.relationships if _keep(r)]
+    extraction.themes = [t for t in extraction.themes if _keep(t)]
+    return extraction
 
 
 def _persist_raw_to_cognee_docstore() -> bool:
@@ -436,6 +481,12 @@ async def extract_enriched_graph(
     for i, chunk, extraction in results:
         if extraction is None:
             continue
+
+        # Item 2 (Phase A Stage 1): drop extractions whose provenance quotes
+        # don't appear in chunk text. Catches LLM hallucinations before they
+        # reach the graph. Entities without provenance (legacy artifacts) are
+        # kept untouched.
+        extraction = _validate_provenance(extraction, chunk.text)
 
         # Plan 2: validate relationships before downstream processing drops
         # orphan endpoints and dedupes (src, rel, tgt) triples.
