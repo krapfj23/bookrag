@@ -92,12 +92,7 @@ export const IcChat = (p: Props) => (
 export const IcArrowL = (p: Props) => <Icon {...p} d="M12.5 8h-9m3-3l-3 3 3 3" />;
 export const IcArrowR = (p: Props) => <Icon {...p} d="M3.5 8h9m-3-3l3 3-3 3" />;
 export const IcSend = (p: Props) => (
-  <Icon
-    {...p}
-    d="M2.5 13.5L13.5 8 2.5 2.5v4.5L10 8l-7.5 1.5v4z"
-    fill="currentColor"
-    stroke={0}
-  />
+  <Icon {...p} d="M13.5 2.5L2.5 7l5 1.5L9 13.5l4.5-11z" />
 );
 export const IcEdit = (p: Props) => (
   <Icon {...p} d="M11.5 2.5l2 2-7.5 7.5H4V10l7.5-7.5zM10 4l2 2" />
@@ -109,11 +104,9 @@ export const IcExpand = (p: Props) => (
   <Icon {...p} d="M9 3h4v4M7 13H3V9M13 3l-5 5M3 13l5-5" />
 );
 export const IcHighlight = (p: Props) => (
-  <Icon {...p} d="M3 12h10M4.5 10.5l5-6 2 2-5 6h-2v-2z" />
+  <Icon {...p} d="M3 13h10M4.5 10.5l3 3 6-6-3-3-6 6z" />
 );
 export const IcSpark = (p: Props) => (
-  <Icon
-    {...p}
-    d="M8 2v4M8 10v4M2 8h4M10 8h4M4.5 4.5l2 2M9.5 9.5l2 2M11.5 4.5l-2 2M4.5 11.5l2-2"
-  />
+  <Icon {...p} d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M4 12l2-2" />
 );
+export const IcChevron = (p: Props) => <Icon {...p} d="M4 6l4 4 4-4" />;
