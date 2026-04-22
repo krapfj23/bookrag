@@ -984,3 +984,40 @@ class TestExtractionResultMetadata:
         restored = ExtractionResult.model_validate_json(er.model_dump_json())
         assert restored.extractor_version == er.extractor_version
         assert restored.created_at == er.created_at
+
+
+# ===========================================================================
+# Item 9 (Phase A Stage 2): PlotEvent.realis
+# ===========================================================================
+
+
+class TestPlotEventRealis:
+    def test_realis_defaults_to_actual(self):
+        from models.datapoints import PlotEvent
+        ev = PlotEvent(description="Scrooge slammed the door.", chapter=1)
+        assert ev.realis == "actual"
+
+    def test_realis_accepts_three_values(self):
+        from models.datapoints import PlotEvent
+        for v in ("actual", "generic", "other"):
+            ev = PlotEvent(description="x", chapter=1, realis=v)
+            assert ev.realis == v
+
+    def test_realis_rejects_other_values(self):
+        import pytest
+        from models.datapoints import PlotEvent
+        with pytest.raises(ValueError):
+            PlotEvent(description="x", chapter=1, realis="hypothetical")
+
+    def test_extraction_propagates_realis(self):
+        from models.datapoints import (
+            EventExtraction, ExtractionResult, PlotEvent,
+        )
+        ex = ExtractionResult(
+            events=[EventExtraction(
+                description="He dreamed of a palace.", chapter=1, realis="other",
+            )],
+        )
+        dps = ex.to_datapoints()
+        ev = next(d for d in dps if isinstance(d, PlotEvent))
+        assert ev.realis == "other"

@@ -64,6 +64,32 @@ Every entity and event you extract MUST include the chapter number where it firs
 - Only extract events that are explicitly described in the text. Do NOT infer events that are implied but not stated.
 - Events should be specific, not vague summaries like "characters interact."
 
+### Realis — Did the event ACTUALLY happen? (CRITICAL)
+
+Every PlotEvent needs a `realis` label:
+
+- **`actual`** — past-tense or present-tense assertion. The event is stated to have occurred in the narrative.
+- **`generic`** — habitual or recurring ("he always walked home", "every morning the clerk arrived"). The event is a pattern, not a single occurrence.
+- **`other`** — hypothetical, counterfactual, planned, imagined, dreamed, feared, or embedded under a modal/attitude verb. The event did NOT actually happen in the narrative.
+
+Default is `actual`. Use `other` for anything modal/irrealis.
+
+REJECT as `actual` — these are `other`:
+
+- "Scrooge wondered if Marley would return." → Marley's return is hypothetical under `wondered`.
+- "If she had stayed, everything would be different." → counterfactual (if/would have).
+- "He planned to visit his nephew." → plan, not yet actualized.
+- "She dreamed of a golden palace." → dreamed, did not occur.
+- "He could have helped her." → modal counterfactual.
+
+ACCEPT as `actual` — these happened:
+
+- "Scrooge slammed the door." → past-tense assertion.
+- "The Ghost raised its hand." → past-tense assertion.
+- "Bob Cratchit arrives at the office at nine." → present-tense assertion.
+
+When in doubt, prefer `other`. A missed `actual` event is recoverable from the text; a fabricated one pollutes the graph and leaks spoilers.
+
 ### Semantic Content (Themes, Relationships, World-Building)
 - Extract relationships between characters: alliances, rivalries, family ties, employment, etc.
 - Extract themes only when the text provides clear evidence — a recurring motif, an explicit thematic statement, or a pattern across multiple passages.
@@ -186,7 +212,8 @@ Return valid JSON matching this exact schema:
       "description": "what happened",
       "chapter": 1,
       "participant_names": ["character name"],
-      "location_name": "location name or null"
+      "location_name": "location name or null",
+      "realis": "actual"
     }
   ],
   "relationships": [

@@ -14,6 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -139,6 +140,13 @@ class PlotEvent(DataPoint):
     location: Location | None = None
     source_chunk_ordinal: int | None = None
     provenance: list[Provenance] = []
+    # Item 9 (Phase A Stage 2): ACE 2005-style realis class.
+    # "actual"   = asserted past/present event that happens in the text
+    # "generic"  = habitual / recurring ("he always walked home")
+    # "other"    = hypothetical, counterfactual, planned, imagined, dreamed
+    # Retrieval default-filters to actual; other-class stays in the graph
+    # for questions like "what did Scrooge fear would happen?".
+    realis: Literal["actual", "generic", "other"] = "actual"
     metadata: dict = {"index_fields": ["description"]}
 
 
@@ -266,6 +274,14 @@ class EventExtraction(BaseModel):
         description="Name of the location where the event occurs",
     )
     provenance: list[Provenance] = []
+    realis: Literal["actual", "generic", "other"] = Field(
+        default="actual",
+        description=(
+            "actual = past/present assertion; generic = habitual; "
+            "other = hypothetical/counterfactual/planned/imagined. "
+            "See prompt REJECT/ACCEPT block."
+        ),
+    )
 
 
 class RelationshipExtraction(BaseModel):
@@ -413,6 +429,7 @@ class ExtractionResult(BaseModel):
                 location=location,
                 source_chunk_ordinal=source_chunk_ordinal,
                 provenance=list(ev.provenance),
+                realis=ev.realis,
             )
             datapoints.append(dp)
 
