@@ -15,11 +15,10 @@
 .rr-dropcap::first-letter {
   font-family: var(--serif);
   font-weight: 400;
-  font-size: 3.8em;
-  line-height: 0.82;
+  font-size: 54px;
+  line-height: 0.9;
   float: left;
-  padding: 0.08em 0.12em 0 0;
-  margin-top: 0.06em;
+  padding: 4px 8px 0 0;
   color: var(--ink-0);
   /* Tiny optical tune so serifs don't kiss the baseline text. */
   shape-outside: margin-box;
