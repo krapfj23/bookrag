@@ -163,6 +163,7 @@ export function ReadingScreen() {
 
   const turnForward = useCallback(() => {
     if (body.kind !== "ok") return;
+    setActiveAskId(null);
     if (spreadIdx < body.spreads.length - 1) {
       const next = spreadIdx + 1;
       setSpreadIdx(next);
@@ -177,6 +178,7 @@ export function ReadingScreen() {
 
   const turnBackward = useCallback(() => {
     if (body.kind !== "ok") return;
+    setActiveAskId(null);
     if (spreadIdx > 0) {
       setSpreadIdx(spreadIdx - 1);
       // Cursor does NOT rewind (AC 10).
@@ -197,6 +199,8 @@ export function ReadingScreen() {
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         turnBackward();
+      } else if (e.key === "Escape") {
+        setActiveAskId(null);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -231,6 +235,11 @@ export function ReadingScreen() {
   const { selection, clear: clearSelection } = useSelectionToolbar(bookRef);
 
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  // Persistent "the user is currently referencing this ask" state. Unlike
+  // focusedCardId (which auto-clears after a 620ms flash), this stays set
+  // until the user dismisses (new selection, spread turn, or Escape) and
+  // drives the visual fog-of-war on the right of the queried sentence.
+  const [activeAskId, setActiveAskId] = useState<string | null>(null);
   const [newlyCreatedNoteId, setNewlyCreatedNoteId] = useState<string | null>(null);
   const [focusedComposerCardId, setFocusedComposerCardId] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -276,21 +285,22 @@ export function ReadingScreen() {
   const leftFolio = spreadIdx * 2 + 1;
   const rightFolio = spreadIdx * 2 + 2;
 
-  // Visual fog-of-war sid: the last sid on the LEFT page of the current
-  // spread. Everything up to and including this sid renders clear; everything
-  // after (i.e. the right page, and any continuation paragraphs past it)
-  // renders with blur + reduced opacity. This is distinct from the stored
-  // reading `cursor` — cursor advances to spread.lastSid on every turn so it
-  // tracks "how far have I read" for the /query filter, while the visual fog
-  // sid is purely a per-spread UI cue matching the R1 design (ac9-fog-of-war).
+  // Visual fog-of-war sid: derived from the currently-focused Ask card.
+  // When a user asks a question about a sentence, everything AFTER that
+  // sentence renders fogged — visualizing the span of text the LLM was
+  // allowed to reference. When no ask is focused (or the focused card is a
+  // note/highlight), no fog. This is distinct from the stored reading
+  // `cursor`, which tracks "how far have I read" for the backend /query
+  // filter and is always advanced to the last sid of the current spread.
+
   const fogSid: string | null = useMemo(() => {
-    if (!current) return null;
-    const leftPages = current.left;
-    const lastPara = leftPages[leftPages.length - 1];
-    if (!lastPara) return null;
-    const lastSent = lastPara.sentences[lastPara.sentences.length - 1];
-    return lastSent?.sid ?? null;
-  }, [current]);
+    if (!activeAskId) return null;
+    const card = cards.find((c) => c.id === activeAskId);
+    if (!card || card.kind !== "ask") return null;
+    // Only fog if the ask is anchored on the currently-visible spread.
+    if (!visibleSids.has(card.anchor)) return null;
+    return card.anchor;
+  }, [activeAskId, cards, visibleSids]);
 
   // currentSpreadSids = visibleSids (same set — kept for MarginColumn cross-page prefix).
   const currentSpreadSids = visibleSids;
@@ -311,8 +321,12 @@ export function ReadingScreen() {
       const el = document.querySelector(`[data-card-id="${cardId}"]`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       flash(cardId);
+      // If the clicked mark is an ask, make it the active reference so fog
+      // appears to the right of its anchor. If not, clear any prior ask.
+      const card = cards.find((c) => c.id === cardId);
+      setActiveAskId(card && card.kind === "ask" ? cardId : null);
     },
-    [flash],
+    [flash, cards],
   );
 
   const onAction = useCallback(
@@ -349,6 +363,7 @@ export function ReadingScreen() {
       if (existing) {
         flash(existing.id);
         setFocusedComposerCardId(existing.id);
+        setActiveAskId(existing.id);
         clearSelection();
         return;
       }
@@ -372,6 +387,7 @@ export function ReadingScreen() {
         streamMaxMs: 80,
       });
       flash(id);
+      setActiveAskId(id);
     },
     [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createHighlight, createNote, createAsk, removeCard, updateAsk, setAskLoading, setAskStreaming],
   );
