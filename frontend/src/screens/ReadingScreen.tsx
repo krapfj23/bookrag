@@ -62,16 +62,19 @@ export function ReadingScreen() {
   }, []);
 
   const box: PaginatorBox = useMemo(() => {
-    const marginColumnWidth = 400;
-    const gap = 28;
+    // Reading-mode ON hides the sidebar, so the book can center with equal
+    // ambient margins. Conservative mode reserves a 400px margin-card column.
+    const marginColumnWidth = mode === "on" ? 0 : 400;
+    const gap = mode === "on" ? 0 : 28;
     const stagePadding = 48;
-    // Total horizontal we can devote to the two-page spread.
     const availableForSpread = Math.max(
       640,
       viewport.w - marginColumnWidth - gap - stagePadding,
     );
     // Clamp page width so spreads don't get absurdly wide on 4K screens.
-    const pageWidth = Math.max(360, Math.min(560, Math.floor(availableForSpread / 2) - 8));
+    // Reading-mode pages are slightly wider than conservative.
+    const maxPage = mode === "on" ? 620 : 560;
+    const pageWidth = Math.max(360, Math.min(maxPage, Math.floor(availableForSpread / 2) - 8));
     // Height tracks viewport too; leave room for topbar + stage padding.
     const pageHeight = Math.max(560, Math.min(960, viewport.h - 140));
     const fontPx = mode === "on" ? 18 : 15;
@@ -189,6 +192,13 @@ export function ReadingScreen() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [turnForward, turnBackward]);
+
+  // Whenever the visible spread changes (mount, chapter jump, page turn),
+  // advance the reading cursor to the last sid of the new spread. advanceTo
+  // is forward-only, so this won't rewind when navigating backward.
+  useEffect(() => {
+    if (current?.lastSid) advanceTo(current.lastSid);
+  }, [current, advanceTo]);
 
   const title = body.kind === "ok" ? body.chapter.title : "";
   const total = body.kind === "ok" ? body.chapter.total_chapters : 0;
@@ -513,9 +523,13 @@ export function ReadingScreen() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: `${box.pageWidth * 2}px 400px`,
-              gap: 28,
+              // Reading-mode ON: single centered column (no sidebar reservation).
+              // Conservative: two columns — book + 400px margin card column.
+              gridTemplateColumns:
+                mode === "on" ? `${box.pageWidth * 2}px` : `${box.pageWidth * 2}px 400px`,
+              gap: mode === "on" ? 0 : 28,
               alignItems: "start",
+              justifyContent: "center",
               width: "auto",
               maxWidth: "100%",
             }}
@@ -541,24 +555,26 @@ export function ReadingScreen() {
                 lineHeight={box.lineHeight}
               />
             </div>
-            <MarginColumn
-              cards={cards}
-              visibleSids={visibleSids}
-              focusedCardId={focusedCardId}
-              newlyCreatedNoteId={newlyCreatedNoteId}
-              onBodyChange={onBodyChange}
-              onBodyCommit={onBodyCommit}
-              leftSids={leftSids}
-              rightSids={rightSids}
-              leftFolio={leftFolio}
-              rightFolio={rightFolio}
-              currentSpreadSids={currentSpreadSids}
-              bookRoot={bookRootEl}
-              onJump={onJump}
-              onFollowup={onFollowup}
-              focusedComposerCardId={focusedComposerCardId}
-              hidden={mode === "on"}
-            />
+            {mode !== "on" && (
+              <MarginColumn
+                cards={cards}
+                visibleSids={visibleSids}
+                focusedCardId={focusedCardId}
+                newlyCreatedNoteId={newlyCreatedNoteId}
+                onBodyChange={onBodyChange}
+                onBodyCommit={onBodyCommit}
+                leftSids={leftSids}
+                rightSids={rightSids}
+                leftFolio={leftFolio}
+                rightFolio={rightFolio}
+                currentSpreadSids={currentSpreadSids}
+                bookRoot={bookRootEl}
+                onJump={onJump}
+                onFollowup={onFollowup}
+                focusedComposerCardId={focusedComposerCardId}
+                hidden={false}
+              />
+            )}
           </div>
         )}
         {selection && (

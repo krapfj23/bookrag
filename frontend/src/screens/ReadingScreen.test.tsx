@@ -450,9 +450,9 @@ describe("ReadingScreen — slice R4 reading mode integration", () => {
     expect(screen.getByTestId("page-arrow-right")).toBeInTheDocument();
     expect(screen.getByTestId("progress-hairline")).toBeInTheDocument();
     expect(screen.getByTestId("reading-mode-legend")).toBeInTheDocument();
-    // Margin column is aria-hidden when on.
-    const margin = screen.getByTestId("margin-column");
-    expect(margin.getAttribute("aria-hidden")).toBe("true");
+    // Margin column is removed from the DOM when reading mode is on so the
+    // book spread centers without a reserved sidebar column.
+    expect(screen.queryByTestId("margin-column")).not.toBeInTheDocument();
   });
 
   it("toggling off from on removes chrome and restores margin visibility", async () => {
