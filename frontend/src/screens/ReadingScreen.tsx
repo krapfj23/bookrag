@@ -276,6 +276,22 @@ export function ReadingScreen() {
   const leftFolio = spreadIdx * 2 + 1;
   const rightFolio = spreadIdx * 2 + 2;
 
+  // Visual fog-of-war sid: the last sid on the LEFT page of the current
+  // spread. Everything up to and including this sid renders clear; everything
+  // after (i.e. the right page, and any continuation paragraphs past it)
+  // renders with blur + reduced opacity. This is distinct from the stored
+  // reading `cursor` — cursor advances to spread.lastSid on every turn so it
+  // tracks "how far have I read" for the /query filter, while the visual fog
+  // sid is purely a per-spread UI cue matching the R1 design (ac9-fog-of-war).
+  const fogSid: string | null = useMemo(() => {
+    if (!current) return null;
+    const leftPages = current.left;
+    const lastPara = leftPages[leftPages.length - 1];
+    if (!lastPara) return null;
+    const lastSent = lastPara.sentences[lastPara.sentences.length - 1];
+    return lastSent?.sid ?? null;
+  }, [current]);
+
   // currentSpreadSids = visibleSids (same set — kept for MarginColumn cross-page prefix).
   const currentSpreadSids = visibleSids;
 
@@ -553,7 +569,7 @@ export function ReadingScreen() {
                 right={current.right}
                 folioLeft={spreadIdx * 2 + 1}
                 folioRight={spreadIdx * 2 + 2}
-                cursor={cursor}
+                cursor={fogSid ?? cursor}
                 isFirstSpread={spreadIdx === 0}
                 marksBySid={marksBySid}
                 onMarkClick={onMarkClick}
