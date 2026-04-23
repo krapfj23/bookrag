@@ -164,14 +164,9 @@ test.describe("Slice R2 — margin cards, selection, ask, note", () => {
     await expect(card).toHaveClass(/rr-card-flash/);
   });
 
-  test("Ask is disabled when selection is past the fog cursor (AC 13)", async ({ page }) => {
-    await page.goto(`/books/${BOOK_ID}/read/1`);
-    await expect(page.getByTestId("book-spread")).toBeVisible();
-    // Initial cursor = p1.s1; selecting in p1.s2 is past the cursor.
-    await selectInSid(page, "p1.s2");
-    const ask = page.locator('[data-testid="selection-toolbar"] [aria-label="Ask"]');
-    await expect(ask).toBeDisabled();
-    // Note remains enabled.
-    await expect(page.getByRole("button", { name: "Note" })).toBeEnabled();
-  });
+  // AC 13 deleted: fog cursor now auto-advances to the last sid of the
+  // visible spread on mount/page-turn (so pages un-blur when you reach them).
+  // Everything the user can see is within the cursor, so Ask is always
+  // enabled on the current spread. Fog-of-war still applies to unvisited
+  // spreads, but those sentences aren't selectable by definition.
 });

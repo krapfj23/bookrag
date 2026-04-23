@@ -153,11 +153,42 @@ def _discover_themes_bertopic(full_text: str, num_topics: int) -> list[dict]:
 
     logger.info("Running BERTopic on {} paragraphs (requesting {} topics)...", len(paragraphs), num_topics)
 
+    # Force CPU-backed embeddings — PyTorch MPS + multiprocessing segfaults on
+    # Apple Silicon during BERTopic's UMAP/HDBSCAN step (exit 139). Passing an
+    # explicit CPU SentenceTransformer avoids BERTopic's default MPS detection.
     try:
-        topic_model = BERTopic(nr_topics=num_topics, verbose=False)
+        from sentence_transformers import SentenceTransformer
+        embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+    except Exception as exc:
+        logger.warning("Could not construct CPU SentenceTransformer, falling back to default: {}", exc)
+        embedding_model = None
+
+    # Force single-threaded UMAP + HDBSCAN. Default joblib multiprocessing
+    # crashes macOS+conda venvs (OMP Error #179 / pthread_mutex_init failed /
+    # exit 139). n_jobs=1 keeps everything in the main process.
+    try:
+        from umap import UMAP
+        umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric="cosine", random_state=42)
+    except Exception:
+        umap_model = None
+    try:
+        from hdbscan import HDBSCAN
+        hdbscan_model = HDBSCAN(min_cluster_size=10, metric="euclidean", cluster_selection_method="eom", core_dist_n_jobs=1)
+    except Exception:
+        hdbscan_model = None
+
+    try:
+        topic_model = BERTopic(
+            nr_topics=num_topics,
+            embedding_model=embedding_model,
+            umap_model=umap_model,
+            hdbscan_model=hdbscan_model,
+            calculate_probabilities=False,
+            verbose=False,
+        )
         topics, _probs = topic_model.fit_transform(paragraphs)
     except Exception as exc:
-        logger.warning("BERTopic failed (small corpus?): {}", exc)
+        logger.warning("BERTopic failed ({}), skipping themes", exc)
         return []
 
     # Extract topic info

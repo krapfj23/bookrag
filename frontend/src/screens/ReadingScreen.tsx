@@ -82,6 +82,16 @@ export function ReadingScreen() {
     return { pageWidth, pageHeight, paddingPx, fontPx, lineHeight: 1.72 };
   }, [viewport.w, viewport.h, mode]);
 
+  // Reset spreadIdx to 0 whenever the chapter number changes. Without this,
+  // arriving at chapter N+1 inherits the previous chapter's last spreadIdx,
+  // which prevents ArrowLeft from navigating back to the previous chapter
+  // (it just decrements inside the new chapter instead). Backward nav sets
+  // location.state.landOnLastSpread, which is handled in the repaginate
+  // effect after spreads are computed.
+  useEffect(() => {
+    setSpreadIdx(0);
+  }, [bookId, n]);
+
   // Load chapter (fetch only — pagination is a separate memo so resize /
   // reading-mode toggles don't refetch).
   const [rawChapter, setRawChapter] = useState<Chapter | null>(null);

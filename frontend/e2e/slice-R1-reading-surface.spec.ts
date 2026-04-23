@@ -122,20 +122,19 @@ test.describe("Slice R1 — reading surface", () => {
     expect(c2).toBe(c1);
   });
 
-  test("post-cursor sentences are fogged (opacity < 0.5)", async ({ page }) => {
+  test("cursor auto-advances to last sid of current spread — no fog on visible sentences", async ({ page }) => {
+    // With the mount/page-turn auto-advance, the cursor covers the entire
+    // current spread, so nothing on screen is fogged. Fog-of-war still
+    // applies to unvisited spreads but those sentences aren't rendered.
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.locator('[data-sid="p1.s1"]')).toBeVisible();
-    // On initial mount, cursor = first sentence; everything after p1.s1 is fogged.
-    const laterOpacity = await page
-      .locator('[data-sid="p1.s2"]')
-      .first()
-      .evaluate((el) => parseFloat(getComputedStyle(el).opacity || "1"));
-    expect(laterOpacity).toBeLessThan(0.5);
-    const firstOpacity = await page
-      .locator('[data-sid="p1.s1"]')
-      .first()
-      .evaluate((el) => parseFloat(getComputedStyle(el).opacity || "1"));
-    expect(firstOpacity).toBeGreaterThan(0.9);
+    for (const sid of ["p1.s1", "p1.s2"]) {
+      const opacity = await page
+        .locator(`[data-sid="${sid}"]`)
+        .first()
+        .evaluate((el) => parseFloat(getComputedStyle(el).opacity || "1"));
+      expect(opacity).toBeGreaterThan(0.9);
+    }
   });
 
   test("reload restores cursor from localStorage", async ({ page }) => {

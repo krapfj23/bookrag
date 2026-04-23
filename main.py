@@ -9,6 +9,18 @@ Endpoints:
 """
 from __future__ import annotations
 
+# MUST come before any torch/numpy/sklearn import. macOS + conda-venv loads two
+# OpenMP runtimes (conda's libomp + pip torch's libomp) which causes
+# `OMP: Error #179: pthread_mutex_init failed` during BERTopic/UMAP. Setting
+# these env vars lets the duplicate loads coexist and forces single-threaded
+# BLAS so the multiprocessing resource tracker doesn't crash.
+import os as _os
+_os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+_os.environ.setdefault("OMP_NUM_THREADS", "1")
+_os.environ.setdefault("MKL_NUM_THREADS", "1")
+_os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+_os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 import asyncio
 import html as html_mod
 import json

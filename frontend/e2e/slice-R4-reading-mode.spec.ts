@@ -140,17 +140,15 @@ test.describe("Slice R4 — ambitious reading mode", () => {
     await expect(root).toHaveAttribute("data-reading-mode", "off");
   });
 
-  test("AC3 on: top bar opacity 0.55 and margin-column aria-hidden + opacity 0", async ({ page }) => {
+  test("AC3 on: margin-column is absent from the DOM", async ({ page }) => {
+    // In reading mode, MarginColumn is removed from the tree entirely so the
+    // two-page spread centers with equal ambient margins (see commit 2b1a0e0).
     await mockAll(page);
     await page.goto(`/books/${BOOK_ID}/read/1`);
     await expect(page.getByTestId("book-spread")).toBeVisible();
     await page.getByRole("button", { name: "Reading mode" }).click();
-    // Wait for transitions to settle.
     await page.waitForTimeout(500);
-    const margin = page.getByTestId("margin-column");
-    await expect(margin).toHaveAttribute("aria-hidden", "true");
-    const marginOpacity = await margin.evaluate((el) => getComputedStyle(el).opacity);
-    expect(parseFloat(marginOpacity)).toBeCloseTo(0, 2);
+    await expect(page.getByTestId("margin-column")).toHaveCount(0);
   });
 
   test("AC4 on: pacing label matches regex", async ({ page }) => {

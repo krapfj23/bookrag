@@ -24,6 +24,41 @@ from loguru import logger
 from pipeline.tsv_utils import read_tsv, safe_int
 
 
+_booknlp_patched = False
+
+
+def _patch_booknlp_strict_load() -> None:
+    """Patch BookNLP's submodules to load state_dict non-strictly.
+
+    BookNLP ships model weights saved with older `transformers` versions that
+    included `bert.embeddings.position_ids`. Modern transformers drops that
+    buffer, so `load_state_dict(..., strict=True)` fails with "Unexpected
+    key(s): bert.embeddings.position_ids". We intercept the three BookNLP
+    modules' own `torch.load` → `load_state_dict` paths and inject
+    `strict=False` only on the resulting models, leaving other torch users
+    (BERTopic / sentence-transformers) untouched.
+    """
+    global _booknlp_patched
+    if _booknlp_patched:
+        return
+
+    from booknlp.english import bert_qa, entity_tagger, litbank_coref
+
+    for mod in (bert_qa, entity_tagger, litbank_coref):
+        orig_torch_load = mod.torch.load
+
+        def _wrapped_load(path, *args, _orig=orig_torch_load, **kwargs):
+            state = _orig(path, *args, **kwargs)
+            if isinstance(state, dict):
+                state.pop("bert.embeddings.position_ids", None)
+            return state
+
+        mod.torch.load = _wrapped_load
+
+    _booknlp_patched = True
+    logger.info("Patched BookNLP torch.load to strip obsolete bert.embeddings.position_ids")
+
+
 # ---------------------------------------------------------------------------
 # Parsed data models
 # ---------------------------------------------------------------------------
@@ -191,6 +226,7 @@ async def run_booknlp(
         ImportError: If booknlp package is not installed.
     """
     from booknlp.booknlp import BookNLP
+    _patch_booknlp_strict_load()
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

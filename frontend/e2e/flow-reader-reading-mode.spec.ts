@@ -175,11 +175,8 @@ test.describe("T11 — End-to-end flow: reading mode (Slice R4)", () => {
     await expect(page.getByTestId("progress-hairline")).toBeVisible();
     await expect(page.getByTestId("reading-mode-legend")).toBeVisible();
 
-    // --- Assert margin-column is aria-hidden ---
-    await expect(page.getByTestId("margin-column")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
+    // --- Assert margin-column is removed from DOM in reading mode ---
+    await expect(page.getByTestId("margin-column")).toHaveCount(0);
 
     // --- Note-peek: hover the seeded noted phrase → peek appears ---
     const notedSpan = page.locator('[data-kind="note"]').first();
