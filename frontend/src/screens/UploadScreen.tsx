@@ -264,6 +264,14 @@ export function UploadScreen() {
     setPhase({ kind: "uploading", filename: file.name, file });
   }
 
+  function handleReset() {
+    stopPolling.current = true;
+    pollFailures.current = 0;
+    setConnectionLost(false);
+    writeStoredUpload(null);
+    setPhase({ kind: "idle" });
+  }
+
   return (
     <div className="br" style={{ minHeight: "100vh", background: "var(--paper-0)" }}>
       <NavBar />
@@ -319,6 +327,28 @@ export function UploadScreen() {
           errorMessage={phase.kind === "error" ? phase.message : undefined}
           onFile={handleFile}
         />
+
+        {phase.kind !== "idle" && (
+          <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              data-testid="upload-reset"
+              onClick={handleReset}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--paper-2)",
+                borderRadius: "var(--r-sm)",
+                padding: "6px 12px",
+                fontFamily: "var(--sans)",
+                fontSize: 12,
+                color: "var(--ink-2)",
+                cursor: "pointer",
+              }}
+            >
+              {phase.kind === "tracking" && ready ? "Start another" : "Reset"}
+            </button>
+          </div>
+        )}
 
         {phase.kind === "tracking" && (
           <>
