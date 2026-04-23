@@ -18,6 +18,7 @@ import { PageTurnArrow } from "../components/reader/PageTurnArrow";
 import { ProgressHairline } from "../components/reader/ProgressHairline";
 import { ReadingModeLegend } from "../components/reader/ReadingModeLegend";
 import { NotePeekPopover } from "../components/reader/NotePeekPopover";
+import { AskComposerPopover } from "../components/reader/AskComposerPopover";
 
 type Body =
   | { kind: "loading" }
@@ -164,6 +165,7 @@ export function ReadingScreen() {
   const turnForward = useCallback(() => {
     if (body.kind !== "ok") return;
     setActiveAskId(null);
+    setPendingAsk(null);
     if (spreadIdx < body.spreads.length - 1) {
       const next = spreadIdx + 1;
       setSpreadIdx(next);
@@ -179,6 +181,7 @@ export function ReadingScreen() {
   const turnBackward = useCallback(() => {
     if (body.kind !== "ok") return;
     setActiveAskId(null);
+    setPendingAsk(null);
     if (spreadIdx > 0) {
       setSpreadIdx(spreadIdx - 1);
       // Cursor does NOT rewind (AC 10).
@@ -201,6 +204,7 @@ export function ReadingScreen() {
         turnBackward();
       } else if (e.key === "Escape") {
         setActiveAskId(null);
+        setPendingAsk(null);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -240,6 +244,13 @@ export function ReadingScreen() {
   // until the user dismisses (new selection, spread turn, or Escape) and
   // drives the visual fog-of-war on the right of the queried sentence.
   const [activeAskId, setActiveAskId] = useState<string | null>(null);
+  // Staged ask: the selection toolbar's "Ask" button doesn't fire immediately.
+  // It parks the highlighted quote here; the AskComposerPopover lets the user
+  // type their own question before the /query call.
+  const [pendingAsk, setPendingAsk] = useState<
+    | { anchor: string; quote: string; chapter: number; top: number; left: number }
+    | null
+  >(null);
   const [newlyCreatedNoteId, setNewlyCreatedNoteId] = useState<string | null>(null);
   const [focusedComposerCardId, setFocusedComposerCardId] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -367,13 +378,33 @@ export function ReadingScreen() {
         clearSelection();
         return;
       }
-      clearSelection();
-      const id = await askAndStream({
+      // Stage the ask: show a composer popover anchored at the selection so
+      // the user can type their own question instead of firing the canned one.
+      const rect = selection.rect;
+      setPendingAsk({
         anchor: anchorSid,
+        quote,
+        chapter,
+        top: rect.top + rect.height + window.scrollY,
+        left: rect.left + rect.width / 2 + window.scrollX,
+      });
+      clearSelection();
+    },
+    [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createHighlight, createNote, removeCard],
+  );
+
+  const submitPendingAsk = useCallback(
+    async (question: string) => {
+      if (!pendingAsk) return;
+      const { anchor, quote, chapter } = pendingAsk;
+      setPendingAsk(null);
+      const id = await askAndStream({
+        anchor,
         quote,
         chapter,
         maxChapter: chapter,
         bookId,
+        question,
         createAsk,
         updateAsk,
         findExisting: (a) => {
@@ -389,7 +420,7 @@ export function ReadingScreen() {
       flash(id);
       setActiveAskId(id);
     },
-    [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createHighlight, createNote, createAsk, removeCard, updateAsk, setAskLoading, setAskStreaming],
+    [pendingAsk, bookId, createAsk, updateAsk, findByAnchorAndKind, flash, setAskLoading, setAskStreaming],
   );
 
   const onBodyChange = useCallback(
@@ -625,6 +656,15 @@ export function ReadingScreen() {
             left={selection.rect.left + selection.rect.width / 2 + window.scrollX}
             onAction={onAction}
             disabled={{ ask: askDisabled }}
+          />
+        )}
+        {pendingAsk && (
+          <AskComposerPopover
+            quote={pendingAsk.quote}
+            top={pendingAsk.top}
+            left={pendingAsk.left}
+            onSubmit={submitPendingAsk}
+            onCancel={() => setPendingAsk(null)}
           />
         )}
       </div>

@@ -11,6 +11,9 @@ export interface AskFlowInput {
   chapter: number;
   maxChapter: number;
   bookId: string;
+  /** Optional override — when present, used verbatim instead of the canned
+   * "Asked about X" question. Lets callers stage a user-composed prompt. */
+  question?: string;
   createAsk: (input: {
     anchor: string;
     quote: string;
@@ -35,7 +38,10 @@ export async function askAndStream(input: AskFlowInput): Promise<string> {
   const existing = input.findExisting(input.anchor);
   if (existing) return existing.id;
 
-  const question = buildAskQuestion(input.quote);
+  const question =
+    input.question && input.question.trim().length > 0
+      ? input.question.trim()
+      : buildAskQuestion(input.quote);
   const id = input.createAsk({
     anchor: input.anchor,
     quote: input.quote,
