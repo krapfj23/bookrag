@@ -24,7 +24,11 @@ export interface NoteCard extends BaseCard {
   body: string;
 }
 
-export type Card = AskCard | NoteCard;
+export interface HighlightCard extends BaseCard {
+  kind: "highlight";
+}
+
+export type Card = AskCard | NoteCard | HighlightCard;
 
 export interface CardStore {
   version: 1;

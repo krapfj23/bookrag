@@ -90,7 +90,10 @@ export function MarginColumn({
     new Set(),
   );
 
-  const visible = cards.filter((c) => visibleSids.has(c.anchor));
+  // Highlights are rendered inline in the text, not as margin cards.
+  const visible = cards.filter(
+    (c) => c.kind !== "highlight" && visibleSids.has(c.anchor),
+  );
   const { collapsed, expanded } = partitionWithOverrides(
     visible,
     manuallyExpandedIds,
@@ -218,30 +221,36 @@ export function MarginColumn({
           ? (q: string) => onFollowup(card.id, q)
           : undefined;
 
-        return card.kind === "ask" ? (
-          <AskCard
-            key={card.id}
-            card={card}
-            flash={focusedCardId === card.id}
-            offscreen={offscreen}
-            crossPage={crossPage}
-            onJump={handleJump}
-            onFollowup={handleFollowup}
-            composerRef={setComposerRef(card.id)}
-          />
-        ) : (
-          <NoteCard
-            key={card.id}
-            card={card}
-            flash={focusedCardId === card.id}
-            autoFocus={newlyCreatedNoteId === card.id}
-            onBodyChange={onBodyChange}
-            onBodyCommit={onBodyCommit}
-            offscreen={offscreen}
-            crossPage={crossPage}
-            onJump={handleJump}
-          />
-        );
+        if (card.kind === "ask") {
+          return (
+            <AskCard
+              key={card.id}
+              card={card}
+              flash={focusedCardId === card.id}
+              offscreen={offscreen}
+              crossPage={crossPage}
+              onJump={handleJump}
+              onFollowup={handleFollowup}
+              composerRef={setComposerRef(card.id)}
+            />
+          );
+        }
+        if (card.kind === "note") {
+          return (
+            <NoteCard
+              key={card.id}
+              card={card}
+              flash={focusedCardId === card.id}
+              autoFocus={newlyCreatedNoteId === card.id}
+              onBodyChange={onBodyChange}
+              onBodyCommit={onBodyCommit}
+              offscreen={offscreen}
+              crossPage={crossPage}
+              onJump={handleJump}
+            />
+          );
+        }
+        return null;
       })}
 
       {/* S6: AnchorEdgeBar — shown when any expanded card's anchor is off-screen */}

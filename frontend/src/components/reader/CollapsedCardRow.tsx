@@ -10,9 +10,17 @@ export function CollapsedCardRow({
 }) {
   const folio = getFolioFromAnchor(card.anchor);
   const label =
-    card.kind === "ask" ? card.question : card.body.split("\n")[0];
+    card.kind === "ask"
+      ? card.question
+      : card.kind === "note"
+      ? card.body.split("\n")[0]
+      : `"${card.quote.slice(0, 60)}${card.quote.length > 60 ? "…" : ""}"`;
   const borderColor =
-    card.kind === "ask" ? "var(--accent)" : "oklch(58% 0.1 55)";
+    card.kind === "ask"
+      ? "var(--accent)"
+      : card.kind === "highlight"
+      ? "oklch(85% 0.15 95)"
+      : "oklch(58% 0.1 55)";
 
   return (
     <button

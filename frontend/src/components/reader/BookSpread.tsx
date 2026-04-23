@@ -11,6 +11,11 @@ function PageSide({
   marksBySid,
   onMarkClick,
   author,
+  pageWidth,
+  pageHeight,
+  paddingPx,
+  fontPx,
+  lineHeight,
 }: {
   page: Page;
   cursor: string;
@@ -20,18 +25,25 @@ function PageSide({
   marksBySid?: Map<string, SentenceMark[]>;
   onMarkClick?: (cardId: string) => void;
   author?: string;
+  pageWidth: number;
+  pageHeight: number;
+  paddingPx: number;
+  fontPx: number;
+  lineHeight: number;
 }) {
   return (
     <div
       className="rr-page"
       style={{
         background: "var(--paper-00)",
-        padding: "52px 44px 40px",
+        padding: `${paddingPx}px`,
         position: "relative",
-        minHeight: 720,
+        width: pageWidth,
+        minHeight: pageHeight,
+        boxSizing: "border-box",
         fontFamily: "var(--serif)",
-        fontSize: 15,
-        lineHeight: 1.72,
+        fontSize: fontPx,
+        lineHeight,
         color: "var(--ink-0)",
       }}
     >
@@ -86,8 +98,8 @@ function PageSide({
         style={{
           position: "absolute",
           bottom: 18,
-          left: 44,
-          right: 44,
+          left: paddingPx,
+          right: paddingPx,
           display: "flex",
           justifyContent: "space-between",
           fontFamily: "var(--serif)",
@@ -120,6 +132,11 @@ export function BookSpread({
   marksBySid,
   onMarkClick,
   author = "",
+  pageWidth = 440,
+  pageHeight = 720,
+  paddingPx = 48,
+  fontPx = 15,
+  lineHeight = 1.72,
 }: {
   chapterNum: number;
   chapterTitle: string;
@@ -133,14 +150,21 @@ export function BookSpread({
   marksBySid?: Map<string, SentenceMark[]>;
   onMarkClick?: (cardId: string) => void;
   author?: string;
+  pageWidth?: number;
+  pageHeight?: number;
+  paddingPx?: number;
+  fontPx?: number;
+  lineHeight?: number;
 }) {
+  const spreadWidth = pageWidth * 2;
+  const spreadMinHeight = pageHeight + 60;
   return (
     <div
       className="rr-book"
       data-testid="book-spread"
       style={{
-        width: 920,
-        minHeight: 780,
+        width: spreadWidth,
+        minHeight: spreadMinHeight,
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
         borderRadius: 3,
@@ -173,6 +197,11 @@ export function BookSpread({
         marksBySid={marksBySid}
         onMarkClick={onMarkClick}
         author={author}
+        pageWidth={pageWidth}
+        pageHeight={pageHeight}
+        paddingPx={paddingPx}
+        fontPx={fontPx}
+        lineHeight={lineHeight}
       />
       <PageSide
         page={right}
@@ -182,6 +211,11 @@ export function BookSpread({
         marksBySid={marksBySid}
         onMarkClick={onMarkClick}
         author={author}
+        pageWidth={pageWidth}
+        pageHeight={pageHeight}
+        paddingPx={paddingPx}
+        fontPx={fontPx}
+        lineHeight={lineHeight}
       />
       <div
         aria-hidden="true"

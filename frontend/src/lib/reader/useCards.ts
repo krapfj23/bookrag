@@ -5,11 +5,12 @@ import {
   writeStoredCards,
   type AskCard,
   type Card,
+  type HighlightCard,
   type NoteCard,
 } from "./cards";
 
 export { CARDS_KEY } from "./cards";
-export type { Card, AskCard, NoteCard } from "./cards";
+export type { Card, AskCard, NoteCard, HighlightCard } from "./cards";
 
 type CreateAskInput = {
   anchor: string;
@@ -58,6 +59,25 @@ export function useCards(bookId: string) {
         question: input.question,
         answer: "",
         followups: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      commitDirect([...readStoredCards(bookId), card]);
+      return card.id;
+    },
+    [bookId, commitDirect],
+  );
+
+  const createHighlight = useCallback(
+    (input: CreateNoteInput): string => {
+      const now = new Date().toISOString();
+      const card: HighlightCard = {
+        id: newCardId(),
+        bookId,
+        anchor: input.anchor,
+        quote: input.quote,
+        chapter: input.chapter,
+        kind: "highlight",
         createdAt: now,
         updatedAt: now,
       };
@@ -158,6 +178,7 @@ export function useCards(bookId: string) {
   return {
     cards,
     createAsk,
+    createHighlight,
     createNote,
     updateAsk,
     updateNote,

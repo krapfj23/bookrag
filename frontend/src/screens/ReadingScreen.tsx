@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { fetchChapter, fetchBook, queryBook, type Chapter } from "../lib/api";
-import { paginate, type Spread } from "../lib/reader/paginator";
+import { fetchChapter, fetchBook, queryBook, setProgress, type Chapter } from "../lib/api";
+import { paginate, type PaginatorBox, type Spread } from "../lib/reader/paginator";
 import { BookSpread } from "../components/reader/BookSpread";
 import { useReadingCursor } from "../lib/reader/useReadingCursor";
 import { ReaderTopBar } from "../components/reader/ReaderTopBar";
@@ -46,25 +46,50 @@ export function ReadingScreen() {
   const { mode, toggle } = useReadingMode(bookId);
   const [peek, setPeek] = useState<PeekState>(null);
 
-  // Load chapter and paginate.
+  // Page box responds to window size + reading-mode font bump.
+  // Two pages side-by-side, a gutter, plus the 400px margin column + gap.
+  const [viewport, setViewport] = useState<{ w: number; h: number }>(() =>
+    typeof window === "undefined"
+      ? { w: 1280, h: 900 }
+      : { w: window.innerWidth, h: window.innerHeight },
+  );
+  useEffect(() => {
+    function onResize() {
+      setViewport({ w: window.innerWidth, h: window.innerHeight });
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const box: PaginatorBox = useMemo(() => {
+    const marginColumnWidth = 400;
+    const gap = 28;
+    const stagePadding = 48;
+    // Total horizontal we can devote to the two-page spread.
+    const availableForSpread = Math.max(
+      640,
+      viewport.w - marginColumnWidth - gap - stagePadding,
+    );
+    // Clamp page width so spreads don't get absurdly wide on 4K screens.
+    const pageWidth = Math.max(360, Math.min(560, Math.floor(availableForSpread / 2) - 8));
+    // Height tracks viewport too; leave room for topbar + stage padding.
+    const pageHeight = Math.max(560, Math.min(960, viewport.h - 140));
+    const fontPx = mode === "on" ? 18 : 15;
+    const paddingPx = mode === "on" ? 56 : 48;
+    return { pageWidth, pageHeight, paddingPx, fontPx, lineHeight: 1.72 };
+  }, [viewport.w, viewport.h, mode]);
+
+  // Load chapter (fetch only — pagination is a separate memo so resize /
+  // reading-mode toggles don't refetch).
+  const [rawChapter, setRawChapter] = useState<Chapter | null>(null);
   useEffect(() => {
     let cancelled = false;
     setBody({ kind: "loading" });
+    setRawChapter(null);
     fetchChapter(bookId, n)
       .then((chapter) => {
         if (cancelled) return;
-        const box = {
-          pageWidth: 440,
-          pageHeight: 720,
-          paddingPx: 48,
-          fontPx: 15,
-          lineHeight: 1.72,
-        };
-        const spreads = paginate(chapter.paragraphs_anchored ?? [], box);
-        // If navigated backward from next chapter, land on the last spread.
-        const landOnLast = (location.state as { landOnLastSpread?: boolean } | null)?.landOnLastSpread ?? false;
-        setSpreadIdx(landOnLast ? Math.max(0, spreads.length - 1) : 0);
-        setBody({ kind: "ok", chapter, spreads });
+        setRawChapter(chapter);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -76,6 +101,35 @@ export function ReadingScreen() {
     return () => {
       cancelled = true;
     };
+  }, [bookId, n]);
+
+  // Repaginate whenever chapter text OR box dimensions change.
+  useEffect(() => {
+    if (!rawChapter) return;
+    const spreads = paginate(rawChapter.paragraphs_anchored ?? [], box);
+    const landOnLast = (location.state as { landOnLastSpread?: boolean } | null)?.landOnLastSpread ?? false;
+    setSpreadIdx((prev) => {
+      if (landOnLast) return Math.max(0, spreads.length - 1);
+      // Preserve position across repaginate where possible, but clamp so the
+      // counter can never exceed total spreads (fixes "pages multiply" when
+      // rapidly switching modes / resizing).
+      return Math.min(prev, Math.max(0, spreads.length - 1));
+    });
+    setBody({ kind: "ok", chapter: rawChapter, spreads });
+  }, [rawChapter, box, location.state]);
+
+  // Sync backend reading progress whenever the chapter changes. This is the
+  // source of truth the /query fog-of-war filter uses when no max_chapter is
+  // provided, and it caps max_chapter when one is. Without it, queries are
+  // over-filtered against a stale current_chapter.
+  useEffect(() => {
+    let cancelled = false;
+    setProgress(bookId, n).catch(() => {
+      if (cancelled) return;
+      // Silent: reading still works from the client cursor; only the query
+      // fog-of-war is affected.
+    });
+    return () => { cancelled = true; };
   }, [bookId, n]);
 
   // Fetch book metadata once for the author field in the folio row.
@@ -143,6 +197,7 @@ export function ReadingScreen() {
   const {
     cards,
     createAsk,
+    createHighlight,
     createNote,
     updateAsk,
     updateNote,
@@ -230,6 +285,13 @@ export function ReadingScreen() {
       const { anchorSid, quote } = selection;
       const chapter = n;
       if (action === "highlight") {
+        const existing = findByAnchorAndKind(anchorSid, "highlight");
+        if (existing) {
+          removeCard(existing.id);
+        } else {
+          const id = createHighlight({ anchor: anchorSid, quote, chapter });
+          flash(id);
+        }
         clearSelection();
         return;
       }
@@ -275,7 +337,7 @@ export function ReadingScreen() {
       });
       flash(id);
     },
-    [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createNote, createAsk, updateAsk, setAskLoading, setAskStreaming],
+    [selection, n, bookId, clearSelection, findByAnchorAndKind, flash, createHighlight, createNote, createAsk, removeCard, updateAsk, setAskLoading, setAskStreaming],
   );
 
   const onBodyChange = useCallback(
@@ -331,7 +393,7 @@ export function ReadingScreen() {
   // Progress computation for the hairline.
   const progress = useMemo(() => {
     if (body.kind !== "ok" || !current) return 0;
-    const totalParagraphs = body.chapter.paragraphs_anchored.length;
+    const totalParagraphs = body.chapter.paragraphs_anchored?.length ?? 0;
     if (totalParagraphs === 0) return 0;
     // Find the last paragraph on the right page; fall back to left if right empty.
     const rightPage = current.right;
@@ -451,10 +513,11 @@ export function ReadingScreen() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 400px",
+              gridTemplateColumns: `${box.pageWidth * 2}px 400px`,
               gap: 28,
               alignItems: "start",
-              width: "min(1240px, 100%)",
+              width: "auto",
+              maxWidth: "100%",
             }}
           >
             <div ref={(el) => { bookRef.current = el; setBookRootEl(el); }}>
@@ -471,6 +534,11 @@ export function ReadingScreen() {
                 marksBySid={marksBySid}
                 onMarkClick={onMarkClick}
                 author={bookAuthor}
+                pageWidth={box.pageWidth}
+                pageHeight={box.pageHeight}
+                paddingPx={box.paddingPx}
+                fontPx={box.fontPx}
+                lineHeight={box.lineHeight}
               />
             </div>
             <MarginColumn

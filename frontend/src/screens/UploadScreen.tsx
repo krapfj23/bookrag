@@ -82,6 +82,42 @@ function formatSeconds(s: number): string {
   return `${m}m ${rem}s`;
 }
 
+// Persist just enough to resume tracking on reload: book_id + filename.
+// The full PipelineState is re-fetched from the backend on mount.
+const UPLOAD_TRACKING_KEY = "bookrag.upload.tracking";
+
+type StoredUpload = { book_id: string; filename: string };
+
+function readStoredUpload(): StoredUpload | null {
+  try {
+    const raw = window.localStorage.getItem(UPLOAD_TRACKING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed.book_id === "string" &&
+      typeof parsed.filename === "string"
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredUpload(value: StoredUpload | null): void {
+  try {
+    if (value === null) {
+      window.localStorage.removeItem(UPLOAD_TRACKING_KEY);
+    } else {
+      window.localStorage.setItem(UPLOAD_TRACKING_KEY, JSON.stringify(value));
+    }
+  } catch {
+    /* ignore quota */
+  }
+}
+
 function dropzoneState(phase: Phase): DropzoneState {
   switch (phase.kind) {
     case "idle":
@@ -107,7 +143,23 @@ function firstFailedStage(
 }
 
 export function UploadScreen() {
-  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  // Seed from localStorage if a prior upload was still tracking; the polling
+  // effect below will hydrate pipelineState and end up at ready/failed or keep
+  // showing progress. No-op if the book_id no longer exists on the backend —
+  // the first poll 404s, surfaces connection banner briefly, and if it keeps
+  // 404ing the user can re-upload.
+  const [phase, setPhase] = useState<Phase>(() => {
+    const stored = readStoredUpload();
+    if (stored) {
+      return {
+        kind: "tracking",
+        filename: stored.filename,
+        book_id: stored.book_id,
+        pipelineState: null,
+      };
+    }
+    return { kind: "idle" };
+  });
   const stopPolling = useRef(false);
   const pollFailures = useRef(0);
   const [connectionLost, setConnectionLost] = useState(false);
@@ -121,6 +173,7 @@ export function UploadScreen() {
     uploadBook(file)
       .then((resp) => {
         if (cancelled) return;
+        writeStoredUpload({ book_id: resp.book_id, filename });
         setPhase({
           kind: "tracking",
           filename,
@@ -167,6 +220,9 @@ export function UploadScreen() {
             Object.values(next.stages).some((s) => s.status === "failed")
           ) {
             stopPolling.current = true;
+            // Pipeline reached a terminal state — clear the resume record so
+            // subsequent mounts start fresh.
+            writeStoredUpload(null);
           }
         })
         .catch((err: unknown) => {
@@ -202,6 +258,9 @@ export function UploadScreen() {
     stopPolling.current = false;
     pollFailures.current = 0;
     setConnectionLost(false);
+    // New upload supersedes any resumed tracking record. The next successful
+    // upload will write its own entry.
+    writeStoredUpload(null);
     setPhase({ kind: "uploading", filename: file.name, file });
   }
 
